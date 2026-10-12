@@ -385,7 +385,7 @@ class HumanControlFlowTest(unittest.TestCase):
         self.assertTrue(protocol.disagreement_context)
         self.assertEqual(protocol.steps[0].action, "resolve_disagreement")
         top_uncertainty_id = protocol.target_uncertainties[0]
-        self.assertIn(f"targets_uncertainty:{top_uncertainty_id}", protocol.notes)
+        self.assertTrue(any(note.startswith("目标不确定性：") for note in protocol.notes))
         baseline_step = next(step for step in protocol.steps if step.action == "run_model" and step.parameters.get("label") == "baseline")
         self.assertEqual(baseline_step.parameters["label"], "baseline")
         self.assertTrue((self.project_root / "config" / "latest_protocol.json").exists())

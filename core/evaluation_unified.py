@@ -10,6 +10,7 @@ from core.support_update_rules import (
     signal_from_metric_deltas,
     signal_strength,
 )
+from core.robustness_diagnostics import summary_to_robustness_report
 from core.hypothesis_identity import CANONICAL_HYPOTHESIS_IDS
 from core.unified_schema import (
     BootstrapReport,
@@ -207,7 +208,7 @@ def build_minimal_robustness_report(result: ExperimentResult) -> RobustnessRepor
     mixed_signal = (
         rmse_delta is not None
         and pearson_delta is not None
-        and ((rmse_delta < 0 and pearson_delta < 0) or (rmse_delta > 0 and pearson_delta > 0))
+        and ((rmse_delta > 0 and pearson_delta < 0) or (rmse_delta < 0 and pearson_delta > 0))
     )
     stable = complete and not mixed_signal
     recommendation = (
@@ -235,13 +236,18 @@ def evaluate_experiment(
     main_question: str | None = None,
     prior_supports: dict[str, float] | None = None,
 ) -> EvaluationResult:
+    robustness = (
+        result.robustness
+        if result.robustness is not None
+        else summary_to_robustness_report(None)
+    )
     return EvaluationResult(
         metrics=build_performance_metrics(
             result,
             protocol=protocol,
             prior_supports=prior_supports,
         ),
-        robustness=build_minimal_robustness_report(result),
+        robustness=robustness,
         scientific=build_minimal_scientific_evaluation(
             result,
             protocol=protocol,

@@ -21,7 +21,7 @@ from tests.test_system_audit_closure import SystemAuditClosureTest
 
 
 class FullLLMClosedLoopTest(SystemAuditClosureTest):
-    def _build_llm_control(self) -> HumanControlService:
+    def _build_control(self) -> HumanControlService:
         return HumanControlService(
             self.repository,
             project_root=self.project_root,
@@ -40,52 +40,8 @@ class FullLLMClosedLoopTest(SystemAuditClosureTest):
             experiment_writer=StubCandidateExperimentWriter(),
         )
 
-    def _run_two_rounds(self) -> dict[str, object]:
-        control = self._build_llm_control()
-
-        initial_review = control.request_experiment_selection_review()
-        round1 = control.approve_and_execute_candidate(
-            human_notes="round1 llm_mode 批准执行",
-            auto_continue=False,
-        )
-        after_round1 = control.record_round_decision(
-            round_id=round1["protocol"].round_id,
-            decision="adjust",
-            human_feedback="下一轮继续关注 By 与 Np 条件路径，并保持验证型方案",
-            data_dictionary=self.dictionary,
-        )
-
-        control.confirm_hypothesis_tree()
-        RoundOrchestrator(control).run_next_round_scientific_questioning()
-        control.start_uncertainty_identification()
-        _dbg_candidates = control.repository.load_candidate_experiments().candidates
-        print(
-            "DBG_ROUND2_CANDIDATES",
-            [
-                (c.experiment_id, c.type, c.design.control, c.design.treatment, c.design.design_focus)
-                for c in _dbg_candidates
-            ],
-        )
-
-        round2 = control.approve_and_execute_candidate(
-            human_notes="round2 llm_mode 批准执行",
-            auto_continue=False,
-        )
-        after_round2 = control.record_round_decision(
-            round_id=round2["protocol"].round_id,
-            decision="continue",
-            data_dictionary=self.dictionary,
-        )
-
-        return {
-            "initial_review": initial_review,
-            "round1": round1,
-            "after_round1": after_round1,
-            "round2": round2,
-            "after_round2": after_round2,
-        }
-
     def test_full_llm_mode_two_round_closure(self) -> None:
+        self.assertEqual(self._build_control().planner_mode, "llm")
         payload = self._run_two_rounds()
 
         self.assertEqual(payload["initial_review"]["status"], "awaiting_human_review")
@@ -99,16 +55,18 @@ class FullLLMClosedLoopTest(SystemAuditClosureTest):
             any(trace["stage"] == "scientific_interpreter" for trace in payload["round2"]["review"]["reasoning_traces"])
         )
 
-        self.assertEqual(payload["after_round1"]["planner_output"].planner_mode, "llm")
-        self.assertEqual(payload["after_round2"]["planner_output"].planner_mode, "llm")
+        plan_after_round1 = payload["plan_after_round1"]
+        plan_after_round2 = payload["plan_after_round2"]
+        self.assertEqual(plan_after_round1["planner_output"].planner_mode, "llm")
+        self.assertEqual(plan_after_round2["planner_output"].planner_mode, "llm")
         self.assertTrue(
-            any("rag_project:" in note for note in payload["after_round1"]["planner_input"].planner_guidance)
+            any("rag_project:" in note for note in plan_after_round1["planner_input"].planner_guidance)
         )
         self.assertTrue(
-            any("questioner_gap:" in note for note in payload["after_round1"]["planner_input"].planner_guidance)
+            any("questioner_gap:" in note for note in plan_after_round1["planner_input"].planner_guidance)
         )
         self.assertTrue(
-            any("Np" in trace.summary for trace in payload["after_round1"]["planner_input"].recent_reasoning_traces)
+            any("Np" in trace.summary for trace in plan_after_round1["planner_input"].recent_reasoning_traces)
         )
 
         self.assertTrue(

@@ -9,7 +9,9 @@ from core.central_controller_llm import CentralControllerLLM
 from core.decision_unified import DIFFERENTIATING_EXPERIMENT_ERROR
 from core.decision_unified import DecisionLayerService
 from core.display_text_cleaner import clean_llm_text, deep_clean_text
-from core.evaluation_unified import evaluate_experiment, export_evaluation_result
+from core.evaluation_unified import export_evaluation_result
+from core.experiment_tools.dispatcher import ExperimentDispatcher
+from core.experiment_tools.evaluators import evaluate_experiment_result
 from core.experiment_planner_llm import (
     CandidateExperimentDesignerLLM,
     CandidateExperimentWriterLLM,
@@ -1419,64 +1421,82 @@ class HumanControlService:
             run_shap=self.run_shap,
         )
         try:
-            result = harness.run(protocol)
+            result = ExperimentDispatcher(harness).execute(protocol)
         except Exception as exc:
-            updater = UnifiedStateUpdater(self.repository)
-            updater.apply_execution_failure(
+            return self._record_execution_failure(protocol=protocol, error=exc)
+        if result.status != "completed" or result.validity_status in {"invalid", "pending_scientific_review"}:
+            message = result.warnings[0] if result.warnings else (
+                result.execution.message or f"实验未完成：{result.validity_status}"
+            )
+            return self._record_execution_failure(
                 protocol=protocol,
-                error=exc,
-                protocol_path=self.repository.relativize(self.protocol_path),
+                error=RuntimeError(message),
+                result=result,
             )
-            process_state = self.repository.load_process_state()
-            process_state.current_phase = "experiment_execution"
-            process_state.current_step = "execution_failed"
-            process_state.current_stage = "failed"
-            process_state.phases["experiment_execution"] = ProcessPhase(
-                status="failed",
-                completed_at=datetime.now(),
-                steps={
-                    "dispatch_execution": ProcessStep(name="下发实验任务", status="completed"),
-                    "core_execution": ProcessStep(name="执行实验与训练", status="failed"),
-                    "result_collection": ProcessStep(name="收集结果产物", status="skipped"),
-                },
-                notes=f"execution failed: {exc}",
-            )
-            process_state.progress_percentage = max(process_state.progress_percentage or 0, 62)
-            self.repository.save_process_state(process_state)
-            self.request_round_review(
-                round_id=protocol.round_id,
-                experiment_id=protocol.experiment_id,
-                evaluation_summary={
-                    "experiment_id": protocol.experiment_id,
-                    "round_id": protocol.round_id,
-                    "stable": False,
-                    "key_findings": [f"实验失败：{exc}"],
-                },
-                hypothesis_assessments=[],
-                disagreement_updates=[],
-                reasoning_traces=[],
-                failure_summary={
-                    "message": str(exc),
-                    "error_type": exc.__class__.__name__,
-                    "can_continue": True,
-                },
-            )
-            return {
-                "protocol": protocol,
-                "result": None,
-                "evaluation": None,
-                "review": {
-                    "status": "awaiting_round_decision",
-                    "round_id": protocol.round_id,
-                    "experiment_id": protocol.experiment_id,
-                },
-                "failure": str(exc),
-            }
         return self._run_result_analysis(
             protocol=protocol,
             result=result,
             remaining_uncertainties=remaining_uncertainties,
         )
+
+    def _record_execution_failure(
+        self,
+        *,
+        protocol: ExperimentProtocol,
+        error: Exception,
+        result: ExperimentResult | None = None,
+    ) -> dict[str, Any]:
+        updater = UnifiedStateUpdater(self.repository)
+        updater.apply_execution_failure(
+            protocol=protocol,
+            error=error,
+            protocol_path=self.repository.relativize(self.protocol_path),
+        )
+        process_state = self.repository.load_process_state()
+        process_state.current_phase = "experiment_execution"
+        process_state.current_step = "execution_failed"
+        process_state.current_stage = "failed"
+        process_state.phases["experiment_execution"] = ProcessPhase(
+            status="failed",
+            completed_at=datetime.now(),
+            steps={
+                "dispatch_execution": ProcessStep(name="下发实验任务", status="completed"),
+                "core_execution": ProcessStep(name="执行实验与训练", status="failed"),
+                "result_collection": ProcessStep(name="收集结果产物", status="skipped"),
+            },
+            notes=f"execution failed: {error}",
+        )
+        process_state.progress_percentage = max(process_state.progress_percentage or 0, 62)
+        self.repository.save_process_state(process_state)
+        self.request_round_review(
+            round_id=protocol.round_id,
+            experiment_id=protocol.experiment_id,
+            evaluation_summary={
+                "experiment_id": protocol.experiment_id,
+                "round_id": protocol.round_id,
+                "stable": False,
+                "key_findings": [f"实验失败：{error}"],
+            },
+            hypothesis_assessments=[],
+            disagreement_updates=[],
+            reasoning_traces=[],
+            failure_summary={
+                "message": str(error),
+                "error_type": error.__class__.__name__,
+                "can_continue": True,
+            },
+        )
+        return {
+            "protocol": protocol,
+            "result": result,
+            "evaluation": None,
+            "review": {
+                "status": "awaiting_round_decision",
+                "round_id": protocol.round_id,
+                "experiment_id": protocol.experiment_id,
+            },
+            "failure": str(error),
+        }
 
     def _run_result_analysis(
         self,
@@ -1530,17 +1550,23 @@ class HumanControlService:
             for node in tree.nodes
             if node.hypothesis_id in protocol.tested_hypotheses
         }
-        evaluation = evaluate_experiment(
+        evaluation = evaluate_experiment_result(
             result,
             protocol=protocol,
             remaining_uncertainties=unresolved,
             main_question=main_question,
             prior_supports=prior_supports,
         )
-        interpreter_analysis = self._build_interpreter_analysis(
-            protocol=protocol,
-            evaluation=evaluation,
+        pending_review = (
+            protocol.experiment_type != "incremental_prediction"
+            or result.validity_status == "pending_scientific_review"
         )
+        interpreter_analysis = None
+        if not pending_review:
+            interpreter_analysis = self._build_interpreter_analysis(
+                protocol=protocol,
+                evaluation=evaluation,
+            )
         self._apply_interpreter_analysis_to_conclusion(evaluation, interpreter_analysis)
         round_dir = self.project_root / "results" / f"round_{protocol.round_id:02d}"
         evaluation_path = round_dir / "evaluation_unified.json"

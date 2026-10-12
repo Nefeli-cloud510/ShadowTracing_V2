@@ -23,7 +23,7 @@ class ElasticNetDataSourceConfig(ShadowBaseModel):
     lhaaso_file_path: Path
     extra_file_paths: list[Path] = []
     sparse_sources: list[str] = Field(default_factory=list, description="需要缺失记录剔除审计的源名称")
-    time_column: str = "TIME"
+    time_column: str = "dataset_id"
     target_column: str = "SW Plasma Speed, km/s"
     column_aliases: dict[str, str] = {}
     test_split_ratio: float = 0.2
@@ -65,9 +65,10 @@ class ElasticNetProtocolBridge:
         overrides = arm_overrides or {}
         window_size = int(overrides.get("window_size", model_parameters.get("window_size", 3)))
         forecast_horizon_days = int(
-            overrides.get(
-                "forecast_horizon_days",
-                model_parameters.get("forecast_horizon_days", 0),
+            self._resolve_forecast_horizon_days(
+                protocol=protocol,
+                overrides=overrides,
+                model_parameters=model_parameters,
             )
         )
         past_lag_days = overrides.get("past_lag_days", model_parameters.get("past_lag_days"))
@@ -91,11 +92,52 @@ class ElasticNetProtocolBridge:
                 past_lag_days=int(past_lag_days) if past_lag_days is not None else None,
             ),
             elasticnet_config=RunnerElasticNetConfig(
+                model_family=self._resolve_model_family(protocol, model_parameters),
                 alpha=float(model_parameters.get("alpha", 0.5)),
                 l1_ratio=float(model_parameters.get("l1_ratio", 0.5)),
                 random_state=int(model_parameters.get("random_state", self.data_source.random_state)),
+                alpha_grid=list(model_parameters.get("alpha_grid", [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0])),
+                fit_intercept=bool(model_parameters.get("fit_intercept", True)),
+                ridge_solver=str(model_parameters.get("ridge_solver", "svd")),
             ),
         )
+
+    @staticmethod
+    def _resolve_forecast_horizon_days(
+        *,
+        protocol: ExperimentProtocol,
+        overrides: dict,
+        model_parameters: dict,
+    ) -> int:
+        design = protocol.features
+        candidates = [
+            overrides.get("forecast_horizon_days"),
+            design.forecast_horizon_days,
+            design.control_forecast_horizon_days,
+            design.treatment_forecast_horizon_days,
+            protocol.forecast_horizon_days,
+            model_parameters.get("forecast_horizon_days"),
+        ]
+        for value in candidates:
+            if value is not None:
+                try:
+                    parsed = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if parsed >= 1:
+                    return parsed
+        return 1
+
+    @staticmethod
+    def _resolve_model_family(protocol: ExperimentProtocol, model_parameters: dict) -> str:
+        parameter_family = model_parameters.get("model_family")
+        family = parameter_family or protocol.model.name or "ElasticNet"
+        normalized = str(family).strip().lower()
+        if normalized not in {"ridge", "elasticnet", "enet"}:
+            raise ValueError(f"未知模型族: {family}")
+        if normalized == "enet":
+            normalized = "elasticnet"
+        return normalized
 
     def _available_columns(self) -> set[str]:
         paths = [self.data_source.omni_file_path, self.data_source.lhaaso_file_path, *self.data_source.extra_file_paths]
@@ -142,16 +184,19 @@ def legacy_config_to_protocol(
     model_parameters["random_state"] = 42
     model_parameters["test_split_ratio"] = 0.2
 
+    model_parameters["forecast_horizon_days"] = 1
     return ExperimentProtocol(
         experiment_id=experiment_id,
         round_id=round_id,
         task_id=task_id,
         target=target,
+        forecast_horizon_days=1,
         features={
             "target": target,
             "control": control_features,
             "treatment": treatment_features,
             "lags": {},
+            "forecast_horizon_days": 1,
         },
         model=ModelSpec(
             name="ElasticNet",

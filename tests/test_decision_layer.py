@@ -49,6 +49,7 @@ class StubCandidateExperimentWriter:
         semantic_service=None,
         node_index=None,
         round_id=None,
+        uncertainty_index=None,
         max_workers=4,
     ) -> None:
         for candidate in candidates:
@@ -201,7 +202,7 @@ class DecisionLayerTest(unittest.TestCase):
         self.assertIn("DeltaDec", scored.candidates[0].design.treatment)
         self.assertIsNotNone(scored.candidates[0].utility_score)
         review_candidates = [candidate for candidate in scored.candidates if candidate.requires_human_review]
-        self.assertTrue(any("disagreement_hypotheses" in note for note in review_candidates[0].design.notes))
+        self.assertTrue(any("待区分假设：" in note for note in review_candidates[0].design.notes))
 
     def test_service_saves_candidate_plan(self) -> None:
         service = DecisionLayerService(
@@ -266,7 +267,7 @@ class DecisionLayerTest(unittest.TestCase):
 
         review_candidates = [candidate for candidate in plan.candidates if candidate.requires_human_review]
         self.assertTrue(review_candidates)
-        self.assertTrue(any("hypothesis_triggers:" in note for note in review_candidates[0].design.notes))
+        self.assertTrue(any("假设触发来源：" in note for note in review_candidates[0].design.notes))
         self.assertIn("实证差异", review_candidates[0].distinguishing_insight)
 
     def test_service_injects_human_feedback_into_next_round_candidates(self) -> None:
@@ -548,7 +549,7 @@ class DecisionLayerTest(unittest.TestCase):
                     round_id=1,
                     baseline_rmse=12.0,
                     treatment_rmse=11.0,
-                    delta=MetricDelta(rmse=-1.0, pearson_r=0.04),
+                    delta=MetricDelta(rmse=1.0, pearson_r=0.04),
                 ),
                 created_at=datetime.now(),
                 updated_at=datetime.now(),
@@ -594,7 +595,7 @@ class DecisionLayerTest(unittest.TestCase):
                     round_id=1,
                     baseline_rmse=12.0,
                     treatment_rmse=11.0,
-                    delta=MetricDelta(rmse=-1.0, pearson_r=0.04),
+                    delta=MetricDelta(rmse=1.0, pearson_r=0.04),
                 ),
                 created_at=datetime.now(),
                 updated_at=datetime.now(),

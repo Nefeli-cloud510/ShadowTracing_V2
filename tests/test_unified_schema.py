@@ -173,7 +173,7 @@ class UnifiedSchemaSmokeTest(unittest.TestCase):
                 ExperimentRun(run_id="baseline", name="baseline"),
                 ExperimentRun(run_id="treatment", name="treatment"),
             ],
-            comparison=MetricDelta(rmse=-3.4, pearson_r=0.1, skill=0.016),
+            comparison=MetricDelta(rmse=3.4, pearson_r=0.1, skill=0.016),
             visualizations=[
                 VisualizationArtifact(name="prediction_vs_truth", path="plots/pvt.png"),
             ],
@@ -185,7 +185,7 @@ class UnifiedSchemaSmokeTest(unittest.TestCase):
                 round_id=1,
                 baseline_rmse=46.2,
                 treatment_rmse=42.8,
-                delta=MetricDelta(rmse=-3.4, pearson_r=0.1, skill=0.016),
+                delta=MetricDelta(rmse=3.4, pearson_r=0.1, skill=0.016),
             ),
             robustness=RobustnessReport(
                 overall=RobustnessOverall(stable=True, concern="acceptable"),

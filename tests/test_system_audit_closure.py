@@ -5,8 +5,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from core.central_controller_llm import CentralControllerLLM
 from core.control_unified import HumanControlService
 from core.decision_unified import DecisionLayerService
+from core.planner_unified import PlannerOutputBuilder
+from core.round_orchestrator import RoundOrchestrator
+from core.scientific_interpreter_llm import ScientificInterpreterLLM
 from core.state_repository import UnifiedStateRepository
 from core.unified_schema import (
     DataDictionary,
@@ -23,6 +27,15 @@ from core.unified_schema import (
 from tests.test_decision_layer import (
     StubCandidateExperimentDesigner,
     StubCandidateExperimentWriter,
+)
+from tests.test_llm_planner_integration import (
+    StubExperimentPlanner,
+    StubHypothesisGenerator,
+    StubHypothesisProposer,
+    StubLLMGateway,
+    StubRAGService,
+    StubScientificInterpreterGateway,
+    StubScientificQuestioner,
 )
 
 
@@ -135,6 +148,28 @@ class SystemAuditClosureTest(unittest.TestCase):
                     created_at_round=0,
                     created_by="audit_test",
                 ),
+                UncertaintyRecord(
+                    uncertainty_id="U03",
+                    question="DeltaDec 的预测增益是否随超前窗口变化？",
+                    description="需要检验不同超前窗口下的稳定性。",
+                    related_hypotheses=["H1", "H3"],
+                    status="active",
+                    priority="medium",
+                    created_at_round=0,
+                    created_by="audit_test",
+                    mining_sources=["from_audit_fixture"],
+                ),
+                UncertaintyRecord(
+                    uncertainty_id="U04",
+                    question="DeltaDec 是否只在特定太阳风密度区间提供增量信息？",
+                    description="需要区分主流路径与密度条件路径。",
+                    related_hypotheses=["H1", "H2", "H3"],
+                    status="active",
+                    priority="medium",
+                    created_at_round=0,
+                    created_by="audit_test",
+                    mining_sources=["from_questioner_llm"],
+                ),
             ],
             data_dictionary=self.dictionary,
             overwrite=True,
@@ -168,14 +203,29 @@ class SystemAuditClosureTest(unittest.TestCase):
         omni.to_csv(self.project_root / "data" / "raw" / "omni.csv", index=False)
         lhaaso.to_csv(self.project_root / "data" / "raw" / "lhaaso.csv", index=False)
 
-    def _run_two_rounds(self) -> dict[str, object]:
+    def _build_control(self) -> HumanControlService:
         control = HumanControlService(
             self.repository,
             project_root=self.project_root,
             run_shap=False,
+            planner_mode="llm",
+            planner_output_builder=PlannerOutputBuilder(
+                mode="llm",
+                central_controller=CentralControllerLLM(gateway=StubLLMGateway()),
+            ),
+            scientific_interpreter=ScientificInterpreterLLM(gateway=StubScientificInterpreterGateway()),
+            rag_service=StubRAGService(),
+            hypothesis_proposer=StubHypothesisProposer(),
+            scientific_questioner=StubScientificQuestioner(),
+            experiment_planner=StubExperimentPlanner(),
             experiment_designer=StubCandidateExperimentDesigner(),
             experiment_writer=StubCandidateExperimentWriter(),
         )
+        control.hypothesis_generator = StubHypothesisGenerator(self.repository)
+        return control
+
+    def _run_two_rounds(self) -> dict[str, object]:
+        control = self._build_control()
 
         initial_review = control.request_experiment_selection_review()
         round1 = control.approve_and_execute_candidate(
@@ -188,6 +238,9 @@ class SystemAuditClosureTest(unittest.TestCase):
             human_feedback="下一轮优先做更简单的验证型方案，并关注 By 与稳定性",
             data_dictionary=self.dictionary,
         )
+        control.confirm_hypothesis_tree()
+        RoundOrchestrator(control).run_next_round_scientific_questioning()
+        plan_after_round1 = control.start_uncertainty_identification()
 
         round2 = control.approve_and_execute_candidate(
             human_notes="round2 批准执行",
@@ -198,13 +251,18 @@ class SystemAuditClosureTest(unittest.TestCase):
             decision="continue",
             data_dictionary=self.dictionary,
         )
+        control.confirm_hypothesis_tree()
+        RoundOrchestrator(control).run_next_round_scientific_questioning()
+        plan_after_round2 = control.start_uncertainty_identification()
 
         return {
             "initial_review": initial_review,
             "round1": round1,
             "after_round1": after_round1,
+            "plan_after_round1": plan_after_round1,
             "round2": round2,
             "after_round2": after_round2,
+            "plan_after_round2": plan_after_round2,
         }
 
     def test_two_round_closed_loop_transition(self) -> None:
@@ -212,33 +270,39 @@ class SystemAuditClosureTest(unittest.TestCase):
 
         round1_protocol = payload["round1"]["protocol"]
         round2_protocol = payload["round2"]["protocol"]
+        plan_after_round1 = payload["plan_after_round1"]
+        plan_after_round2 = payload["plan_after_round2"]
 
         self.assertEqual(payload["initial_review"]["status"], "awaiting_human_review")
         self.assertEqual(payload["round1"]["review"]["status"], "awaiting_round_decision")
         self.assertTrue(payload["round1"]["evaluation"].scientific.disagreement_updates)
-        self.assertEqual(payload["after_round1"]["planning_status"], "candidate_plan_rebuilt")
+        self.assertEqual(payload["after_round1"]["planning_status"], "awaiting_hypothesis_confirmation")
         self.assertEqual(payload["after_round1"]["planner_input"].source_round_id, round1_protocol.round_id)
-        self.assertTrue(payload["after_round1"]["planner_input"].recent_disagreement_updates)
-        self.assertEqual(payload["after_round1"]["next_review"]["status"], "awaiting_human_review")
+        self.assertEqual(plan_after_round1["planning_status"], "candidate_plan_rebuilt")
+        self.assertEqual(plan_after_round1["planner_input"].source_round_id, round1_protocol.round_id)
+        self.assertTrue(plan_after_round1["planner_input"].recent_disagreement_updates)
+        self.assertEqual(plan_after_round1["next_review"]["status"], "awaiting_human_review")
 
         self.assertGreater(round2_protocol.round_id, round1_protocol.round_id)
         self.assertEqual(payload["round2"]["review"]["status"], "awaiting_round_decision")
         self.assertTrue(payload["round2"]["evaluation"].scientific.disagreement_updates)
-        self.assertEqual(payload["after_round2"]["planning_status"], "candidate_plan_rebuilt")
+        self.assertEqual(payload["after_round2"]["planning_status"], "awaiting_hypothesis_confirmation")
         self.assertEqual(payload["after_round2"]["planner_input"].source_round_id, round2_protocol.round_id)
-        self.assertEqual(payload["after_round2"]["next_review"]["status"], "awaiting_human_review")
+        self.assertEqual(plan_after_round2["planning_status"], "candidate_plan_rebuilt")
+        self.assertEqual(plan_after_round2["planner_input"].source_round_id, round2_protocol.round_id)
+        self.assertEqual(plan_after_round2["next_review"]["status"], "awaiting_human_review")
 
-        candidate_set = self.repository.load_candidate_experiments()
+        candidate_set = plan_after_round2["candidate_plan"]
         self.assertEqual(candidate_set.round, round2_protocol.round_id + 1)
         self.assertTrue(candidate_set.candidates)
         self.assertTrue(any(candidate.related_uncertainties for candidate in candidate_set.candidates))
 
     def test_new_round_uncertainty_batch_drives_multi_candidates(self) -> None:
         payload = self._run_two_rounds()
-        after_round1 = payload["after_round1"]
+        plan_after_round1 = payload["plan_after_round1"]
         validations = {
             item["item_id"]: item["passed"]
-            for item in after_round1["round_bootstrap"]["validations"]
+            for item in plan_after_round1["round_bootstrap"]["validations"]
         }
         for item_id in (
             "round_incremented",
@@ -257,7 +321,7 @@ class SystemAuditClosureTest(unittest.TestCase):
         self.assertGreaterEqual(len(active_records), 4)
         self.assertTrue(any(record.mining_sources for record in uncertainties.records))
 
-        candidate_set = after_round1["candidate_plan"]
+        candidate_set = plan_after_round1["candidate_plan"]
         self.assertGreaterEqual(len(candidate_set.candidates), 4)
         self.assertGreaterEqual(
             len({candidate.scientific_question for candidate in candidate_set.candidates}),
@@ -293,7 +357,8 @@ class SystemAuditClosureTest(unittest.TestCase):
         active_ids = set(tree.active_hypotheses)
         self.assertTrue(active_ids)
         self.assertTrue(active_ids.issubset(set(node_index)))
-        self.assertEqual(tree.latest_update.event, "planner_output_applied")
+        self.assertEqual(tree.latest_update.event, "scientific_questioning_completed")
+        self.assertEqual(tree.latest_update.round, round2_protocol.round_id + 1)
 
         record_index = uncertainties.record_index()
         self.assertEqual(uncertainties.task_id, self.task.task_id)

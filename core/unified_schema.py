@@ -51,6 +51,24 @@ PriorityLevel = Literal["low", "medium", "high"]
 ExpectedEffect = Literal["positive", "negative", "near_zero", "nonlinear", "unknown"]
 ExecutionStatus = Literal["queued", "running", "completed", "failed", "aborted"]
 StepStatus = Literal["pending", "in_progress", "completed", "failed", "skipped"]
+ExperimentType = Literal[
+    "incremental_prediction",
+    "baseline_redundancy",
+    "model_sensitivity",
+    "temporal_sensitivity",
+    "conditional_effect",
+    "robustness_diagnostic",
+    "unsupported",
+]
+ExperimentLifecycleStatus = Literal[
+    "proposed",
+    "validated",
+    "approved",
+    "running",
+    "completed",
+    "failed",
+    "inconclusive",
+]
 
 
 class ShadowBaseModel(BaseModel):
@@ -533,15 +551,75 @@ class ProtocolConstraints(ShadowBaseModel):
     target_immutable: bool = True
 
 
+class ProtocolAlignmentSpec(ShadowBaseModel):
+    """跨配置（如时间尺度敏感性）的日期对齐规则。"""
+
+    common_issue_date: bool = False
+    common_target_date: bool = False
+    note: str | None = None
+
+
+class RunSpec(ShadowBaseModel):
+    """协议中一次具体模型训练与预测的定义。"""
+
+    run_id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    feature_columns: list[str] = Field(default_factory=list)
+    model_family: str = Field(default="ElasticNet", min_length=1)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    retrain: bool = True
+    source_experiment_id: str | None = None
+    source_prediction_file: str | None = None
+
+
+class ContrastSpec(ShadowBaseModel):
+    """协议中两个或更多 run 之间预先定义的比较。"""
+
+    contrast_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    kind: Literal["metric_delta", "incremental_gain", "gain_change", "group_gain_difference"] | str = (
+        "metric_delta"
+    )
+    run_ids: list[str] = Field(default_factory=list)
+    contrast_ids: list[str] = Field(default_factory=list)
+    direction: Literal["reduce_error", "increase_correlation", "mixed", "neutral"] | str = "mixed"
+    note: str | None = None
+
+    @model_validator(mode="after")
+    def require_at_least_one_reference(self) -> "ContrastSpec":
+        if not self.run_ids and not self.contrast_ids:
+            raise ValueError("ContrastSpec 至少需要 run_ids 或 contrast_ids 之一")
+        return self
+
+
+class DiagnosticSpec(ShadowBaseModel):
+    """协议中基于已有 run 或已有预测结果的诊断。"""
+
+    diagnostic_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    source_run_ids: list[str] = Field(default_factory=list)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    retrain: bool = False
+    note: str | None = None
+
+
 class ExperimentProtocol(ShadowBaseModel):
     experiment_id: str = Field(min_length=1)
     round_id: int = Field(ge=0)
     task_id: str = Field(min_length=1)
     target: str = Field(min_length=1)
+    experiment_type: ExperimentType = "incremental_prediction"
+    candidate_id: str | None = None
+    source_evidence_ids: list[str] = Field(default_factory=list)
     scientific_objective: str | None = None
     forecast_horizon_days: int | None = Field(default=None, ge=1)
     features: ExperimentDesign
     model: ModelSpec = Field(default_factory=lambda: ModelSpec(name="ElasticNet"))
+    runs_spec: list[RunSpec] = Field(default_factory=list)
+    contrasts_spec: list[ContrastSpec] = Field(default_factory=list)
+    diagnostics_spec: list[DiagnosticSpec] = Field(default_factory=list)
+    protocol_version: str = "1.0"
+    alignment: ProtocolAlignmentSpec | None = None
     tested_hypotheses: list[str] = Field(default_factory=list)
     target_uncertainties: list[str] = Field(default_factory=list)
     disagreement_context: dict[str, dict[str, UncertaintyDisagreement | dict[str, Any]]] = Field(default_factory=dict)
@@ -552,6 +630,10 @@ class ExperimentProtocol(ShadowBaseModel):
     steps: list[ExperimentStep] = Field(default_factory=list)
     constraints: ProtocolConstraints = Field(default_factory=ProtocolConstraints)
     source_candidate_id: str | None = None
+    allowed_conclusions: list[str] = Field(default_factory=list)
+    unresolved_questions: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    status: ExperimentLifecycleStatus = "proposed"
     requires_human_review: bool = False
     notes: list[str] = Field(default_factory=list)
 
@@ -569,6 +651,14 @@ class ExperimentRun(ShadowBaseModel):
     name: str = Field(min_length=1)
     prediction_artifact: str | None = None
     metrics: RunMetrics = Field(default_factory=RunMetrics)
+    model_family: str = Field(default="ElasticNet", min_length=1)
+    feature_labels: list[str] = Field(default_factory=list)
+    feature_columns: list[str] = Field(default_factory=list)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    n_train: int | None = Field(default=None, ge=0)
+    n_test: int | None = Field(default=None, ge=0)
+    training_mode: Literal["retrained", "reused"] = "retrained"
+    protocol_version: str | None = None
 
 
 class MetricDelta(ShadowBaseModel):
@@ -609,11 +699,51 @@ class ExperimentResult(ShadowBaseModel):
     experiment_id: str = Field(min_length=1)
     round_id: int = Field(ge=0)
     status: ExecutionStatus
+    experiment_type: ExperimentType = "incremental_prediction"
+    protocol_version: str | None = None
     runs: list[ExperimentRun] = Field(default_factory=list)
     comparison: MetricDelta = Field(default_factory=MetricDelta)
+    contrasts: list["ExperimentContrast"] = Field(default_factory=list)
+    diagnostics: list["ExperimentDiagnostic"] = Field(default_factory=list)
+    source_evidence_ids: list[str] = Field(default_factory=list)
+    allowed_conclusions: list[str] = Field(default_factory=list)
+    unresolved_questions: list[str] = Field(default_factory=list)
+    validity_status: Literal["valid", "uncertain", "invalid", "pending_scientific_review"] = "valid"
+    warnings: list[str] = Field(default_factory=list)
     visualizations: list[VisualizationArtifact] = Field(default_factory=list)
     data_coverage: list[DataSourceCoverage] = Field(default_factory=list)
     execution: ExecutionSummary
+    run_id: str | None = None
+    robustness: RobustnessReport | None = None
+
+
+class ExperimentContrast(ShadowBaseModel):
+    """一次已执行的、协议预先定义的 run 比较。"""
+
+    contrast_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    kind: Literal["metric_delta", "incremental_gain", "gain_change", "group_gain_difference"] | str = (
+        "metric_delta"
+    )
+    specification: dict[str, Any] = Field(default_factory=dict)
+    run_ids: list[str] = Field(default_factory=list)
+    contrast_ids: list[str] = Field(default_factory=list)
+    metrics_delta: MetricDelta = Field(default_factory=MetricDelta)
+    channel_gains: dict[str, float] = Field(default_factory=dict)
+    bootstrap_ci: "BootstrapReport | None" = None
+    note: str | None = None
+
+
+class ExperimentDiagnostic(ShadowBaseModel):
+    """一次已执行的、基于已有 run 或预测结果的诊断。"""
+
+    diagnostic_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    source_run_ids: list[str] = Field(default_factory=list)
+    metrics: RunMetrics = Field(default_factory=RunMetrics)
+    structured: dict[str, Any] = Field(default_factory=dict)
+    status: Literal["completed", "failed", "not_run", "pending_scientific_review"] = "completed"
+    note: str | None = None
 
 
 class PerformanceMetrics(ShadowBaseModel):
@@ -642,9 +772,16 @@ class PerformanceMetrics(ShadowBaseModel):
 class BootstrapReport(ShadowBaseModel):
     pearson_r_ci: list[float] | None = None
     rmse_ci: list[float] | None = None
+    mae_ci: list[float] | None = None
     skill_ci: list[float] | None = None
     stable: bool
     n_iterations: int | None = Field(default=None, ge=0)
+    status: str | None = Field(default=None, description="completed / not_run / failed")
+    block_size: int | None = Field(default=None, ge=1)
+    seed: int | None = None
+    point_gain_rmse: float | None = None
+    point_gain_mae: float | None = None
+    point_gain_pearson_r: float | None = None
 
 
 class TimeSliceFold(ShadowBaseModel):
@@ -1343,3 +1480,6 @@ class DecisionLog(ShadowBaseModel):
     decisions: list[DecisionEntry] = Field(default_factory=list)
     human_feedback: list[HumanFeedbackEntry] = Field(default_factory=list)
     stop_history: list[StopHistoryEntry] = Field(default_factory=list)
+
+
+ExperimentContrast.model_rebuild()

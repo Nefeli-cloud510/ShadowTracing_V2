@@ -166,7 +166,7 @@ class ValueComputationTest(unittest.TestCase):
                     metrics=RunMetrics(rmse=9.5, skill=0.25),
                 ),
             ],
-            comparison=MetricDelta(skill=0.05, pearson_r=0.02, rmse=-0.5),
+            comparison=MetricDelta(skill=0.05, pearson_r=0.02, rmse=0.5),
             execution=ExecutionSummary(status="completed"),
         )
         metrics = build_performance_metrics(

@@ -132,6 +132,8 @@ class UnifiedExecutionTest(unittest.TestCase):
                     "l1_ratio": 0.5,
                     "random_state": 7,
                     "test_split_ratio": 0.25,
+                    "forecast_horizon_days": 1,
+                    "past_lag_days": 4,
                 },
             ),
         )
@@ -245,7 +247,11 @@ class UnifiedExecutionTest(unittest.TestCase):
             if item.source == "pfss"
         ]
         self.assertTrue(pfss_coverage, "使用 PFSS 特征的实验臂应输出 PFSS 覆盖审计")
-        self.assertTrue(all(item.run_id == "treatment" for item in pfss_coverage))
+        self.assertEqual(
+            {item.run_id for item in pfss_coverage},
+            {"baseline", "treatment"},
+            "共同样本语义下 PFSS 缺失日同时作用于双臂",
+        )
         for item in pfss_coverage:
             self.assertEqual(item.expected_days, 40)
             self.assertEqual(item.observed_days, 33)
@@ -256,9 +262,6 @@ class UnifiedExecutionTest(unittest.TestCase):
                 item.note,
                 "缺失记录已按行剔除（inner merge + dropna），窗口直接基于剩余行构造",
             )
-
-        baseline_sources = {item.source for item in result.data_coverage if item.run_id == "baseline"}
-        self.assertNotIn("pfss", baseline_sources, "对照组未使用 PFSS 特征，不应启用 PFSS 缺失日处理")
 
         protocol_without_pfss = ExperimentProtocol(
             experiment_id="E_NO_PFSS",
@@ -281,6 +284,8 @@ class UnifiedExecutionTest(unittest.TestCase):
                     "l1_ratio": 0.5,
                     "random_state": 7,
                     "test_split_ratio": 0.25,
+                    "forecast_horizon_days": 1,
+                    "past_lag_days": 4,
                 },
             ),
         )

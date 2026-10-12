@@ -21,12 +21,13 @@ def observed_delta_from_comparison(
     pearson_delta: float | None,
     rmse_delta: float | None,
 ) -> float:
+    # 所有 delta 统一为“正值 = 实验组增益”，rmse_delta 直接参与比较。
     if skill_delta is not None:
         return skill_delta
     if pearson_delta is not None:
         return pearson_delta
     if rmse_delta is not None:
-        return -rmse_delta
+        return rmse_delta
     return 0.0
 
 
@@ -175,8 +176,8 @@ def priority_to_score(priority: str) -> float:
 
 
 def signal_from_metric_deltas(rmse_delta: float | None, pearson_delta: float | None) -> str:
-    rmse_better = rmse_delta is not None and rmse_delta < 0
-    rmse_worse = rmse_delta is not None and rmse_delta > 0
+    rmse_better = rmse_delta is not None and rmse_delta > 0
+    rmse_worse = rmse_delta is not None and rmse_delta < 0
     pearson_better = pearson_delta is not None and pearson_delta > 0
     pearson_worse = pearson_delta is not None and pearson_delta < 0
     if rmse_better and pearson_better:

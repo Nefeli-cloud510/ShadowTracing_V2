@@ -1,10 +1,15 @@
 import unittest
+from datetime import datetime, timezone
 
 from core.central_controller_llm import CentralControllerLLM, _rewrite_candidate_design_focus
 from core.control_unified import HumanControlService
 from core.decision_unified import DecisionLayerService
-from core.hypothesis_generation import HypothesisGenerationResult
-from core.hypothesis_proposer_llm import HypothesisProposerResponse, ProposedHypothesis
+from core.hypothesis_generation import HypothesisGenerationResult, HypothesisGenerationService
+from core.hypothesis_proposer_llm import (
+    HypothesisProposerResponse,
+    ProposedHypothesis,
+    _next_display_hypothesis_id,
+)
 from core.planner_unified import PlannerOutputBuilder
 from core.rag_service import RAGContextBundle, RAGEvidenceSnippet
 from core.round_orchestrator import RoundOrchestrator
@@ -155,6 +160,38 @@ class StubHypothesisProposer:
             ],
         )
 
+    def propose_supplemental(self, *, planner_input, rag_context, tree):
+        return {
+            "display_hypothesis_id": _next_display_hypothesis_id(tree.nodes),
+            "statement": "DeltaDec 的预测增量仅在特定太阳风密度条件下成立，且不依赖已剪枝路径",
+            "level": 1,
+            "parent_id": None,
+            "activation_condition": "始终激活：科学质询后补充的竞争根假设。",
+            "falsification_conditions": [
+                "控制太阳风密度条件后，DeltaDec 的预测增量消失"
+            ],
+            "alternative_explanations": [
+                "密度条件差异只是伴随相关，不是独立机制"
+            ],
+            "predictions": [
+                {
+                    "experiment_condition": "按太阳风密度分层验证 DeltaDec 增量",
+                    "expected_observable": "Pearson_r",
+                    "expected_direction": "positive",
+                }
+            ],
+            "evidence_items": [
+                {
+                    "description": "轮次间残留的不确定性仍指向密度条件路径未被区分",
+                    "evidence_type": "evidence_gap",
+                    "source": "test_stub",
+                }
+            ],
+            "source": "test_stub",
+            "model": "stub",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
 
 class StubScientificQuestioner:
     def question(self, *, planner_input, rag_context, mined_candidates=None):
@@ -248,6 +285,9 @@ class StubHypothesisGenerator:
             mode="llm_next_round",
             source="test_stub",
         )
+
+    def append_supplemental_node(self, **kwargs):
+        return HypothesisGenerationService().append_supplemental_node(**kwargs)
 
 
 class LLMPlannerIntegrationTest(unittest.TestCase):

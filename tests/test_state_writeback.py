@@ -92,7 +92,7 @@ class StateWritebackTest(unittest.TestCase):
                 ExperimentRun(run_id="baseline", name="baseline"),
                 ExperimentRun(run_id="treatment", name="treatment"),
             ],
-            comparison=MetricDelta(rmse=-1.2, pearson_r=0.06),
+            comparison=MetricDelta(rmse=1.2, pearson_r=0.06),
             execution=ExecutionSummary(status="completed", duration_seconds=4.0),
         )
         evaluation = evaluate_experiment(

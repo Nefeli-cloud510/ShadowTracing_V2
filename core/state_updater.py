@@ -581,6 +581,7 @@ class UnifiedStateUpdater:
         updated_nodes = 0
         skipped_hypotheses: list[str] = []
         signal = _classify_support_signal(evaluation)
+        pending_review = protocol.experiment_type != "incremental_prediction"
 
         for hypothesis_id in protocol.tested_hypotheses:
             node = node_index.get(hypothesis_id)
@@ -589,37 +590,46 @@ class UnifiedStateUpdater:
                 continue
 
             before = node.support_score
-            assessment = assessment_index.get(hypothesis_id)
-            if assessment is not None:
-                after = _support_after_from_assessment(
-                    before=before,
-                    assessment=assessment,
-                    prediction=protocol.hypothesis_predictions.get(hypothesis_id),
-                    observed_delta=_observed_delta_from_evaluation(evaluation),
-                )
-                reason = assessment.reason
+            if pending_review:
+                after = before
+                reason = "该实验类型结果待科学评价，仅记录证据，不自动调整支持度。"
             else:
-                after = _apply_support_shift(before, signal)
-                reason = "基于最小可运行评价回写，按实验结果信号对支持度做保守更新。"
+                assessment = assessment_index.get(hypothesis_id)
+                if assessment is not None:
+                    after = _support_after_from_assessment(
+                        before=before,
+                        assessment=assessment,
+                        prediction=protocol.hypothesis_predictions.get(hypothesis_id),
+                        observed_delta=_observed_delta_from_evaluation(evaluation),
+                    )
+                    reason = assessment.reason
+                else:
+                    after = _apply_support_shift(before, signal)
+                    reason = "基于最小可运行评价回写，按实验结果信号对支持度做保守更新。"
 
             node.support_score = after
-            node.status = resolve_status(
-                previous_status=node.status,
-                support_after=after,
-                support_history=node.support_history,
-                current_round=protocol.round_id,
-                parent_support=(
-                    node_index.get(node.parent_id).support_score
-                    if node.parent_id and node.parent_id in node_index
-                    else None
-                ),
-            )
+            if not pending_review:
+                node.status = resolve_status(
+                    previous_status=node.status,
+                    support_after=after,
+                    support_history=node.support_history,
+                    current_round=protocol.round_id,
+                    parent_support=(
+                        node_index.get(node.parent_id).support_score
+                        if node.parent_id and node.parent_id in node_index
+                        else None
+                    ),
+                )
             node.updated_at_round = protocol.round_id
             node.support_history.append(
                 SupportHistoryEntry(
                     round=protocol.round_id,
                     score=after,
-                    event=f"evaluation_writeback:{protocol.experiment_id}",
+                    event=(
+                        f"pending_scientific_review:{protocol.experiment_id}"
+                        if pending_review
+                        else f"evaluation_writeback:{protocol.experiment_id}"
+                    ),
                 )
             )
             node.evidence_items.append(
@@ -629,7 +639,11 @@ class UnifiedStateUpdater:
                     description=reason,
                     source=protocol.experiment_id,
                     added_at_round=protocol.round_id,
-                    support_weight=min(max(abs(after - before), 0.05), 1.0),
+                    support_weight=(
+                        0.0
+                        if pending_review
+                        else min(max(abs(after - before), 0.05), 1.0)
+                    ),
                 )
             )
             updated_nodes += 1
@@ -1114,9 +1128,9 @@ def _classify_support_signal(evaluation: EvaluationResult) -> str:
     delta = evaluation.metrics.delta
     rmse_delta = delta.rmse
     pearson_delta = delta.pearson_r
-    if rmse_delta is not None and rmse_delta < 0 and pearson_delta is not None and pearson_delta > 0:
+    if rmse_delta is not None and rmse_delta > 0 and pearson_delta is not None and pearson_delta > 0:
         return "supports"
-    if rmse_delta is not None and rmse_delta > 0 and pearson_delta is not None and pearson_delta < 0:
+    if rmse_delta is not None and rmse_delta < 0 and pearson_delta is not None and pearson_delta < 0:
         return "weakens"
     return "mixed"
 
@@ -1268,5 +1282,5 @@ def _observed_delta_from_evaluation(evaluation: EvaluationResult) -> float:
     if evaluation.metrics.delta.pearson_r is not None:
         return evaluation.metrics.delta.pearson_r
     if evaluation.metrics.delta.rmse is not None:
-        return -evaluation.metrics.delta.rmse
+        return evaluation.metrics.delta.rmse
     return 0.0
