@@ -10,6 +10,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+ALLOWED_MODEL_FAMILIES: tuple[str, ...] = ("ridge", "elasticnet")
+
+
+def normalize_model_family(name: str) -> str | None:
+    """Return the canonical registered family for a user/LLM label."""
+
+    normalized = str(name or "").strip().lower()
+    if normalized in {"enet", "elastic_net"}:
+        return "elasticnet"
+    if normalized in ALLOWED_MODEL_FAMILIES:
+        return normalized
+    return None
+
 
 @dataclass(frozen=True)
 class ExperimentToolRecord:
@@ -47,6 +60,44 @@ class ExperimentToolRecord:
             "evaluator": self.evaluator_name,
             "notes": list(self.notes),
         }
+
+
+def _baseline_benchmark_tool() -> ExperimentToolRecord:
+    return ExperimentToolRecord(
+        experiment_type="baseline_benchmark",
+        version="1.0.0",
+        required_data_fields=["target", "benchmark_features"],
+        allowed_manipulated_factors=["benchmark_feature_set"],
+        fixed_conditions=[
+            "target",
+            "common_calendar_sample",
+            "calendar_split",
+            "model_family",
+            "forecast_horizon_days",
+        ],
+        protocol_fields=[
+            "experiment_type",
+            "features.treatment",
+            "model",
+            "forecast_horizon_days",
+            "runs_spec",
+        ],
+        output_fields=["runs", "metrics", "data_coverage"],
+        applicability="建立单臂基准性能快照：只训练并评估一组由人工指定的基准特征组合。",
+        refusal_reasons=[
+            "把单臂基准与双臂增量实验混用",
+            "features.control 非空",
+            "用单臂基准直接宣称假设支持",
+        ],
+        retrain_required=True,
+        executor_name="baseline_benchmark",
+        evaluator_name="baseline_benchmark",
+        available=True,
+        notes=[
+            "features.treatment 保存一整组被测基线特征，features.control 必须为空。",
+            "仅记录基准指标快照，不自动更新假设支持度。",
+        ],
+    )
 
 
 def _incremental_tool() -> ExperimentToolRecord:
@@ -270,6 +321,7 @@ def _robustness_diagnostic_tool() -> ExperimentToolRecord:
 EXPERIMENT_TOOL_INDEX: dict[str, ExperimentToolRecord] = {
     item.experiment_type: item
     for item in [
+        _baseline_benchmark_tool(),
         _incremental_tool(),
         _baseline_redundancy_tool(),
         _model_sensitivity_tool(),
@@ -288,3 +340,9 @@ def get_tool(experiment_type: str) -> ExperimentToolRecord | None:
 
 def available_tool_summaries() -> list[dict[str, Any]]:
     return [tool.to_summary() for tool in EXPERIMENT_TOOL_INDEX.values() if tool.available]
+
+
+def registered_tool_summaries() -> list[dict[str, Any]]:
+    """Return the full tool catalog so planners can see selectable and refused types."""
+
+    return [tool.to_summary() for tool in EXPERIMENT_TOOL_INDEX.values()]

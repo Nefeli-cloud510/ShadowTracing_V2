@@ -34,7 +34,10 @@ export function getExperimentValidationSnapshot(candidate: any): ExperimentValid
       ? design.display_treatment
       : design.treatment,
   )
-  const experimentMode = candidate?.type === 'baseline_benchmark' ? 'baseline' : 'comparative'
+  const experimentMode = candidate?.experiment_type === 'baseline_benchmark'
+    || candidate?.type === 'baseline_benchmark'
+    ? 'baseline'
+    : 'comparative'
   const hasFeatureDifference = experimentMode === 'baseline'
     || JSON.stringify([...controlVariables].sort()) !== JSON.stringify([...treatmentVariables].sort())
   return {

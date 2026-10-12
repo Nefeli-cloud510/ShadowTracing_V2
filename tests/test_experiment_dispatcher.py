@@ -15,10 +15,12 @@ from core.experiment_tools.registry import (
 )
 from core.experiment_tools.validate_protocol import validate_experiment_protocol
 from core.harness_unified import UnifiedExperimentHarness
+from core.control_unified import CandidateProtocolMapper
 from core.protocol_bridge import ElasticNetDataSourceConfig
 from core.state_repository import UnifiedStateRepository
 from core.state_updater import UnifiedStateUpdater
 from core.unified_schema import (
+    CandidateExperiment,
     ContrastSpec,
     DiagnosticSpec,
     EvaluationSpec,
@@ -30,6 +32,7 @@ from core.unified_schema import (
     HypothesisNode,
     ModelSpec,
     ResearchQuestion,
+    RunSpec,
     ScientificConstraints,
     ScientificTask,
     ScientificTaskPayload,
@@ -124,6 +127,7 @@ class ExperimentDispatcherTest(unittest.TestCase):
             {item.experiment_type for item in EXPERIMENT_TOOL_INDEX.values()},
             {
                 "incremental_prediction",
+                "baseline_benchmark",
                 "baseline_redundancy",
                 "model_sensitivity",
                 "temporal_sensitivity",
@@ -136,6 +140,7 @@ class ExperimentDispatcherTest(unittest.TestCase):
             set(EXPERIMENT_TOOL_INDEX.keys()),
         )
         self.assertTrue(get_tool("incremental_prediction").available)
+        self.assertTrue(get_tool("baseline_benchmark").available)
         self.assertTrue(get_tool("model_sensitivity").available)
         self.assertTrue(get_tool("robustness_diagnostic").available)
         for experiment_type in [
@@ -144,6 +149,143 @@ class ExperimentDispatcherTest(unittest.TestCase):
             "conditional_effect",
         ]:
             self.assertFalse(get_tool(experiment_type).available)
+
+    def _task(self) -> ScientificTask:
+        return ScientificTask(
+            task_id="ST_CAND_MAP",
+            payload=ScientificTaskPayload(
+                research_question=ResearchQuestion(
+                    text="DeltaDec 是否改善 Vsw 预测",
+                    target="Vsw",
+                    question_type="forecasting",
+                    variables=VariableBinding(x="DeltaDec", y="Vsw"),
+                ),
+                evaluation=EvaluationSpec(primary_metric="RMSE"),
+                constraints=ScientificConstraints(),
+            ),
+        )
+
+    def test_candidate_mapper_compiles_model_sensitivity_four_runs(self) -> None:
+        candidate = CandidateExperiment(
+            experiment_id="E_MS_CAND_01",
+            type="distinguishing",
+            experiment_type="model_sensitivity",
+            purpose="检验日影增量是否依赖模型家族",
+            design=ExperimentDesign(
+                target="Vsw",
+                control=["By", "Bz"],
+                treatment=["By", "Bz", "DeltaDec"],
+                design_focus="DeltaDec",
+                model_families=["ridge", "elasticnet"],
+                runs_spec=[
+                    RunSpec(
+                        run_id="ridge_baseline",
+                        label="Ridge 对照组",
+                        feature_columns=["By", "Bz"],
+                        model_family="ridge",
+                    ),
+                    RunSpec(
+                        run_id="ridge_treatment",
+                        label="Ridge 实验组",
+                        feature_columns=["By", "Bz", "DeltaDec"],
+                        model_family="ridge",
+                    ),
+                    RunSpec(
+                        run_id="elasticnet_baseline",
+                        label="ElasticNet 对照组",
+                        feature_columns=["By", "Bz"],
+                        model_family="elasticnet",
+                    ),
+                    RunSpec(
+                        run_id="elasticnet_treatment",
+                        label="ElasticNet 实验组",
+                        feature_columns=["By", "Bz", "DeltaDec"],
+                        model_family="elasticnet",
+                    ),
+                ],
+                contrasts_spec=[
+                    ContrastSpec(
+                        contrast_id="gain_ridge",
+                        name="Ridge 家族内日影增量",
+                        kind="incremental_gain",
+                        run_ids=["ridge_baseline", "ridge_treatment"],
+                    ),
+                    ContrastSpec(
+                        contrast_id="gain_elasticnet",
+                        name="ElasticNet 家族内日影增量",
+                        kind="incremental_gain",
+                        run_ids=["elasticnet_baseline", "elasticnet_treatment"],
+                    ),
+                ],
+            ),
+        )
+
+        protocol = CandidateProtocolMapper().to_protocol(
+            task=self._task(),
+            candidate=candidate,
+            round_id=1,
+        )
+        self.assertEqual(protocol.experiment_type, "model_sensitivity")
+        self.assertEqual(protocol.model.parameters["model_families"], ["ridge", "elasticnet"])
+        self.assertEqual(len(protocol.runs_spec), 4)
+        self.assertEqual(len(protocol.contrasts_spec), 2)
+
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+        self.assertEqual(result.status, "completed")
+        self.assertEqual({run.run_id for run in result.runs}, {
+            "ridge_baseline",
+            "ridge_treatment",
+            "elasticnet_baseline",
+            "elasticnet_treatment",
+        })
+
+    def test_candidate_mapper_preserves_single_arm_baseline(self) -> None:
+        candidate = CandidateExperiment(
+            experiment_id="E_BL_CAND_01",
+            type="baseline_benchmark",
+            experiment_type="baseline_benchmark",
+            purpose="建立单臂基准性能快照",
+            design=ExperimentDesign(
+                target="Vsw",
+                treatment=["By", "Bz"],
+            ),
+        )
+
+        protocol = CandidateProtocolMapper().to_protocol(
+            task=self._task(),
+            candidate=candidate,
+            round_id=1,
+        )
+        self.assertEqual(protocol.experiment_type, "baseline_benchmark")
+        self.assertEqual(protocol.features.control, [])
+        self.assertEqual(
+            protocol.model.parameters["feature_groups"]["mode"],
+            "baseline_single_arm",
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+        self.assertEqual(result.status, "completed")
+        self.assertIn("baseline", {run.run_id for run in result.runs})
+
+    def test_candidate_mapper_rejects_unavailable_type_without_relabel(self) -> None:
+        candidate = CandidateExperiment(
+            experiment_id="E_TS_CAND_01",
+            type="distinguishing",
+            experiment_type="temporal_sensitivity",
+            purpose="跨超前窗口检验",
+            design=ExperimentDesign(
+                target="Vsw",
+                control=["By", "Bz"],
+                treatment=["By", "Bz", "DeltaDec"],
+                design_focus="DeltaDec",
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "当前不可选"):
+            CandidateProtocolMapper().to_protocol(
+                task=self._task(),
+                candidate=candidate,
+                round_id=1,
+            )
+        self.assertEqual(candidate.experiment_type, "temporal_sensitivity")
 
     def test_invalid_incremental_design_is_rejected_not_rerouted(self) -> None:
         protocol = self._base_protocol(

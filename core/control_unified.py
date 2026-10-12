@@ -12,6 +12,7 @@ from core.display_text_cleaner import clean_llm_text, deep_clean_text
 from core.evaluation_unified import export_evaluation_result
 from core.experiment_tools.dispatcher import ExperimentDispatcher
 from core.experiment_tools.evaluators import evaluate_experiment_result
+from core.experiment_tools.registry import get_tool
 from core.experiment_planner_llm import (
     CandidateExperimentDesignerLLM,
     CandidateExperimentWriterLLM,
@@ -97,7 +98,22 @@ class CandidateProtocolMapper:
         tree=None,
         uncertainty_records=None,
     ) -> ExperimentProtocol:
-        is_baseline_experiment = candidate.type == "baseline_benchmark"
+        effective_experiment_type = str(
+            (candidate.experiment_type or candidate.type or "incremental_prediction").strip()
+        )
+        tool = get_tool(effective_experiment_type)
+        if tool is None:
+            raise ValueError(
+                f"实验类型 {effective_experiment_type!r} 未注册，"
+                "禁止静默降级为普通增量实验，无法生成执行协议。"
+            )
+        if not tool.available:
+            refusal = "；".join(tool.refusal_reasons) or "执行器尚未接通"
+            raise ValueError(
+                f"实验类型 {effective_experiment_type!r} 当前不可选（{refusal}），"
+                "不允许改标签后按增量实验执行。"
+            )
+        is_baseline_experiment = effective_experiment_type == "baseline_benchmark"
         control_features = [item for item in candidate.design.control if item]
         treatment_features = [item for item in candidate.design.treatment if item]
         if is_baseline_experiment:
@@ -127,6 +143,17 @@ class CandidateProtocolMapper:
             "random_state": 42,
             "test_split_ratio": 0.2,
         }
+        if effective_experiment_type == "model_sensitivity":
+            normalized_families: list[str] = []
+            for family in (design.model_families or ["ridge", "elasticnet"]):
+                normalized = str(family).strip().lower()
+                if normalized == "enet":
+                    normalized = "elasticnet"
+                if normalized in {"ridge", "elasticnet"} and normalized not in normalized_families:
+                    normalized_families.append(normalized)
+            if len(normalized_families) < 2:
+                normalized_families = ["ridge", "elasticnet"]
+            parameters["model_families"] = normalized_families
         parameters["feature_groups"] = {
             "mode": "baseline_single_arm" if is_baseline_experiment else "comparative",
             "baseline": list(treatment_features if is_baseline_experiment else control_features),
@@ -134,9 +161,11 @@ class CandidateProtocolMapper:
         }
         parameters["candidate_design_snapshot"] = {
             "candidate_id": candidate.experiment_id,
+            "experiment_type": effective_experiment_type,
             "target": candidate.design.target,
             "control": list(control_features),
             "treatment": list(treatment_features),
+            "model_families": parameters.get("model_families", []),
             "lags": {key: list(values) for key, values in candidate.design.lags.items()},
             "probe_axis": design.probe_axis,
             "forecast_horizon_days": forecast_horizon_days,
@@ -212,6 +241,53 @@ class CandidateProtocolMapper:
             base_steps.append(
                 ExperimentStep(step=2, action="run_model", parameters={"features": "treatment", "label": "baseline"})
             )
+        elif effective_experiment_type == "model_sensitivity":
+            run_specs = design.runs_spec or []
+            if run_specs:
+                for step_index, run_spec in enumerate(run_specs, start=2):
+                    base_steps.append(
+                        ExperimentStep(
+                            step=step_index,
+                            action="run_model",
+                            parameters={
+                                "run_id": run_spec.run_id,
+                                "features": list(run_spec.feature_columns),
+                                "model_family": run_spec.model_family,
+                            },
+                        )
+                    )
+                base_steps.append(
+                    ExperimentStep(
+                        step=len(run_specs) + 2,
+                        action="comparison",
+                        parameters={
+                            "contrasts_spec": [item.contrast_id for item in design.contrasts_spec],
+                        },
+                    )
+                )
+            else:
+                for family in parameters["model_families"]:
+                    base_steps.extend(
+                        [
+                            ExperimentStep(
+                                step=2,
+                                action="run_model",
+                                parameters={"features": "control", "label": f"{family}_baseline", "model_family": family},
+                            ),
+                            ExperimentStep(
+                                step=3,
+                                action="run_model",
+                                parameters={"features": "treatment", "label": f"{family}_treatment", "model_family": family},
+                            ),
+                        ]
+                    )
+                base_steps.append(
+                    ExperimentStep(
+                        step=4,
+                        action="comparison",
+                        parameters={"model_families": parameters["model_families"]},
+                    )
+                )
         else:
             base_steps.extend(
                 [
@@ -245,9 +321,14 @@ class CandidateProtocolMapper:
             round_id=round_id,
             task_id=task.task_id,
             target=candidate.design.target,
+            experiment_type=effective_experiment_type,
             scientific_objective=candidate.scientific_question or candidate.purpose,
             forecast_horizon_days=forecast_horizon_days,
             features=candidate.design,
+            runs_spec=list(candidate.design.runs_spec or []),
+            contrasts_spec=list(candidate.design.contrasts_spec or []),
+            diagnostics_spec=list(candidate.design.diagnostics_spec or []),
+            alignment=candidate.design.alignment,
             model={
                 "name": model_name,
                 "parameters": parameters,
@@ -1945,15 +2026,22 @@ class HumanControlService:
         treatment_display = semantic.display_text(treatment)
         target_display = semantic.to_display(target)
         objective_display = semantic.display_text(protocol.scientific_objective or candidate.purpose)
-        is_baseline_experiment = "experiment_mode:baseline_single_arm" in (protocol.notes or []) or candidate.type == "baseline_benchmark"
-        execution_steps = (
-            "数据质量检查→单组对照组训练→对照组结果评估"
-            if is_baseline_experiment
-            else "数据质量检查→对照组实验自动执行→实验组对照执行→结果对比"
+        effective_experiment_type = str(candidate.experiment_type or candidate.type or protocol.experiment_type)
+        is_baseline_experiment = (
+            "experiment_mode:baseline_single_arm" in (protocol.notes or [])
+            or effective_experiment_type == "baseline_benchmark"
         )
+        analyzer = "四组运行（Ridge / ElasticNet × 对照组 / 实验组）"
+        if effective_experiment_type == "model_sensitivity":
+            execution_steps = "数据质量检查→Ridge 对照组/实验组→ElasticNet 对照组/实验组→家族内增益对比"
+        elif is_baseline_experiment:
+            execution_steps = "数据质量检查→单组对照训练→对照结果评估"
+        else:
+            execution_steps = "数据质量检查→对照实验自动执行→实验对照执行→结果对比"
         return (
             f"目标：{objective_display}；"
             f"预测目标：{target_display}；"
+            f"实验类型：{analyzer if effective_experiment_type == 'model_sensitivity' else effective_experiment_type}；"
             f"对照组变量：{treatment_display if is_baseline_experiment else control_display}；"
             f"实验组变量：{'不设置实验组' if is_baseline_experiment else treatment_display}；"
             f"执行步骤：{execution_steps}；"

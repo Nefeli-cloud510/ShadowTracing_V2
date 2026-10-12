@@ -44,6 +44,7 @@ def validate_experiment_protocol(
         )
 
     validators = {
+        "baseline_benchmark": _validate_baseline_benchmark,
         "incremental_prediction": _validate_incremental,
         "model_sensitivity": _validate_model_sensitivity,
         "baseline_redundancy": _validate_baseline_redundancy,
@@ -60,6 +61,49 @@ def validate_experiment_protocol(
             ],
         )
     return validator(protocol)
+
+
+def _validate_baseline_benchmark(protocol: ExperimentProtocol) -> ProtocolValidationResult:
+    control, treatment = _base_treatment_sets(protocol)
+    reasons: list[str] = []
+    if control:
+        reasons.append("baseline_benchmark 是单臂基准实验，features.control 必须为空。")
+    if not treatment:
+        reasons.append("baseline_benchmark 缺少单臂基准特征 features.treatment。")
+
+    family = _default_model_family(protocol)
+    if family is None:
+        reasons.append("默认模型家族必须是 Ridge 或 ElasticNet。")
+
+    runs: list[RunSpec] = []
+    if protocol.runs_spec:
+        runs = [RunSpec.model_validate(item.model_dump()) for item in protocol.runs_spec]
+        ids = {item.run_id for item in runs}
+        if "baseline" not in ids:
+            reasons.append("baseline_benchmark 的 runs_spec 必须包含名为 baseline 的 run。")
+        for run in runs:
+            if run.feature_columns and set(run.feature_columns) != set(treatment):
+                reasons.append("baseline_benchmark 的 baseline run 特征列必须与 features.treatment 一致。")
+    else:
+        runs = [
+            RunSpec(
+                run_id="baseline",
+                label="单臂基准",
+                feature_columns=treatment,
+                model_family=family or "elasticnet",
+                parameters=dict(protocol.model.parameters),
+                retrain=True,
+            )
+        ]
+
+    return ProtocolValidationResult(
+        valid=not reasons,
+        reasons=reasons,
+        warnings=list(protocol.warnings),
+        compiled_runs=runs,
+        compiled_contrasts=[ContrastSpec.model_validate(item.model_dump()) for item in protocol.contrasts_spec],
+        compiled_diagnostics=[DiagnosticSpec.model_validate(item.model_dump()) for item in protocol.diagnostics_spec],
+    )
 
 
 def _normalize_family(name: str) -> str | None:

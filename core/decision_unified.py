@@ -11,6 +11,7 @@ from core.state_repository import UnifiedStateRepository
 from core.unified_schema import (
     CandidateExperiment,
     CandidateExperimentSet,
+    ContrastSpec,
     DataDictionary,
     DecisionLog,
     EstimatedValue,
@@ -23,6 +24,7 @@ from core.unified_schema import (
     PriorityFactors,
     RejectedCandidate,
     ReasoningPlannerInput,
+    RunSpec,
     ScientificTask,
     UncertaintyDisagreement,
     UncertaintyPriorityQueue,
@@ -32,6 +34,7 @@ from core.unified_schema import (
 from core.hypothesis_generation import HypothesisGenerationService
 from core.hypothesis_identity import infer_related_hypothesis_ids
 from core.experiment_planner_llm import CandidateExperimentDesignerLLM, CandidateExperimentWriterLLM
+from core.experiment_tools.registry import normalize_model_family
 from core.display_text_cleaner import clean_llm_text
 from core.runtime_config import (
     get_bailian_model_prices,
@@ -105,7 +108,10 @@ DIFFERENTIATING_EXPERIMENT_ERROR = "实验组与对照组变量无差异，无�
 
 
 def _is_baseline_candidate(candidate: CandidateExperiment) -> bool:
-    return candidate.type == "baseline_benchmark"
+    return (
+        candidate.type == "baseline_benchmark"
+        or candidate.experiment_type == "baseline_benchmark"
+    )
 
 
 def _normalize_design_features(features: list[str]) -> list[str]:
@@ -384,6 +390,7 @@ class CandidateExperimentGenerator:
                 feature_pool=feature_pool,
                 used_signatures=used_signatures,
             )
+            experiment_type = _candidate_experiment_type(record)
             signature = _design_signature(design)
             if signature in used_signatures:
                 continue
@@ -417,6 +424,7 @@ class CandidateExperimentGenerator:
             candidate = CandidateExperiment(
                 experiment_id=f"E_R{next_round:02d}_{len(candidates) + 1:02d}",
                 type=_candidate_type(record),
+                experiment_type=experiment_type,
                 purpose=_candidate_purpose(record, rationale_context),
                 scientific_question=record.question,
                 tested_hypotheses=tested_hypotheses,
@@ -501,6 +509,8 @@ class CandidateExperimentGenerator:
                 candidate.design.treatment_forecast_horizon_days or preset["forecast_horizon_days"]
             )
             candidate.design.notes.append(window_note)
+            if experiment_type == "model_sensitivity":
+                _apply_model_sensitivity_design(candidate.design)
             try:
                 _validate_candidate_design(candidate)
             except ValueError as exc:
@@ -766,6 +776,78 @@ def _candidate_type(record: UncertaintyRecord) -> str:
     if any(token in text for token in ("independent", "独立")):
         return "incremental_gain"
     return "distinguishing"
+
+
+_MODEL_SENSITIVITY_TOKENS = (
+    "model family",
+    "model_family",
+    "ridge",
+    "elasticnet",
+    "elastic net",
+    "线性",
+    "非线性",
+    "linear",
+    "nonlinear",
+    "算法依赖",
+    "模型依赖",
+    "模型家族",
+    "模型稳定性",
+    "model stability",
+    "算法选择",
+)
+
+
+def _candidate_experiment_type(record: UncertaintyRecord) -> str:
+    """Map an uncertainty to the registered execution type without inventing types."""
+
+    text = f"{record.question} {record.description}".lower()
+    if any(token.lower() in text for token in _MODEL_SENSITIVITY_TOKENS):
+        return "model_sensitivity"
+    return "incremental_prediction"
+
+
+def _apply_model_sensitivity_design(design: ExperimentDesign) -> None:
+    """Compile the shared Ridge/ElasticNet sensitivity structure into the design."""
+
+    families: list[str] = []
+    for name in design.model_families or ["ridge", "elasticnet"]:
+        normalized = normalize_model_family(name)
+        if normalized and normalized not in families:
+            families.append(normalized)
+    if len(families) < 2:
+        families = ["ridge", "elasticnet"]
+    design.model_families = families
+    design.runs_spec = []
+    for family in families:
+        design.runs_spec.extend(
+            [
+                RunSpec(
+                    run_id=f"{family}_baseline",
+                    label=f"{family} 对照组",
+                    feature_columns=list(design.control),
+                    model_family=family,
+                    retrain=True,
+                ),
+                RunSpec(
+                    run_id=f"{family}_treatment",
+                    label=f"{family} 实验组",
+                    feature_columns=list(design.treatment),
+                    model_family=family,
+                    retrain=True,
+                ),
+            ]
+        )
+    design.contrasts_spec = [
+        ContrastSpec(
+            contrast_id=f"gain_{family}",
+            name=f"{family} 家族内日影增量",
+            kind="incremental_gain",
+            run_ids=[f"{family}_baseline", f"{family}_treatment"],
+            direction="mixed",
+            note="只比较同一模型家族内部加日影前后；禁止跨家族错误归因。",
+        )
+        for family in families
+    ]
 
 
 def _notes_mining_features(record: UncertaintyRecord) -> list[str]:

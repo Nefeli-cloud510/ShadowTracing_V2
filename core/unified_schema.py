@@ -53,6 +53,7 @@ ExecutionStatus = Literal["queued", "running", "completed", "failed", "aborted"]
 StepStatus = Literal["pending", "in_progress", "completed", "failed", "skipped"]
 ExperimentType = Literal[
     "incremental_prediction",
+    "baseline_benchmark",
     "baseline_redundancy",
     "model_sensitivity",
     "temporal_sensitivity",
@@ -445,6 +446,17 @@ class ExperimentDesign(ShadowBaseModel):
     display_control: list[str] = Field(default_factory=list, description="user-facing control variable names")
     display_treatment: list[str] = Field(default_factory=list, description="user-facing treatment variable names")
     display_design_focus: str | None = Field(default=None, description="user-facing design focus name")
+    model_families: list[str] = Field(
+        default_factory=list,
+        description="registered model families for model_sensitivity; Ridge / ElasticNet only",
+    )
+    runs_spec: list[RunSpec] = Field(default_factory=list)
+    contrasts_spec: list[ContrastSpec] = Field(default_factory=list)
+    diagnostics_spec: list[DiagnosticSpec] = Field(default_factory=list)
+    alignment: ProtocolAlignmentSpec | None = Field(
+        default=None,
+        description="跨配置日期对齐规则，供时间敏感性等类型使用",
+    )
 
 
 class HypothesisPrediction(ShadowBaseModel):
@@ -471,6 +483,10 @@ class EstimatedValue(ShadowBaseModel):
 class CandidateExperiment(ShadowBaseModel):
     experiment_id: str = Field(min_length=1)
     type: str = Field(min_length=1)
+    experiment_type: str | None = Field(
+        default=None,
+        description="registered executable experiment type; legacy candidates derive from type",
+    )
     purpose: str = Field(min_length=1)
     scientific_question: str | None = None
     tested_hypotheses: list[str] = Field(default_factory=list)
@@ -488,6 +504,21 @@ class CandidateExperiment(ShadowBaseModel):
     utility_score: float | None = Field(default=None, ge=0.0, le=1.0)
     requires_human_review: bool = False
     novelty: str | None = None
+
+    @model_validator(mode="after")
+    def resolve_experiment_type(self) -> "CandidateExperiment":
+        resolved = (
+            str(self.experiment_type).strip()
+            if self.experiment_type and str(self.experiment_type).strip()
+            else (
+                "baseline_benchmark"
+                if self.type == "baseline_benchmark"
+                else "incremental_prediction"
+            )
+        )
+        if self.experiment_type != resolved:
+            object.__setattr__(self, "experiment_type", resolved)
+        return self
 
 
 class RejectedCandidate(ShadowBaseModel):
@@ -1483,3 +1514,4 @@ class DecisionLog(ShadowBaseModel):
 
 
 ExperimentContrast.model_rebuild()
+ExperimentDesign.model_rebuild()

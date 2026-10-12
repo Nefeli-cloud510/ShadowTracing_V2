@@ -156,7 +156,12 @@ export function CandidateExperimentTable({
     <div className="candidate-table">
       {candidates.map((candidate, index) => {
         const design = candidate?.design ?? {}
-        const typeLabel = candidate?.type === 'baseline_benchmark' ? '对照组/补位实验' : '区分性对照实验'
+        const experimentType = candidate?.experiment_type ?? candidate?.type
+        const typeLabel = experimentType === 'model_sensitivity'
+          ? '模型敏感性实验'
+          : experimentType === 'baseline_benchmark'
+            ? '基准对照实验'
+            : '区分性对照实验'
         const target = displayText(design.display_target ?? design.target) || design.display_target || '待配置'
         const control = design.display_control?.length
           ? toDisplayList(design.display_control, displayText)
@@ -164,12 +169,19 @@ export function CandidateExperimentTable({
         const treatment = design.display_treatment?.length
           ? toDisplayList(design.display_treatment, displayText)
           : toDisplayList(design.treatment, displayText)
-        const modelSource = design.model
-        const modelName = typeof modelSource === 'string'
-          ? modelSource.replace(/（执行协议固化）.*$/, '').trim()
-          : typeof modelSource === 'object' && modelSource?.name
-            ? String(modelSource.name).replace(/（执行协议固化）.*$/, '').trim()
-            : 'ElasticNet'
+        const modelFamilies = Array.isArray(design.model_families) ? design.model_families : []
+        const modelName = modelFamilies.length > 0
+          ? modelFamilies.map((name: string) => String(name).replace(/^./, (char) => char.toUpperCase())).join(' / ')
+          : (() => {
+              const modelSource = design.model
+              if (typeof modelSource === 'string') {
+                return modelSource.replace(/（执行协议固化）.*$/, '').trim()
+              }
+              if (typeof modelSource === 'object' && modelSource?.name) {
+                return String(modelSource.name).replace(/（执行协议固化）.*$/, '').trim()
+              }
+              return 'ElasticNet'
+            })()
         const evaluationMetrics = formatEvaluationMetrics(design)
         const testedHypotheses = Array.isArray(candidate?.tested_hypotheses) ? candidate.tested_hypotheses : []
         const predictions = candidate?.hypothesis_predictions ?? {}
@@ -232,7 +244,7 @@ export function CandidateExperimentTable({
                   })}
                 </ul>
               ) : (
-                <p>当前为对照组或补位候选实验，不直接承接对应不确定性。</p>
+                <p>{experimentType === 'baseline_benchmark' ? '当前为基准对照候选实验，不直接承接对应不确定性。' : '当前候选未直接承接对应不确定性。'}</p>
               )}
             </section>
 

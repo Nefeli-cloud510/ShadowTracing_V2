@@ -11,13 +11,21 @@ from core.display_text_cleaner import (
     clean_llm_text,
     deep_clean_text,
 )
+from core.experiment_tools.registry import (
+    ALLOWED_MODEL_FAMILIES,
+    get_tool,
+    normalize_model_family,
+    registered_tool_summaries,
+)
 from core.llm_gateway import LLMGateway
 from core.prompt_rules import ELASTIC_NET_EXECUTION_RULE
 from core.runtime_config import get_llm_model_for_role
 from core.unified_schema import (
     CandidateExperiment,
+    ContrastSpec,
     ExperimentStep,
     ProtocolRefinementSuggestion,
+    RunSpec,
     ScientificTask,
 )
 from core.variable_semantic_service import VariableSemanticService
@@ -38,10 +46,56 @@ class CandidateProseLLMResponse(BaseModel):
 
 
 class CandidateDesignLLMResponse(BaseModel):
-    focus_display: str = Field(min_length=1)
-    baseline_display: list[str] = Field(min_length=1)
-    treatment_display: list[str] = Field(min_length=2)
+    focus_display: str | None = Field(default=None)
+    baseline_display: list[str] = Field(default_factory=list)
+    treatment_display: list[str] = Field(default_factory=list)
     rationale: str = Field(min_length=1)
+    experiment_type: str | None = Field(default=None)
+    model_families: list[str] = Field(default_factory=list)
+
+
+def _apply_model_sensitivity_design(design: ExperimentDesign) -> None:
+    """Compile the shared Ridge/ElasticNet sensitivity structure into the design."""
+
+    families: list[str] = []
+    for name in design.model_families or ["ridge", "elasticnet"]:
+        normalized = normalize_model_family(name)
+        if normalized and normalized not in families:
+            families.append(normalized)
+    if len(families) < 2:
+        families = ["ridge", "elasticnet"]
+    design.model_families = families
+    design.runs_spec = []
+    for family in families:
+        design.runs_spec.extend(
+            [
+                RunSpec(
+                    run_id=f"{family}_baseline",
+                    label=f"{family} 对照组",
+                    feature_columns=list(design.control),
+                    model_family=family,
+                    retrain=True,
+                ),
+                RunSpec(
+                    run_id=f"{family}_treatment",
+                    label=f"{family} 实验组",
+                    feature_columns=list(design.treatment),
+                    model_family=family,
+                    retrain=True,
+                ),
+            ]
+        )
+    design.contrasts_spec = [
+        ContrastSpec(
+            contrast_id=f"gain_{family}",
+            name=f"{family} 家族内日影增量",
+            kind="incremental_gain",
+            run_ids=[f"{family}_baseline", f"{family}_treatment"],
+            direction="mixed",
+            note="只比较同一模型家族内部加日影前后；禁止跨家族错误归因。",
+        )
+        for family in families
+    ]
 
 
 class CandidateExperimentDesignerLLM:
@@ -52,17 +106,48 @@ class CandidateExperimentDesignerLLM:
     stop being produced by a fixed "primary is always the 对照组" rule.
     """
 
-    SYSTEM_PROMPT = """你是“逐影 Shadow Tracing”的候选实验设计者，负责为每条科学不确定性确定变量选择与对照组/实验组结构。
+    @classmethod
+    def _tool_catalog_text(cls) -> str:
+        lines = []
+        for item in registered_tool_summaries():
+            availability = "可选" if item.get("available") else "当前不可选"
+            reasons = (
+                f"；限制：{'、'.join(item['refusal_reasons'])}"
+                if item.get("refusal_reasons")
+                else ""
+            )
+            lines.append(
+                f"- {item['experiment_type']}（{availability}）："
+                f"{item.get('applicability', '')}{reasons}"
+            )
+        return "可用实验工具目录（必须从登记类型中选择并输出 experiment_type）：\n" + "\n".join(lines)
+
+    @classmethod
+    def build_system_prompt(cls) -> str:
+        return (
+            """你是“逐影 Shadow Tracing”的候选实验设计者，负责为每条科学不确定性确定实验类型、变量选择与对照组/实验组结构。
 
 你的选择必须遵守以下规则：
-1. 本系统采用机器学习弹性回归（Elastic Net），以预测精度（Pearson_r / RMSE）比较两组；
-2. 对照组包含常规日地环境变量，但不得包含待验证焦点变量；实验组必须在对照组全部变量的基础上加入待验证焦点变量；
-3. 待验证焦点变量是当前科学不确定性真正需要隔离的变量，必须出现在实验组的变量列表中，且不能出现在对照组；
-4. 只能使用 data_dictionary 中出现的真实物理量展示名，禁止发明变量、虚构数据来源；
-5. 对照组与实验组必须存在明确变量差异，且差异必须只来自待验证焦点变量；
-6. 不要选择因变量作为自变量，不要选择时间列；
-7. 若不确定性讨论的是某个太阳风特征（如行星际磁场、地磁指数）对主特征的影响，仍要优先检验主特征在固定常规对照组下的增量贡献；
-8. 只输出严格 JSON：{"focus_display": "<待验证焦点变量展示名>", "baseline_display": ["..."], "treatment_display": ["...", ...], "rationale": "<方向性设计理由>"}""" + "\n\n" + ELASTIC_NET_EXECUTION_RULE
+1. 默认实验类型是 incremental_prediction（增量预测实验）：对照组包含常规日地环境变量且不含待验证焦点变量，实验组在对照组全部变量基础上加入待验证焦点变量；
+2. 当前执行层已接通 Ridge 与 ElasticNet 两个模型家族。默认增量实验使用 ElasticNet；
+3. 只有当科学不确定性明确讨论“模型家族、线性/非线性、算法依赖、模型稳定性”时才选择 model_sensitivity（模型敏感性实验）。此时实验组变量仍保持“对照组+焦点变量”，模型家族必须同时包含 Ridge 与 ElasticNet，用于比较加日影前后的增益是否依赖模型；
+4. baseline_benchmark 是单臂基准实验：只给出 treatment_display 作为被测基准特征组合，baseline_display 留空，不设置对照组/实验组对比；
+5. 只能使用 data_dictionary 中出现的真实物理量展示名，禁止发明变量、虚构数据来源；
+6. 待验证焦点变量必须出现在实验组变量列表中，且不能出现在对照组；
+7. 对照组与实验组必须存在明确变量差异，且差异必须只来自待验证焦点变量；
+8. 不要选择因变量作为自变量，不要选择时间列；
+9. 若不确定性讨论的是某个太阳风特征（如行星际磁场、地磁指数）对主特征的影响，仍要优先检验主特征在固定常规对照组下的增量贡献；
+10. 未登记或当前不可选的实验类型只能明确拒绝，禁止改标签后按 incremental_prediction 执行。
+
+"""
+            + cls._tool_catalog_text()
+            + """
+
+输出结构必须为：
+{"focus_display": "<待验证焦点变量展示名>", "baseline_display": ["..."], "treatment_display": ["...", ...], "rationale": "<方向性设计理由>", "experiment_type": "<incremental_prediction|model_sensitivity|baseline_benchmark>", "model_families": ["ridge", "elasticnet"]}
+
+若选择 incremental_prediction，model_families 可省略；若选择 model_sensitivity，model_families 必须为 ["ridge", "elasticnet"]。只输出严格 JSON，不要夹带解释。"""
+        )
 
     def __init__(
         self,
@@ -113,7 +198,7 @@ class CandidateExperimentDesignerLLM:
             f"科研问题={task.payload.research_question.text}\n"
             f"轮次={round_id if round_id is not None else '当前轮'}\n"
             f"候选实验={candidate.purpose or '本轮候选实验'}\n"
-            f"实验类型={candidate.type}\n"
+            f"实验类型={candidate.experiment_type or candidate.type}\n"
             f"因变量展示名={display_target}\n"
             f"科学不确定性问题={uncertainty_question or candidate.scientific_question or '无'}\n"
             f"科学不确定性描述={uncertainty_description or '无'}\n"
@@ -121,6 +206,7 @@ class CandidateExperimentDesignerLLM:
             f"程序底稿：对照组={semantic_service.display_list(candidate.design.control) or '未配置'}；"
             f"实验组={semantic_service.display_list(candidate.design.treatment) or '未配置'}；"
             f"设计焦点={semantic_service.to_display(candidate.design.design_focus or primary_x)}\n"
+            f"模型家族={'、'.join(candidate.design.model_families) if candidate.design.model_families else '未配置'}\n"
             f"data_dictionary={display_block}\n"
             "请只输出 JSON，不要夹带解释。"
         )
@@ -129,7 +215,7 @@ class CandidateExperimentDesignerLLM:
         for _ in range(self.max_attempts):
             try:
                 response = self.gateway.generate_structured(
-                    system_prompt=self.SYSTEM_PROMPT,
+                    system_prompt=self.build_system_prompt(),
                     user_prompt=user_prompt,
                     response_model=CandidateDesignLLMResponse,
                     fallback_factory=None,
@@ -147,6 +233,12 @@ class CandidateExperimentDesignerLLM:
             f"llm_candidate_design_failed:{type(last_error).__name__ if last_error else 'unknown'}"
         )
         return False
+
+    _ALLOWED_EXPERIMENT_TYPES = {
+        "incremental_prediction",
+        "model_sensitivity",
+        "baseline_benchmark",
+    }
 
     def _apply_response(
         self,
@@ -167,26 +259,87 @@ class CandidateExperimentDesignerLLM:
         treatment = list(dict.fromkeys(item for item in treatment if item in raw_names))
         focus = focus if focus in raw_names else None
 
-        if focus is None:
-            raise ValueError("LLM 选出的待验证焦点变量不在真实变量库中。")
-        if focus == target:
-            raise ValueError("待验证焦点变量不能是因变量。")
-        if focus not in treatment:
-            raise ValueError("实验组必须包含待验证焦点变量。")
-        if focus in control:
-            raise ValueError("对照组不得包含待验证焦点变量。")
-        if not control or not treatment:
-            raise ValueError("对照组与实验组都不能为空。")
-        if set(control) == set(treatment):
-            raise ValueError("对照组与实验组必须存在变量差异。")
+        requested_type = str(
+            (
+                response.experiment_type
+                or candidate.experiment_type
+                or candidate.type
+                or "incremental_prediction"
+            ).strip()
+        )
+        tool = get_tool(requested_type)
+        if requested_type not in self._ALLOWED_EXPERIMENT_TYPES or tool is None:
+            raise ValueError(
+                f"LLM 请求的实验类型 {requested_type!r} 未登记，"
+                "禁止改标签后按普通增量实验执行。"
+            )
+        if not tool.available:
+            refusal = "；".join(tool.refusal_reasons) or "执行器尚未接通"
+            raise ValueError(
+                f"实验类型 {requested_type!r} 当前不可选（{refusal}），"
+                "不允许改标签后按增量实验执行。"
+            )
+        if (
+            candidate.experiment_type in {"model_sensitivity", "baseline_benchmark"}
+            and requested_type != candidate.experiment_type
+        ):
+            raise ValueError(
+                f"候选已登记为 {candidate.experiment_type}，"
+                f"LLM 不能改标为 {requested_type} 后执行。"
+            )
+
+        if requested_type == "baseline_benchmark":
+            if control:
+                raise ValueError("基准对照实验不能设置对照组变量。")
+            if not treatment:
+                raise ValueError("基准对照实验至少需要一组单臂基准特征。")
+            if focus is None:
+                raise ValueError(
+                    "基准对照实验的焦点变量必须来自真实变量库。"
+                )
+            if focus == target:
+                raise ValueError("待验证焦点变量不能是因变量。")
+            if focus not in treatment:
+                raise ValueError("基准对照实验的特征组合必须包含焦点变量。")
+        else:
+            if focus is None:
+                raise ValueError("LLM 选出的待验证焦点变量不在真实变量库中。")
+            if focus == target:
+                raise ValueError("待验证焦点变量不能是因变量。")
+            if focus not in treatment:
+                raise ValueError("实验组必须包含待验证焦点变量。")
+            if focus in control:
+                raise ValueError("对照组不得包含待验证焦点变量。")
+            if not control or not treatment:
+                raise ValueError("对照组与实验组都不能为空。")
+            if set(control) == set(treatment):
+                raise ValueError("对照组与实验组必须存在变量差异。")
+
+        if requested_type == "model_sensitivity":
+            families: list[str] = []
+            for name in response.model_families or design.model_families or ["ridge", "elasticnet"]:
+                normalized = normalize_model_family(name)
+                if normalized and normalized not in families:
+                    families.append(normalized)
+            if len(families) < 2:
+                families = ["ridge", "elasticnet"]
+            if not all(family in ALLOWED_MODEL_FAMILIES for family in families):
+                raise ValueError("模型敏感性实验仅允许 Ridge 与 ElasticNet 两个模型家族。")
+            design.model_families = families
+            design.control = control
+            design.treatment = treatment
+            _apply_model_sensitivity_design(design)
+            candidate.experiment_type = "model_sensitivity"
+        else:
+            design.control = control
+            design.treatment = treatment
+            candidate.experiment_type = requested_type
 
         old_focus = design.design_focus
         if old_focus and old_focus != focus and old_focus in design.lags:
             lag_values = design.lags.pop(old_focus)
-            design.lags[focus] = lag_values
-
-        design.control = control
-        design.treatment = treatment
+            if focus:
+                design.lags[focus] = lag_values
         design.design_focus = focus
         design.notes = [
             note
@@ -197,7 +350,10 @@ class CandidateExperimentDesignerLLM:
         design.notes.append(
             f"llm_candidate_design:model={getattr(self.gateway, 'model', 'unknown')}"
         )
-        design.display_design_focus = semantic_service.to_display(focus)
+        if requested_type == "baseline_benchmark":
+            candidate.type = "baseline_benchmark"
+            design.notes.append("experiment_mode:baseline_single_arm")
+        design.display_design_focus = semantic_service.to_display(focus) if focus else None
         design.display_control = semantic_service.display_list(design.control)
         design.display_treatment = semantic_service.display_list(design.treatment)
         if response.rationale:
@@ -225,8 +381,12 @@ class CandidateExperimentWriterLLM:
 而是用严谨、自然、可执行的科学语言撰写三段文字：
 
 1. purpose（实验目的）：说明本轮实验要判断哪个科学问题，实验结论将支持或削弱哪条假设。
-2. distinguishing_insight（区分性思路）：讲清楚对照组（不加待验证变量）与实验组（加待验证变量）
-   的差异，如何通过比较 Pearson_r / RMSE 的增量区分竞争假设，以及什么观测结果支持或削弱当前判断。
+2. distinguishing_insight（区分性思路）：措辞必须与用户消息中“实验类型”的运行结构匹配：
+   - incremental_prediction：说明对照组（不加待验证变量）与实验组（加待验证变量）的差异，
+     如何通过比较预测相关系数 / 均方根误差的增量区分竞争假设；
+   - model_sensitivity：说明 Ridge 与 ElasticNet 两个模型家族分别在加入日影前后的
+     预测相关系数 / 均方根误差变化，只比较同一家族内部的增量是否一致，不跨家族直接对比；
+   - baseline_benchmark：说明单臂基准特征组合的性能快照与科学含义，不使用“对照组 / 实验组”对比句式。
 3. value_analysis（实验综合价值数据分析）：只用用户消息中“预计算实验评估”给出的四个指标数值与计算说明，
    分五段自然语言书写，段与段之间用换行符分隔：
    - 信息增益分析：说明当前 IG 值在多大程度上代表着该实验能区分竞争假设；
@@ -241,9 +401,10 @@ class CandidateExperimentWriterLLM:
 
 要求：
 1. 只能使用 data_dictionary_display_summary 中出现的物理量展示名，严禁发明变量、虚构数据来源或
-   设计当前弹性回归流程无法验证的机制。
+   设计当前 Ridge / ElasticNet 执行流程无法验证的机制。
 2. purpose 不要写成长句复述不确定性 ID；要写成可阅读、可执行的实验目的。
-3. distinguishing_insight 不要机械堆砌字段式的程序词，统一使用“对照组 / 实验组”并给出科学判断。
+3. distinguishing_insight 不要机械堆砌字段式的程序词，必须按实验类型的运行结构选择措辞：
+   双臂增量实验使用“对照组 / 实验组”，模型敏感性实验按家族内增量撰写，单臂基准不使用对比句式。
 4. 涉及评价指标时用自然短语（如“预测相关系数、均方根误差”）表述，不要在同一段重复堆叠
    Pearson_r / RMSE 这类字段式名称。
 5. 不要在文本中暴露 candidate_id、uncertainty_id、hypothesis_id 等内部代号；假设可写作 H1、H2。
@@ -393,15 +554,30 @@ class CandidateExperimentWriterLLM:
             uncertainty_lines.append(f"- {question or DISPLAY_UNCERTAINTY_FALLBACK}")
 
         display_block = semantic_service.build_display_block([design.target]) if semantic_service.entries else ""
+        experiment_type = candidate.experiment_type or candidate.type or "incremental_prediction"
+        if experiment_type == "baseline_benchmark":
+            arms_block = (
+                f"单臂基准特征组合（无对照组）={'、'.join(treatment) or '未配置'}\n"
+            )
+        else:
+            arms_block = (
+                f"对照组（不加待验证变量）={'、'.join(control) or '未配置'}\n"
+                f"实验组（加待验证变量）={'、'.join(treatment) or '未配置'}\n"
+            )
+        model_families_line = (
+            f"模型家族={'、'.join(design.model_families) if design.model_families else '未配置（按实验类型默认）'}\n"
+            if experiment_type == "model_sensitivity"
+            else ""
+        )
         return (
             f"科研问题={task.payload.research_question.text}\n"
             f"轮次={round_id if round_id is not None else '当前轮'}\n"
             f"候选实验={candidate.purpose or '本轮候选实验'}\n"
-            f"实验类型={candidate.type}\n"
+            f"实验类型={experiment_type}\n"
             f"因变量={target}\n"
-            f"对照组（不加待验证变量）={ '、'.join(control) or '未配置' }\n"
-            f"实验组（加待验证变量）={ '、'.join(treatment) or '未配置' }\n"
+            f"{arms_block}"
             f"待验证焦点变量={focus}\n"
+            f"{model_families_line}"
             f"固定控制条件={fixed_settings}\n"
             f"被验证假设:\n{chr(10).join(hypothesis_lines) or '（无）'}\n"
             f"上游不确定性:\n{chr(10).join(uncertainty_lines) or '（无）'}\n"
@@ -540,7 +716,7 @@ class ExperimentPlannerLLM:
 2. 只输出严格 JSON
 3. 数值参数只给模型参数建议，不做最终裁决
 4. 所有建议必须适合作为 protocol refinement 附加到现有协议上
-5. 若 candidate_type 是 baseline_benchmark，则按“单组对照组实验”理解，不要生成对照组/实验组对比建议
+5. 若 candidate_type 是 baseline_benchmark，则按“单臂基准实验”理解，不要生成对照组/实验组对比建议
 6. 若 candidate_type 不是 baseline_benchmark，则必须维持对照组与实验组存在明确变量差异，不能给出无差异对照建议
 7. 必须参考 history_context 中的历史轮次结果与失败归因，结合科学经验自动给出更优的模型参数建议；
    建议范围尽量覆盖 window_size、max_lag_day、forecast_horizon_days、past_lag_days、
@@ -606,7 +782,8 @@ class ExperimentPlannerLLM:
             )
         return (
             f"scientific_task={task.payload.research_question.text}\n"
-            f"candidate_type={candidate.type}\n"
+            f"candidate_type={candidate.experiment_type or candidate.type}\n"
+            f"model_families={'、'.join(candidate.design.model_families) if candidate.design.model_families else '未配置'}\n"
             f"candidate_purpose={candidate.purpose}\n"
             "被验证假设与关联不确定性来自当前闭环落盘的候选实验，必须作为规划依据引用；"
             "输出文本不得复述内部代号。\n"

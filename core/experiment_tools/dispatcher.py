@@ -42,6 +42,8 @@ class ExperimentDispatcher:
 
         if protocol.experiment_type == "incremental_prediction":
             result = self.harness.run(protocol)
+        elif protocol.experiment_type == "baseline_benchmark":
+            result = self.harness.run(protocol)
         elif protocol.experiment_type == "model_sensitivity":
             result = self._run_model_sensitivity(protocol, validation)
         elif protocol.experiment_type == "robustness_diagnostic":
