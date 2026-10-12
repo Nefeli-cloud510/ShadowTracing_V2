@@ -157,10 +157,19 @@ def export_result_bundle(
     latest_metrics_payload = {
         "experiment_id": result.experiment_id,
         "round_id": result.round_id,
-        "comparison": result.comparison.model_dump(exclude_none=True),
-        "baseline": result.runs[0].metrics.model_dump(exclude_none=True),
-        "treatment": result.runs[1].metrics.model_dump(exclude_none=True),
+        "runs": [run.metrics.model_dump(exclude_none=True) for run in result.runs],
     }
+    if result.comparison is not None:
+        latest_metrics_payload["comparison"] = result.comparison.model_dump(
+            exclude_none=True
+        )
+    if len(result.runs) == 2:
+        latest_metrics_payload["baseline"] = result.runs[0].metrics.model_dump(
+            exclude_none=True
+        )
+        latest_metrics_payload["treatment"] = result.runs[1].metrics.model_dump(
+            exclude_none=True
+        )
 
     (round_dir / "protocol.json").write_text(
         json.dumps(protocol_payload, ensure_ascii=False, indent=2),

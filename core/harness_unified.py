@@ -12,6 +12,7 @@ from core.calendar_samples import (
     build_sample_plan,
     make_calendar_split,
 )
+from core.experiment_tools.compiled_plan import CompiledExperimentPlan
 from core.protocol_bridge import ElasticNetDataSourceConfig, ElasticNetProtocolBridge
 from core.result_unified import (
     build_experiment_result,
@@ -32,6 +33,9 @@ from core.unified_schema import (
     ExperimentRun,
     ModelSpec,
     RunMetrics,
+    RunSpec,
+    ContrastSpec,
+    DiagnosticSpec,
     VisualizationArtifact,
 )
 from models import elasticnet_runner as runner
@@ -228,68 +232,34 @@ class UnifiedExperimentHarness:
         )
         return result
 
-    def _prepare_common_pipeline(
+    def _protocol_with_parameters(
         self,
         protocol: ExperimentProtocol,
-    ) -> dict:
-        """共享日历样本 / 划分 / 输出目录，供双臂与多 run 实验复用。"""
+        parameters: dict,
+    ) -> ExperimentProtocol:
+        """Copy a protocol with canonical compiled-plan parameters.
 
-        baseline_features = self._resolve_feature_columns(
-            protocol=protocol,
-            label="baseline",
-            fallback=protocol.features.control or protocol.features.treatment,
-        )
-        treatment_features = self._resolve_feature_columns(
-            protocol=protocol,
-            label="treatment",
-            fallback=protocol.features.treatment,
-        )
-        shared_features = list(
-            dict.fromkeys([*baseline_features, *treatment_features])
-        )
-        shared_overrides = self._resolve_shared_window_overrides(protocol)
-        shared_config = self.bridge.build_runner_config(
-            protocol,
-            shared_features,
-            arm_overrides=shared_overrides,
-        )
-        merged = runner.load_and_merge_data(shared_config)
-        plan = build_sample_plan(
-            merged.X,
-            merged.y,
-            merged.time,
-            feature_columns=shared_features,
-            target_name=protocol.target,
-            past_lag_days=shared_config.time_window_config.past_lag_days
-            or shared_config.time_window_config.window_size,
-            forecast_horizon_days=shared_config.time_window_config.forecast_horizon_days,
-        )
-        retained_records = plan.retained_records()
-        if not retained_records:
-            raise ValueError("双臂共同日历样本为空，无法执行严格预测回测")
-        shared_split = make_calendar_split(
-            retained_records,
-            test_ratio=shared_config.time_window_config.test_split_ratio,
-            n_internal_folds=2,
-        )
-        shared_keys = {record.compact_key for record in retained_records}
+        Legacy duplicate configuration that validation already checked
+        (feature_groups / arm_time_windows / model_families) is removed so the
+        executor cannot silently fall back to a different feature or family
+        than the compiled plan declared.
+        """
 
-        round_dir = self.results_dir / f"round_{protocol.round_id:02d}"
-        execution_dir = round_dir / protocol.experiment_id
-        execution_dir.mkdir(parents=True, exist_ok=True)
-        return {
-            "baseline_features": baseline_features,
-            "treatment_features": treatment_features,
-            "shared_features": shared_features,
-            "shared_overrides": shared_overrides,
-            "shared_config": shared_config,
-            "merged": merged,
-            "plan": plan,
-            "shared_split": shared_split,
-            "shared_keys": shared_keys,
-            "round_dir": round_dir,
-            "execution_dir": execution_dir,
-        }
+        copied = protocol.model_copy(deep=True)
+        merged = dict(parameters)
+        merged.pop("feature_groups", None)
+        merged.pop("arm_time_windows", None)
+        merged.pop("model_families", None)
+        family = _normalize_model_family(
+            str(merged.get("model_family") or copied.model.name or "")
+        )
+        if family is None:
+            raise ValueError(
+                f"编译计划必须显式携带 Ridge / ElasticNet，收到: {merged.get('model_family')}"
+            )
+        merged["model_family"] = family
+        copied.model = ModelSpec(name=family, parameters=merged)
+        return copied
 
     def run_batch(
         self,
@@ -301,41 +271,153 @@ class UnifiedExperimentHarness:
     ) -> ExperimentResult:
         """Execute a validated multi-run protocol on one shared calendar sample."""
 
-        if not run_specs:
-            raise ValueError("run_batch 至少需要一个 run spec")
-        pipeline = self._prepare_common_pipeline(protocol)
-        shared_keys = pipeline["shared_keys"]
-        shared_split = pipeline["shared_split"]
-        execution_dir = pipeline["execution_dir"]
-        round_dir = pipeline["round_dir"]
+        plan = CompiledExperimentPlan(
+            experiment_type=protocol.experiment_type,
+            target=protocol.target,
+            experiment_id=protocol.experiment_id,
+            round_id=protocol.round_id,
+            model_parameters=dict(protocol.model.parameters),
+            time_parameters={
+                key: protocol.model.parameters[key]
+                for key in (
+                    "forecast_horizon_days",
+                    "past_lag_days",
+                    "window_size",
+                    "test_split_ratio",
+                )
+                if protocol.model.parameters.get(key) is not None
+            },
+            runs=[
+                RunSpec.model_validate(item.model_dump())
+                for item in run_specs
+            ],
+            contrasts=[
+                ContrastSpec.model_validate(item.model_dump())
+                for item in contrasts_spec
+            ],
+            diagnostics=[
+                DiagnosticSpec.model_validate(item.model_dump())
+                for item in (diagnostics_spec or [])
+            ],
+            alignment=(
+                protocol.alignment.model_copy(deep=True)
+                if protocol.alignment is not None
+                else None
+            ),
+        )
+        return self.run_compiled(protocol, plan)
+
+    def run_compiled(
+        self,
+        protocol: ExperimentProtocol,
+        plan: CompiledExperimentPlan,
+    ) -> ExperimentResult:
+        """Execute a validated protocol strictly from its compiled plan.
+
+        The plan is the only authoritative source for time windows, per-run
+        model families and feature columns. Legacy duplicate configuration
+        such as ``feature_groups`` / ``arm_time_windows`` is deliberately
+        removed before the runner is invoked.
+        """
+
+        if not plan.runs:
+            raise ValueError("编译计划至少需要一个 run，禁止空执行。")
+        run_specs = plan.runs
+
+        canonical_parameters = dict(plan.model_parameters)
+        for key, value in plan.time_parameters.items():
+            if value is not None:
+                canonical_parameters[key] = value
+        canonical_parameters.pop("feature_groups", None)
+        canonical_parameters.pop("arm_time_windows", None)
+        canonical_parameters.pop("model_families", None)
+
+        shared_features = list(
+            dict.fromkeys(
+                column
+                for spec in run_specs
+                for column in spec.feature_columns
+            )
+        )
+        if not shared_features:
+            raise ValueError("编译计划的特征列为空，无法加载数据。")
+
+        shared_protocol = self._protocol_with_parameters(
+            protocol,
+            canonical_parameters,
+        )
+        shared_config = self.bridge.build_runner_config(
+            shared_protocol,
+            shared_features,
+        )
+        merged = runner.load_and_merge_data(shared_config)
+        plan = CompiledExperimentPlan(
+            experiment_type=protocol.experiment_type,
+            target=protocol.target,
+            experiment_id=protocol.experiment_id,
+            round_id=protocol.round_id,
+            model_parameters=canonical_parameters,
+            time_parameters=dict(plan.time_parameters),
+            runs=run_specs,
+            contrasts=plan.contrasts,
+            diagnostics=plan.diagnostics,
+            alignment=(
+                plan.alignment.model_copy(deep=True)
+                if plan.alignment is not None
+                else None
+            ),
+        )
+        sample_plan = build_sample_plan(
+            merged.X,
+            merged.y,
+            merged.time,
+            feature_columns=shared_features,
+            target_name=protocol.target,
+            past_lag_days=shared_config.time_window_config.past_lag_days
+            or shared_config.time_window_config.window_size,
+            forecast_horizon_days=shared_config.time_window_config.forecast_horizon_days,
+        )
+        retained_records = sample_plan.retained_records()
+        if not retained_records:
+            raise ValueError("共同日历样本为空，无法执行严格预测回测")
+        shared_split = make_calendar_split(
+            retained_records,
+            test_ratio=shared_config.time_window_config.test_split_ratio,
+            n_internal_folds=2,
+        )
+        shared_keys = {record.compact_key for record in retained_records}
+
+        round_dir = self.results_dir / f"round_{protocol.round_id:02d}"
+        execution_dir = round_dir / protocol.experiment_id
+        execution_dir.mkdir(parents=True, exist_ok=True)
         run_id = self._next_run_id(protocol, round_dir)
 
         started = time.perf_counter()
         outputs: dict[str, dict] = {}
+        effective_parameters: dict[str, dict] = {}
         for spec in run_specs:
             family = _normalize_model_family(spec.model_family)
             if family is None:
-                raise ValueError(f"批量执行仅支持 Ridge / ElasticNet，收到: {spec.model_family}")
-            variant_protocol = protocol.model_copy(deep=True)
-            merged_parameters = {
-                **dict(protocol.model.parameters),
-                **dict(spec.parameters),
-                "model_family": family,
-            }
-            variant_protocol.model = ModelSpec(
-                name=family,
-                parameters=merged_parameters,
+                raise ValueError(
+                    f"编译计划仅支持 Ridge / ElasticNet，收到: {spec.model_family}"
+                )
+            run_parameters = dict(canonical_parameters)
+            run_parameters.update(dict(spec.parameters))
+            run_parameters["model_family"] = family
+            run_protocol = self._protocol_with_parameters(
+                protocol,
+                run_parameters,
             )
             outputs[spec.run_id] = self._execute_variant(
-                protocol=variant_protocol,
+                protocol=run_protocol,
                 feature_columns=list(spec.feature_columns),
                 label=spec.label,
                 output_dir=execution_dir / spec.run_id,
                 shared_keys=shared_keys,
                 shared_split=shared_split,
-                pre_loaded=pipeline["merged"],
-                shared_overrides=pipeline["shared_overrides"],
+                pre_loaded=merged,
             )
+            effective_parameters[spec.run_id] = run_parameters
         duration_seconds = time.perf_counter() - started
 
         predictions_dir = execution_dir / "predictions"
@@ -344,7 +426,8 @@ class UnifiedExperimentHarness:
         for spec in run_specs:
             prediction_paths[spec.run_id] = self._to_relative_path(
                 self._write_prediction_csv(
-                    predictions_dir / f"{protocol.experiment_id}_{spec.run_id}.csv",
+                    predictions_dir
+                    / f"{protocol.experiment_id}_{spec.run_id}.csv",
                     outputs[spec.run_id],
                 )
             )
@@ -374,23 +457,7 @@ class UnifiedExperimentHarness:
 
         contrasts: list[ExperimentContrast] = []
         robustness = None
-        for contrast_spec in contrasts_spec:
-            if contrast_spec.kind == "gain_change":
-                contrasts.append(
-                    ExperimentContrast(
-                        contrast_id=contrast_spec.contrast_id,
-                        name=contrast_spec.name,
-                        kind="gain_change",
-                        specification={
-                            "run_ids": contrast_spec.run_ids,
-                            "contrast_ids": contrast_spec.contrast_ids,
-                        },
-                        run_ids=list(contrast_spec.run_ids),
-                        contrast_ids=list(contrast_spec.contrast_ids),
-                        note=contrast_spec.note,
-                    )
-                )
-                continue
+        for contrast_spec in plan.contrasts:
             if len(contrast_spec.run_ids) != 2:
                 raise ValueError(
                     f"contrast {contrast_spec.contrast_id} 目前只支持两个 run 之间的配对比较"
@@ -432,16 +499,17 @@ class UnifiedExperimentHarness:
         runs: list[ExperimentRun] = []
         for spec in run_specs:
             output = outputs[spec.run_id]
+            family = _normalize_model_family(spec.model_family) or spec.model_family
             runs.append(
                 ExperimentRun(
                     run_id=spec.run_id,
                     name=spec.label,
                     prediction_artifact=prediction_paths[spec.run_id],
                     metrics=build_run_metrics(output["metrics"]),
-                    model_family=spec.model_family,
+                    model_family=family,
                     feature_labels=list(spec.feature_columns),
                     feature_columns=list(spec.feature_columns),
-                    parameters=dict(spec.parameters),
+                    parameters=effective_parameters[spec.run_id],
                     n_train=int(len(output["y_train"])),
                     n_test=int(len(output["y_test"])),
                     training_mode="retrained" if spec.retrain else "reused",
@@ -474,9 +542,9 @@ class UnifiedExperimentHarness:
             result=result,
             outputs=outputs,
             run_specs=run_specs,
-            shared_config=pipeline["shared_config"],
-            plan=pipeline["plan"],
-            shared_split=pipeline["shared_split"],
+            shared_config=shared_config,
+            plan=sample_plan,
+            shared_split=shared_split,
         )
         return result
 

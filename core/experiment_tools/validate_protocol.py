@@ -7,8 +7,13 @@ runs / contrasts / diagnostics structure.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
+from core.experiment_tools.compiled_plan import (
+    CompiledExperimentPlan,
+    normalize_diagnostic_id,
+)
 from core.experiment_tools.registry import EXPERIMENT_TOOL_INDEX, get_tool
 from core.unified_schema import (
     ContrastSpec,
@@ -26,6 +31,7 @@ class ProtocolValidationResult:
     compiled_runs: list[RunSpec] = field(default_factory=list)
     compiled_contrasts: list[ContrastSpec] = field(default_factory=list)
     compiled_diagnostics: list[DiagnosticSpec] = field(default_factory=list)
+    compiled_plan: CompiledExperimentPlan | None = None
 
 
 def validate_experiment_protocol(
@@ -60,7 +66,7 @@ def validate_experiment_protocol(
                 f"{experiment_type} 已有结构定义，但执行器尚未接通；调度器将返回 unsupported。"
             ],
         )
-    return validator(protocol)
+    return _finalize_protocol_validation(protocol, validator(protocol))
 
 
 def _validate_baseline_benchmark(protocol: ExperimentProtocol) -> ProtocolValidationResult:
@@ -74,16 +80,31 @@ def _validate_baseline_benchmark(protocol: ExperimentProtocol) -> ProtocolValida
     family = _default_model_family(protocol)
     if family is None:
         reasons.append("默认模型家族必须是 Ridge 或 ElasticNet。")
+    times = _validate_shared_time_parameters(protocol, reasons)
+    _validate_no_diagnostics(protocol, reasons)
+    if protocol.contrasts_spec:
+        reasons.append("baseline_benchmark 是单臂基准实验，不允许定义跨 run 对比。")
 
     runs: list[RunSpec] = []
     if protocol.runs_spec:
         runs = [RunSpec.model_validate(item.model_dump()) for item in protocol.runs_spec]
-        ids = {item.run_id for item in runs}
+        ids = [item.run_id for item in runs]
+        if len(ids) != len(set(ids)):
+            reasons.append("baseline_benchmark 的 runs_spec 存在重复 run_id。")
+        if ids != ["baseline"]:
+            reasons.append("baseline_benchmark 的 runs_spec 只能包含名为 baseline 的一个 run。")
         if "baseline" not in ids:
             reasons.append("baseline_benchmark 的 runs_spec 必须包含名为 baseline 的 run。")
         for run in runs:
             if run.feature_columns and set(run.feature_columns) != set(treatment):
                 reasons.append("baseline_benchmark 的 baseline run 特征列必须与 features.treatment 一致。")
+            if _normalize_family(run.model_family) != family:
+                reasons.append(
+                    f"baseline_benchmark 的 run 必须使用协议默认模型家族 {family}，"
+                    f"收到 {run.model_family!r}。"
+                )
+            _validate_retrain_required(run, reasons)
+            _validate_run_time_parameters(run, times, reasons)
     else:
         runs = [
             RunSpec(
@@ -96,13 +117,22 @@ def _validate_baseline_benchmark(protocol: ExperimentProtocol) -> ProtocolValida
             )
         ]
 
+    _validate_feature_groups_compatible(
+        protocol,
+        expected_baseline=treatment,
+        expected_treatment=treatment,
+        expected_mode="baseline_single_arm",
+        reasons=reasons,
+    )
+    _validate_arm_time_windows_compatible(protocol, times, reasons)
+
     return ProtocolValidationResult(
         valid=not reasons,
         reasons=reasons,
         warnings=list(protocol.warnings),
         compiled_runs=runs,
-        compiled_contrasts=[ContrastSpec.model_validate(item.model_dump()) for item in protocol.contrasts_spec],
-        compiled_diagnostics=[DiagnosticSpec.model_validate(item.model_dump()) for item in protocol.diagnostics_spec],
+        compiled_contrasts=[],
+        compiled_diagnostics=[],
     )
 
 
@@ -130,6 +160,253 @@ def _family_tag(family: str) -> str:
     return family
 
 
+def _finalize_protocol_validation(
+    protocol: ExperimentProtocol,
+    result: ProtocolValidationResult,
+) -> ProtocolValidationResult:
+    """Attach the single authoritative plan to any structurally valid protocol."""
+
+    if not result.valid:
+        return result
+    result.compiled_plan = CompiledExperimentPlan(
+        experiment_type=protocol.experiment_type,
+        target=protocol.target,
+        experiment_id=protocol.experiment_id,
+        round_id=protocol.round_id,
+        model_parameters=dict(protocol.model.parameters),
+        time_parameters={
+            key: value
+            for key, value in _time_parameters(protocol).items()
+            if value is not None
+        },
+        runs=[
+            RunSpec.model_validate(item.model_dump())
+            for item in result.compiled_runs
+        ],
+        contrasts=[
+            ContrastSpec.model_validate(item.model_dump())
+            for item in result.compiled_contrasts
+        ],
+        diagnostics=[
+            DiagnosticSpec.model_validate(item.model_dump())
+            for item in result.compiled_diagnostics
+        ],
+        alignment=(
+            protocol.alignment.model_copy(deep=True)
+            if protocol.alignment is not None
+            else None
+        ),
+    )
+    return result
+
+
+TIME_PARAMETER_KEYS = (
+    "forecast_horizon_days",
+    "past_lag_days",
+    "window_size",
+    "test_split_ratio",
+)
+TRAINING_CONTRAST_KINDS = {"metric_delta", "incremental_gain"}
+
+
+def _time_parameters(protocol: ExperimentProtocol) -> dict[str, object]:
+    params = protocol.model.parameters
+    return {key: params.get(key) for key in TIME_PARAMETER_KEYS}
+
+
+def _validate_shared_time_parameters(
+    protocol: ExperimentProtocol,
+    reasons: list[str],
+) -> dict[str, object]:
+    times = _time_parameters(protocol)
+    for key in TIME_PARAMETER_KEYS:
+        value = times.get(key)
+        if value is None:
+            reasons.append(
+                f"普通训练实验必须显式固定 {key}，禁止执行器读取旧默认值。"
+            )
+            continue
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            reasons.append(f"{key} 必须是有限正数，收到 {value!r}。")
+            continue
+        if not math.isfinite(numeric) or numeric <= 0:
+            reasons.append(f"{key} 必须是有限正数，收到 {value!r}。")
+    return times
+
+
+def _validate_run_time_parameters(
+    run: RunSpec,
+    times: dict[str, object],
+    reasons: list[str],
+) -> None:
+    for key, canonical_value in times.items():
+        if canonical_value is None:
+            continue
+        override = run.parameters.get(key)
+        if override is None:
+            continue
+        try:
+            same = float(override) == float(canonical_value)
+        except (TypeError, ValueError):
+            same = False
+        if not same:
+            reasons.append(
+                f"run {run.run_id} 试图把共享时间参数 {key} 改为 {override}，"
+                f"与编译计划固定值 {canonical_value} 冲突。"
+            )
+
+
+def _validate_retrain_required(run: RunSpec, reasons: list[str]) -> None:
+    if not run.retrain:
+        reasons.append(
+            f"run {run.run_id} 禁止 retrain=False：普通训练实验必须重新训练并产出新预测。"
+        )
+
+
+def _validate_no_diagnostics(
+    protocol: ExperimentProtocol,
+    reasons: list[str],
+) -> None:
+    if protocol.diagnostics_spec:
+        reasons.append(
+            "普通训练实验禁止携带 diagnostics_spec；只有 robustness_diagnostic 允许声明诊断。"
+        )
+
+
+def _validate_contrast_references(
+    contrasts: list[ContrastSpec],
+    run_ids: set[str],
+    reasons: list[str],
+) -> None:
+    seen: set[str] = set()
+    contrast_ids = {item.contrast_id for item in contrasts}
+    for contrast in contrasts:
+        if contrast.contrast_id in seen:
+            reasons.append(f"contrast_id {contrast.contrast_id!r} 重复。")
+        seen.add(contrast.contrast_id)
+        if contrast.kind not in TRAINING_CONTRAST_KINDS:
+            reasons.append(
+                f"contrast {contrast.contrast_id} 使用不支持的对比类型 {contrast.kind!r}，"
+                "已接通训练实验只支持 metric_delta / incremental_gain。"
+            )
+        if contrast.contrast_ids:
+            reasons.append(
+                f"contrast {contrast.contrast_id} 不允许引用其他 contrast（嵌套对比未接通）。"
+            )
+        for run_id in contrast.run_ids:
+            if run_id not in run_ids:
+                reasons.append(
+                    f"contrast {contrast.contrast_id} 引用了不存在的 run_id {run_id!r}。"
+                )
+        for target in contrast.contrast_ids:
+            if target not in contrast_ids:
+                reasons.append(
+                    f"contrast {contrast.contrast_id} 引用了不存在的 contrast_id {target!r}。"
+                )
+
+
+def _family_arm(run_id: str) -> tuple[str, str] | None:
+    parts = run_id.rsplit("_", 1)
+    if len(parts) != 2:
+        return None
+    family, arm = parts
+    normalized = _normalize_family(family)
+    if normalized is None or arm not in {"baseline", "treatment"}:
+        return None
+    return normalized, arm
+
+
+def _model_sensitivity_arm(
+    run_id: str,
+    families: list[str],
+) -> tuple[str, str] | None:
+    """Parse a run id against the declared model sensitivity families."""
+
+    parts = run_id.rsplit("_", 1)
+    if len(parts) != 2:
+        return None
+    family, arm = parts
+    normalized = _normalize_family(family)
+    if normalized not in families or arm not in {"baseline", "treatment"}:
+        return None
+    return normalized, arm
+
+
+def _validate_feature_groups_compatible(
+    protocol: ExperimentProtocol,
+    *,
+    expected_baseline: list[str],
+    expected_treatment: list[str],
+    expected_mode: str,
+    reasons: list[str],
+) -> None:
+    groups = protocol.model.parameters.get("feature_groups")
+    if not isinstance(groups, dict):
+        return
+    declared_mode = groups.get("mode")
+    if declared_mode not in (None, expected_mode):
+        reasons.append(
+            f"feature_groups.mode={declared_mode!r} 与实验类型 {protocol.experiment_type} "
+            f"要求的 {expected_mode!r} 冲突。"
+        )
+    for label, expected in (
+        ("baseline", expected_baseline),
+        ("treatment", expected_treatment),
+    ):
+        configured = groups.get(label)
+        if isinstance(configured, list):
+            normalized = [
+                str(item).strip() for item in configured if str(item).strip()
+            ]
+            if normalized and set(normalized) != set(expected):
+                reasons.append(
+                    f"feature_groups.{label} 与 features.{label} 冲突："
+                    f"配置 {normalized}，协议声明 {expected}。"
+                )
+
+
+def _validate_arm_time_windows_compatible(
+    protocol: ExperimentProtocol,
+    times: dict[str, object],
+    reasons: list[str],
+) -> None:
+    arm_windows = protocol.model.parameters.get("arm_time_windows")
+    if not isinstance(arm_windows, dict):
+        return
+    resolved: dict[str, dict[str, object]] = {}
+    for label in ("baseline", "treatment"):
+        override = arm_windows.get(label)
+        if not isinstance(override, dict):
+            continue
+        for key, canonical_value in times.items():
+            if canonical_value is None:
+                continue
+            override_value = override.get(key)
+            if override_value is None:
+                continue
+            try:
+                same = float(override_value) == float(canonical_value)
+            except (TypeError, ValueError):
+                same = False
+            if not same:
+                reasons.append(
+                    f"arm_time_windows.{label}.{key} 与最终时间参数冲突："
+                    f"配置 {override_value}，协议声明 {canonical_value}。"
+                )
+        resolved[label] = override
+    if (
+        "baseline" in resolved
+        and "treatment" in resolved
+        and resolved["baseline"] != resolved["treatment"]
+    ):
+        reasons.append(
+            "arm_time_windows 中 baseline/treatment 必须一致，"
+            "双臂必须在同一日历样本上比较。"
+        )
+
+
 def _validate_incremental(protocol: ExperimentProtocol) -> ProtocolValidationResult:
     control, treatment = _base_treatment_sets(protocol)
     reasons: list[str] = []
@@ -146,18 +423,36 @@ def _validate_incremental(protocol: ExperimentProtocol) -> ProtocolValidationRes
     family = _default_model_family(protocol)
     if family is None:
         reasons.append("默认模型家族必须是 Ridge 或 ElasticNet。")
+    times = _validate_shared_time_parameters(protocol, reasons)
+    _validate_no_diagnostics(protocol, reasons)
 
     runs: list[RunSpec] = []
     if protocol.runs_spec:
         runs = [RunSpec.model_validate(item.model_dump()) for item in protocol.runs_spec]
-        run_ids = {item.run_id for item in runs}
-        if not {"baseline", "treatment"}.issubset(run_ids):
-            reasons.append("incremental_prediction 的 runs_spec 必须包含 baseline 与 treatment 两个 run。")
+        run_ids = [item.run_id for item in runs]
+        if len(run_ids) != len(set(run_ids)):
+            reasons.append("incremental_prediction 的 runs_spec 存在重复 run_id。")
+        if len(run_ids) != 2 or set(run_ids) != {"baseline", "treatment"}:
+            reasons.append(
+                "incremental_prediction 的 runs_spec 必须恰好包含 baseline 与 treatment 两个 run。"
+            )
         for run in runs:
-            if run.run_id == "baseline" and run.feature_columns and set(run.feature_columns) != set(control):
-                reasons.append("baseline run 的特征列与 features.control 不一致。")
-            if run.run_id == "treatment" and run.feature_columns and set(run.feature_columns) != set(treatment):
-                reasons.append("treatment run 的特征列与 features.treatment 不一致。")
+            expected_features = {
+                "baseline": control,
+                "treatment": treatment,
+            }.get(run.run_id)
+            if expected_features is not None and run.feature_columns and set(run.feature_columns) != set(expected_features):
+                reasons.append(
+                    f"{run.run_id} run 的特征列与 features.{run.run_id} 不一致："
+                    f"收到 {run.feature_columns}，应为 {expected_features}。"
+                )
+            if _normalize_family(run.model_family) != family:
+                reasons.append(
+                    f"run {run.run_id} 必须使用协议默认模型家族 {family}，"
+                    f"收到 {run.model_family!r}。"
+                )
+            _validate_retrain_required(run, reasons)
+            _validate_run_time_parameters(run, times, reasons)
     else:
         runs = [
             RunSpec(
@@ -181,9 +476,16 @@ def _validate_incremental(protocol: ExperimentProtocol) -> ProtocolValidationRes
     contrasts: list[ContrastSpec] = []
     if protocol.contrasts_spec:
         contrasts = [ContrastSpec.model_validate(item.model_dump()) for item in protocol.contrasts_spec]
+        _validate_contrast_references(
+            contrasts,
+            {item.run_id for item in runs},
+            reasons,
+        )
         for contrast in contrasts:
-            if any(run_id not in {item.run_id for item in runs} for run_id in contrast.run_ids):
-                reasons.append(f"contrast {contrast.contrast_id} 引用了 runs_spec 中不存在的 run_id。")
+            if len(contrast.run_ids) != 2 or set(contrast.run_ids) != {"baseline", "treatment"}:
+                reasons.append(
+                    f"contrast {contrast.contrast_id} 必须精确引用 baseline 与 treatment 两个 run。"
+                )
     else:
         contrasts = [
             ContrastSpec(
@@ -196,13 +498,22 @@ def _validate_incremental(protocol: ExperimentProtocol) -> ProtocolValidationRes
             )
         ]
 
+    _validate_feature_groups_compatible(
+        protocol,
+        expected_baseline=control,
+        expected_treatment=treatment,
+        expected_mode="comparative",
+        reasons=reasons,
+    )
+    _validate_arm_time_windows_compatible(protocol, times, reasons)
+
     return ProtocolValidationResult(
         valid=not reasons,
         reasons=reasons,
         warnings=list(protocol.warnings),
         compiled_runs=runs,
         compiled_contrasts=contrasts,
-        compiled_diagnostics=[DiagnosticSpec.model_validate(item.model_dump()) for item in protocol.diagnostics_spec],
+        compiled_diagnostics=[],
     )
 
 
@@ -231,6 +542,8 @@ def _validate_model_sensitivity(protocol: ExperimentProtocol) -> ProtocolValidat
         if len(families) < 2:
             reasons.append("model_sensitivity 至少需要两个已登记模型家族。")
 
+    times = _validate_shared_time_parameters(protocol, reasons)
+    _validate_no_diagnostics(protocol, reasons)
     warnings = list(protocol.warnings)
     if isinstance(protocol.model.parameters.get("fixed_alpha"), (int, float)):
         warnings.append("固定相同 alpha 的比较只作为同一模型家族内部的单独敏感性子类型。")
@@ -238,10 +551,37 @@ def _validate_model_sensitivity(protocol: ExperimentProtocol) -> ProtocolValidat
     runs: list[RunSpec] = []
     if protocol.runs_spec:
         runs = [RunSpec.model_validate(item.model_dump()) for item in protocol.runs_spec]
-        run_ids = {item.run_id for item in runs}
+        run_ids = [item.run_id for item in runs]
+        if len(run_ids) != len(set(run_ids)):
+            reasons.append("model_sensitivity 的 runs_spec 存在重复 run_id。")
+        for run in runs:
+            parsed = _model_sensitivity_arm(run.run_id, families)
+            if parsed is None:
+                reasons.append(
+                    f"run_id {run.run_id!r} 必须符合 {{family}}_baseline / {{family}}_treatment 命名。"
+                )
+            else:
+                family, arm = parsed
+                run_family = _normalize_family(run.model_family)
+                if run_family != family:
+                    reasons.append(
+                        f"run {run.run_id} 声明家族 {family}，但 model_family={run.model_family!r} "
+                        f"实际归一化为 {run_family}，模型家族与 run 命名必须一致。"
+                    )
+                expected_features = control if arm == "baseline" else treatment
+                if run.feature_columns and set(run.feature_columns) != set(expected_features):
+                    reasons.append(
+                        f"run {run.run_id} 的特征列与 features.{arm} 不一致："
+                        f"收到 {run.feature_columns}，应为 {expected_features}。"
+                    )
+            _validate_retrain_required(run, reasons)
+            _validate_run_time_parameters(run, times, reasons)
+        present_ids = set(run_ids)
         for family in families:
-            if f"{family}_baseline" not in run_ids or f"{family}_treatment" not in run_ids:
-                reasons.append(f"模型家族 {family} 缺少 baseline/treatment 双臂 run。")
+            for arm in ("baseline", "treatment"):
+                expected_id = f"{family}_{arm}"
+                if expected_id not in present_ids:
+                    reasons.append(f"模型家族 {family} 缺少 {expected_id} run。")
     else:
         for family in families:
             runs.append(
@@ -268,6 +608,35 @@ def _validate_model_sensitivity(protocol: ExperimentProtocol) -> ProtocolValidat
     contrasts: list[ContrastSpec] = []
     if protocol.contrasts_spec:
         contrasts = [ContrastSpec.model_validate(item.model_dump()) for item in protocol.contrasts_spec]
+        _validate_contrast_references(
+            contrasts,
+            {item.run_id for item in runs},
+            reasons,
+        )
+        for contrast in contrasts:
+            if len(contrast.run_ids) != 2:
+                reasons.append(
+                    f"contrast {contrast.contrast_id} 必须精确引用同一模型家族的两个 run。"
+                )
+                continue
+            left = _model_sensitivity_arm(contrast.run_ids[0], families)
+            right = _model_sensitivity_arm(contrast.run_ids[1], families)
+            if left is None or right is None:
+                reasons.append(
+                    f"contrast {contrast.contrast_id} 引用了不符合模型敏感性命名的 run。"
+                )
+                continue
+            if left[0] != right[0]:
+                reasons.append(
+                    f"contrast {contrast.contrast_id} 跨模型家族比较 "
+                    f"({contrast.run_ids[0]} vs {contrast.run_ids[1]})，"
+                    "首版禁止把家族间性能差异归因为日影增量。"
+                )
+            if {left[1], right[1]} != {"baseline", "treatment"}:
+                reasons.append(
+                    f"contrast {contrast.contrast_id} 必须比较同一家族内 "
+                    "baseline 与 treatment，不允许 arm 内自比较。"
+                )
     else:
         for family in families:
             contrasts.append(
@@ -280,13 +649,22 @@ def _validate_model_sensitivity(protocol: ExperimentProtocol) -> ProtocolValidat
                     note="只比较同一模型家族内部加日影前后；禁止跨家族错误归因。",
                 )
             )
+    _validate_feature_groups_compatible(
+        protocol,
+        expected_baseline=control,
+        expected_treatment=treatment,
+        expected_mode="comparative",
+        reasons=reasons,
+    )
+    _validate_arm_time_windows_compatible(protocol, times, reasons)
+
     return ProtocolValidationResult(
         valid=not reasons,
         reasons=reasons,
         warnings=warnings,
         compiled_runs=runs,
         compiled_contrasts=contrasts,
-        compiled_diagnostics=[DiagnosticSpec.model_validate(item.model_dump()) for item in protocol.diagnostics_spec],
+        compiled_diagnostics=[],
     )
 
 
@@ -478,9 +856,11 @@ def _validate_conditional_effect(protocol: ExperimentProtocol) -> ProtocolValida
         reasons.append("conditional_effect 必须声明 threshold_source 为 training_data / issue_time_known / future_post_hoc。")
     elif threshold_source == "future_post_hoc":
         warnings.append("未来真实风速等条件只用于事后误差诊断，不得写成预报时可选择的策略。")
-    if not protocol.contrasts_spec and "group_gain_difference" not in {
-        item.kind for item in protocol.contrasts_spec
-    }:
+    if (
+        not protocol.contrasts_spec
+        or "group_gain_difference"
+        not in {item.kind for item in protocol.contrasts_spec}
+    ):
         reasons.append("conditional_effect 必须定义 group_gain_difference 对比。")
 
     return ProtocolValidationResult(
@@ -494,6 +874,11 @@ def _validate_conditional_effect(protocol: ExperimentProtocol) -> ProtocolValida
 
 
 def _validate_robustness_diagnostic(protocol: ExperimentProtocol) -> ProtocolValidationResult:
+    supported_diagnostics = {
+        "paired_calendar_bootstrap",
+        "time_segments",
+        "residual_diagnostics",
+    }
     params = protocol.model.parameters
     reasons: list[str] = []
     source_experiment_id = params.get("source_experiment_id")
@@ -507,8 +892,28 @@ def _validate_robustness_diagnostic(protocol: ExperimentProtocol) -> ProtocolVal
             "robustness_diagnostic 必须指向明确的 source_experiment_id 或复用的预测文件，禁止无来源诊断。"
         )
     diagnostics = [DiagnosticSpec.model_validate(item.model_dump()) for item in protocol.diagnostics_spec]
-    if not diagnostics and not protocol.notes:
+    if not diagnostics:
         reasons.append("robustness_diagnostic 至少需要一个 diagnostics_spec 条目。")
+        return ProtocolValidationResult(
+            valid=not reasons,
+            reasons=reasons,
+            warnings=list(protocol.warnings),
+            compiled_runs=[RunSpec.model_validate(item.model_dump()) for item in protocol.runs_spec],
+            compiled_contrasts=[ContrastSpec.model_validate(item.model_dump()) for item in protocol.contrasts_spec],
+            compiled_diagnostics=[],
+        )
+    for diagnostic in diagnostics:
+        if normalize_diagnostic_id(diagnostic.diagnostic_id) not in supported_diagnostics:
+            reasons.append(
+                f"robustness_diagnostic 不支持诊断 {diagnostic.diagnostic_id!r}，"
+                "只允许 paired_calendar_bootstrap / time_segments / residual_diagnostics。"
+            )
+    for run in protocol.runs_spec:
+        if run.retrain:
+            reasons.append(
+                f"robustness_diagnostic 的 run {run.run_id} 必须 retrain=False，"
+                "只能复用已有预测，禁止重新训练。"
+            )
 
     return ProtocolValidationResult(
         valid=not reasons,

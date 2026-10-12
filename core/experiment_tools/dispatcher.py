@@ -41,9 +41,9 @@ class ExperimentDispatcher:
             return self._unsupported_result(protocol, validation)
 
         if protocol.experiment_type == "incremental_prediction":
-            result = self.harness.run(protocol)
+            result = self.harness.run_compiled(protocol, validation.compiled_plan)
         elif protocol.experiment_type == "baseline_benchmark":
-            result = self.harness.run(protocol)
+            result = self.harness.run_compiled(protocol, validation.compiled_plan)
         elif protocol.experiment_type == "model_sensitivity":
             result = self._run_model_sensitivity(protocol, validation)
         elif protocol.experiment_type == "robustness_diagnostic":
@@ -53,12 +53,7 @@ class ExperimentDispatcher:
         return result
 
     def _run_model_sensitivity(self, protocol: ExperimentProtocol, validation) -> ExperimentResult:
-        result = self.harness.run_batch(
-            protocol,
-            run_specs=validation.compiled_runs,
-            contrasts_spec=validation.compiled_contrasts,
-            diagnostics_spec=validation.compiled_diagnostics,
-        )
+        result = self.harness.run_compiled(protocol, validation.compiled_plan)
         gain_rows = []
         for contrast in result.contrasts:
             gain_rows.append(

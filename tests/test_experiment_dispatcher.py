@@ -415,6 +415,257 @@ class ExperimentDispatcherTest(unittest.TestCase):
             )
         )
 
+    def _sensitivity_protocol(
+        self,
+        experiment_id: str,
+        *,
+        runs_spec=None,
+        contrasts_spec=None,
+    ) -> ExperimentProtocol:
+        fields = {
+            "model": ModelSpec(
+                name="ElasticNet",
+                parameters={
+                    "model_families": ["ridge", "elasticnet"],
+                    "window_size": 3,
+                    "use_lag_feature": True,
+                    "max_lag_day": 1,
+                    "alpha": 0.1,
+                    "l1_ratio": 0.5,
+                    "random_state": 7,
+                    "test_split_ratio": 0.25,
+                    "forecast_horizon_days": 1,
+                    "past_lag_days": 3,
+                },
+            ),
+        }
+        if runs_spec is not None:
+            fields["runs_spec"] = runs_spec
+        if contrasts_spec is not None:
+            fields["contrasts_spec"] = contrasts_spec
+        return self._base_protocol("model_sensitivity", experiment_id, **fields)
+
+    def _paired_run_specs(self) -> list[RunSpec]:
+        return [
+            RunSpec(
+                run_id="ridge_baseline",
+                label="Ridge 对照组",
+                feature_columns=["By", "Bz"],
+                model_family="ridge",
+            ),
+            RunSpec(
+                run_id="ridge_treatment",
+                label="Ridge 实验组",
+                feature_columns=["By", "Bz", "DeltaDec"],
+                model_family="ridge",
+            ),
+            RunSpec(
+                run_id="elasticnet_baseline",
+                label="ElasticNet 对照组",
+                feature_columns=["By", "Bz"],
+                model_family="elasticnet",
+            ),
+            RunSpec(
+                run_id="elasticnet_treatment",
+                label="ElasticNet 实验组",
+                feature_columns=["By", "Bz", "DeltaDec"],
+                model_family="elasticnet",
+            ),
+        ]
+
+    def test_model_sensitivity_rejects_mislabeled_four_run_protocol(self) -> None:
+        runs = [
+            RunSpec(
+                run_id="ridge_baseline",
+                label="Ridge 对照组",
+                feature_columns=["By", "Bz"],
+                model_family="ridge",
+            ),
+            RunSpec(
+                run_id="ridge_treatment",
+                label="Ridge 实验组",
+                feature_columns=["By", "Bz"],
+                model_family="ridge",
+            ),
+            RunSpec(
+                run_id="elasticnet_baseline",
+                label="ElasticNet 对照组",
+                feature_columns=["By", "Bz"],
+                model_family="ridge",
+            ),
+            RunSpec(
+                run_id="elasticnet_treatment",
+                label="ElasticNet 实验组",
+                feature_columns=["By", "Bz"],
+                model_family="ridge",
+            ),
+        ]
+        contrasts = [
+            ContrastSpec(
+                contrast_id="gain_ridge",
+                name="Ridge 日影增量",
+                kind="incremental_gain",
+                run_ids=["ridge_baseline", "ridge_treatment"],
+            ),
+            ContrastSpec(
+                contrast_id="cross_family",
+                name="跨家族比较",
+                kind="incremental_gain",
+                run_ids=["ridge_baseline", "elasticnet_treatment"],
+            ),
+        ]
+        protocol = self._sensitivity_protocol(
+            "E_MS_BAD_01",
+            runs_spec=runs,
+            contrasts_spec=contrasts,
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.validity_status, "invalid")
+        warning_text = "；".join(result.warnings)
+        self.assertIn("模型家族与 run 命名必须一致", warning_text)
+        self.assertIn("跨模型家族比较", warning_text)
+
+    def test_model_sensitivity_rejects_duplicate_run_ids(self) -> None:
+        runs = self._paired_run_specs()
+        runs[1] = RunSpec(
+            run_id="ridge_baseline",
+            label="Ridge 对照组重复",
+            feature_columns=["By", "Bz"],
+            model_family="ridge",
+        )
+        protocol = self._sensitivity_protocol("E_MS_DUP_01", runs_spec=runs)
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn("重复 run_id", "；".join(result.warnings))
+
+    def test_model_sensitivity_rejects_missing_contrast_reference(self) -> None:
+        contrasts = [
+            ContrastSpec(
+                contrast_id="gain_bad",
+                name="缺失 run 引用",
+                kind="incremental_gain",
+                run_ids=["ridge_baseline", "missing_run"],
+            )
+        ]
+        protocol = self._sensitivity_protocol(
+            "E_MS_REF_01",
+            runs_spec=self._paired_run_specs(),
+            contrasts_spec=contrasts,
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn(
+            "引用了不存在的 run_id",
+            "；".join(result.warnings),
+        )
+
+    def test_model_sensitivity_rejects_cross_family_contrast(self) -> None:
+        contrasts = [
+            ContrastSpec(
+                contrast_id="gain_cross",
+                name="跨家族比较",
+                kind="incremental_gain",
+                run_ids=["ridge_baseline", "elasticnet_treatment"],
+            )
+        ]
+        protocol = self._sensitivity_protocol(
+            "E_MS_CROSS_01",
+            runs_spec=self._paired_run_specs(),
+            contrasts_spec=contrasts,
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn("跨模型家族比较", "；".join(result.warnings))
+
+    def test_incremental_rejects_retrain_false(self) -> None:
+        protocol = self._base_protocol(
+            "incremental_prediction",
+            "E_INC_NORETRAIN",
+            runs_spec=[
+                RunSpec(
+                    run_id="baseline",
+                    label="对照组",
+                    feature_columns=["By", "Bz"],
+                    model_family="elasticnet",
+                    retrain=False,
+                ),
+                RunSpec(
+                    run_id="treatment",
+                    label="实验组",
+                    feature_columns=["By", "Bz", "DeltaDec"],
+                    model_family="elasticnet",
+                    retrain=False,
+                ),
+            ],
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.validity_status, "invalid")
+        self.assertIn("禁止 retrain=False", "；".join(result.warnings))
+
+    def test_incremental_rejects_diagnostics_spec(self) -> None:
+        protocol = self._base_protocol(
+            "incremental_prediction",
+            "E_INC_DIAG",
+            diagnostics_spec=[
+                DiagnosticSpec(
+                    diagnostic_id="paired_bootstrap",
+                    name="配对日历块 bootstrap",
+                )
+            ],
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn(
+            "普通训练实验禁止携带 diagnostics_spec",
+            "；".join(result.warnings),
+        )
+
+    def test_incremental_rejects_feature_groups_conflict(self) -> None:
+        params = dict(self._base_protocol("incremental_prediction", "E_X").model.parameters)
+        params["feature_groups"] = {
+            "mode": "comparative",
+            "baseline": ["Bz"],
+            "treatment": ["By", "Bz", "DeltaDec"],
+        }
+        protocol = self._base_protocol(
+            "incremental_prediction",
+            "E_INC_GROUPS",
+            model=ModelSpec(name="ElasticNet", parameters=params),
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn("冲突", "；".join(result.warnings))
+
+    def test_compiled_plan_executes_distinct_families_and_features(self) -> None:
+        protocol = self._sensitivity_protocol("E_MS_COMPILED")
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "completed")
+        by_run = {run.run_id: run for run in result.runs}
+        self.assertEqual(by_run["ridge_baseline"].model_family, "ridge")
+        self.assertEqual(by_run["ridge_treatment"].model_family, "ridge")
+        self.assertEqual(by_run["elasticnet_baseline"].model_family, "elasticnet")
+        self.assertEqual(by_run["elasticnet_treatment"].model_family, "elasticnet")
+        self.assertEqual(by_run["ridge_baseline"].feature_columns, ["By", "Bz"])
+        self.assertEqual(
+            by_run["elasticnet_treatment"].feature_columns,
+            ["By", "Bz", "DeltaDec"],
+        )
+        latest_metrics = json.loads(
+            (self.root / "outputs" / "latest_metrics.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(len(latest_metrics["runs"]), 4)
+        self.assertNotIn("baseline", latest_metrics)
+
     def test_robustness_diagnostic_reuses_predictions_without_retrain(self) -> None:
         dates = pd.date_range("2021-02-01", periods=28, freq="D")
         frame = pd.DataFrame(
