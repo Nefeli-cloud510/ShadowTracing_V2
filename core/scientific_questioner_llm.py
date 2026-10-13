@@ -189,6 +189,7 @@ proposed_uncertainties 可附带 mining_sources、related_hypotheses、features 
             response_model=ScientificQuestionerResponse,
             payload_fixer=self._fix_payload,
             fallback_factory=lambda: self._fallback(planner_input, rag_context, mined_candidates),
+            role="科学质询者llm",
         )
 
     def challenge_hypothesis_tree(
@@ -280,6 +281,7 @@ proposed_uncertainties 可附带 mining_sources、related_hypotheses、features 
                 mined_candidates,
                 hypothesis_nodes=hypothesis_nodes,
             ),
+            role="科学质询者llm",
         )
 
     @staticmethod

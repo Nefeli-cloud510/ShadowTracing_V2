@@ -1,6 +1,12 @@
 import { useMemo, useState } from 'react'
 import { resetWorkflow } from '../api/liveWorkflow'
 import { PageTabs } from '../components/PageTabs'
+import {
+  ContrastRows,
+  DiagnosticsList,
+  RunMetricsGrid,
+  experimentTypeLabel,
+} from '../components/ExperimentMetrics'
 import { useTimelineBundle } from '../hooks/useTimelineBundle'
 import { useTabs } from '../contexts/TabContext'
 import { resetClientWorkspaceState } from '../utils/missionControllerPersistence'
@@ -250,12 +256,19 @@ export function ClosedLoopTimelinePage() {
                     <span className="detail-card__eyebrow">本轮结果</span>
                     <h2>评价摘要</h2>
                     {currentRound.evaluation ? (
-                      <ul className="detail-list">
-                        <li>实验: {currentRound.evaluation.experimentId ?? '--'}</li>
-                        <li>Delta r: {currentRound.evaluation.deltaPearsonR.toFixed(4)}</li>
-                        <li>PG actual: {currentRound.evaluation.pgActual.toFixed(3)}</li>
-                        <li>结论: {currentRound.evaluation.verdict}</li>
-                      </ul>
+                      <div>
+                        <ul className="detail-list">
+                          <li>实验: {currentRound.evaluation.experimentId ?? '--'}</li>
+                          <li>实验类型: {experimentTypeLabel(currentRound.evaluation.experimentType)}</li>
+                          <li>结论: {currentRound.evaluation.verdict}</li>
+                        </ul>
+                        <RunMetricsGrid
+                          runs={currentRound.evaluation.runs ?? []}
+                          experimentType={currentRound.evaluation.experimentType}
+                        />
+                        <ContrastRows contrasts={currentRound.evaluation.contrasts ?? []} />
+                        <DiagnosticsList diagnostics={currentRound.evaluation.diagnostics} />
+                      </div>
                     ) : (
                       <p>当前轮尚未完成执行评价。</p>
                     )}

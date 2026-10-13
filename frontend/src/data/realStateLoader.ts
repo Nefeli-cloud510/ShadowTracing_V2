@@ -1,7 +1,9 @@
 import type {
   DataCoverageViewModel,
+  ExperimentContrastViewModel,
   EvaluationPreview,
   ExperimentPreview,
+  ExperimentRunViewModel,
   FrontendViewModels,
   GovernanceDecisionsViewModel,
   HypothesisPreviewNode,
@@ -139,6 +141,7 @@ type RawExperimentEntry = {
   scientific_question?: string
   metrics_snapshot?: {
     experiment_id?: string
+    experiment_type?: string
     baseline_rmse?: number
     treatment_rmse?: number
     baseline_pearson_r?: number
@@ -147,6 +150,36 @@ type RawExperimentEntry = {
       pearson_r?: number
       rmse?: number
     }
+    runs?: Array<{
+      run_id?: string
+      name?: string
+      model_family?: string
+      metrics?: {
+        rmse?: number
+        mae?: number
+        pearson_r?: number
+        skill?: number
+      }
+      training_mode?: string
+      feature_columns?: string[]
+      parameters?: Record<string, unknown>
+    }>
+    contrasts?: Array<{
+      contrast_id?: string
+      name?: string
+      kind?: string
+      run_ids?: string[]
+      metrics_delta?: {
+        rmse?: number
+        pearson_r?: number
+      }
+      bootstrap_ci?: {
+        rmse_ci?: number[]
+        pearson_r_ci?: number[]
+      }
+      note?: string
+    }>
+    diagnostics?: unknown[]
   }
   key_findings?: string[]
   visualizations?: string[]
@@ -170,6 +203,9 @@ type RawExperimentEntry = {
   }>
 }
 
+type RawRunSnapshot = NonNullable<NonNullable<RawExperimentEntry['metrics_snapshot']>['runs']>[number]
+type RawContrastSnapshot = NonNullable<NonNullable<RawExperimentEntry['metrics_snapshot']>['contrasts']>[number]
+
 type RawExperimentMemory = {
   current_round?: number
   entries?: RawExperimentEntry[]
@@ -187,6 +223,10 @@ type RawThreeLayerConclusion = {
     treatment_pearson_r?: number
     skill_delta?: number
     decisive?: boolean
+    experiment_type?: string
+    runs?: RawRunSnapshot[]
+    contrasts?: RawContrastSnapshot[]
+    diagnostics?: unknown[]
   }
   hypothesis_layer?: Array<{
     hypothesis_id?: string
@@ -1101,17 +1141,61 @@ function hypothesisStatusAtRound(
   return mapHypothesisStatus(node.status)
 }
 
-function computePgActual(metricsSnapshot: RawExperimentEntry['metrics_snapshot']): number {
-  const baseline = metricsSnapshot?.baseline_rmse
-  const treatment = metricsSnapshot?.treatment_rmse
-  if (!baseline || !treatment) {
-    return 0
+function finiteNumber(value: unknown): number | undefined {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : undefined
+}
+
+function computePgActual(metricsSnapshot: RawExperimentEntry['metrics_snapshot']): number | undefined {
+  const baseline = finiteNumber(metricsSnapshot?.baseline_rmse)
+  const treatment = finiteNumber(metricsSnapshot?.treatment_rmse)
+  if (baseline === undefined || treatment === undefined) {
+    return undefined
   }
 
   return (baseline - treatment) / Math.max(baseline, 1e-8)
 }
 
-function inferVerdict(deltaPearsonR?: number): EvaluationPreview['verdict'] {
+function mapExperimentRuns(metrics?: { runs?: RawRunSnapshot[] } | undefined): ExperimentRunViewModel[] {
+  return (metrics?.runs ?? []).map((run) => ({
+    runId: run.run_id ?? '--',
+    name: run.name,
+    modelFamily: run.model_family,
+    rmse: finiteNumber(run.metrics?.rmse),
+    mae: finiteNumber(run.metrics?.mae),
+    pearsonR: finiteNumber(run.metrics?.pearson_r),
+    skill: finiteNumber(run.metrics?.skill),
+    trainingMode: run.training_mode,
+    featureColumns: run.feature_columns,
+    parameters: run.parameters,
+  }))
+}
+
+function mapExperimentContrasts(
+  metrics?: { contrasts?: RawContrastSnapshot[] } | undefined,
+): ExperimentContrastViewModel[] {
+  return (metrics?.contrasts ?? []).map((contrast) => ({
+    contrastId: contrast.contrast_id ?? '--',
+    name: contrast.name,
+    kind: contrast.kind,
+    runIds: contrast.run_ids,
+    deltaRmse: finiteNumber(contrast.metrics_delta?.rmse),
+    deltaPearsonR: finiteNumber(contrast.metrics_delta?.pearson_r),
+    rmseCi: Array.isArray(contrast.bootstrap_ci?.rmse_ci) ? contrast.bootstrap_ci?.rmse_ci : null,
+    pearsonCi: Array.isArray(contrast.bootstrap_ci?.pearson_r_ci)
+      ? contrast.bootstrap_ci?.pearson_r_ci
+      : null,
+    note: contrast.note,
+  }))
+}
+
+function inferIncrementalVerdict(
+  deltaPearsonR: number | undefined,
+  experimentType: string | undefined,
+): EvaluationPreview['verdict'] {
+  if (experimentType && experimentType !== 'incremental_prediction') {
+    return 'mixed'
+  }
   const delta = deltaPearsonR ?? 0
   if (delta > 0.005) {
     return 'supports'
@@ -1120,6 +1204,28 @@ function inferVerdict(deltaPearsonR?: number): EvaluationPreview['verdict'] {
     return 'weakens'
   }
   return 'mixed'
+}
+
+function formatOptionalNumber(value: number | undefined, digits = 4): string {
+  return value === undefined ? '--' : value.toFixed(digits)
+}
+
+function inferVisualizationRun(
+  path: string,
+  runs: ExperimentRunViewModel[],
+): { runId?: string; runLabel?: string } {
+  const segments = path.split('/').map((segment) => segment.toLowerCase())
+  const exact = runs.find((run) => segments.includes(run.runId.toLowerCase()))
+  if (exact) {
+    return { runId: exact.runId, runLabel: exact.name || exact.runId }
+  }
+  if (segments.includes('baseline')) {
+    return { runId: 'baseline', runLabel: '对照组' }
+  }
+  if (segments.includes('treatment')) {
+    return { runId: 'treatment', runLabel: '实验组' }
+  }
+  return {}
 }
 
 function nodeStatusFromProcess(nodeId: string, process: RawProcess): TimelineNodeStatus {
@@ -1440,8 +1546,8 @@ function buildExperimentPreviews(
       id: entry.experiment_id ?? `E_R${roundNumber}_00`,
       targetHypothesis: hypothesisLabel(entry.tested_hypotheses?.[0]),
       utility: 0,
-      informationGain: 0,
-      performanceGain: entry.metrics_snapshot?.delta?.pearson_r ?? 0,
+      informationGain: undefined,
+      performanceGain: finiteNumber(entry.metrics_snapshot?.delta?.pearson_r),
       status: 'completed',
       scientificQuestion: sanitizeText(
         normalizeArmTerms(
@@ -1465,15 +1571,20 @@ function buildEvaluationPreview(
     .sort((a, b) => (b.round_id ?? 0) - (a.round_id ?? 0))[0]
 
   if (roundEntry?.metrics_snapshot) {
+    const metrics = roundEntry.metrics_snapshot
     return {
       experimentId: roundEntry.metrics_snapshot.experiment_id ?? roundEntry.experiment_id,
-      baselinePearsonR: roundEntry.metrics_snapshot.baseline_pearson_r ?? 0,
-      treatmentPearsonR: roundEntry.metrics_snapshot.treatment_pearson_r ?? 0,
-      deltaPearsonR: roundEntry.metrics_snapshot.delta?.pearson_r ?? 0,
-      deltaRmse: roundEntry.metrics_snapshot.delta?.rmse ?? 0,
-      pgActual: computePgActual(roundEntry.metrics_snapshot),
-      verdict: inferVerdict(roundEntry.metrics_snapshot.delta?.pearson_r),
+      experimentType: metrics.experiment_type,
+      baselinePearsonR: finiteNumber(metrics.baseline_pearson_r),
+      treatmentPearsonR: finiteNumber(metrics.treatment_pearson_r),
+      deltaPearsonR: finiteNumber(metrics.delta?.pearson_r),
+      deltaRmse: finiteNumber(metrics.delta?.rmse),
+      pgActual: computePgActual(metrics),
+      verdict: inferIncrementalVerdict(finiteNumber(metrics.delta?.pearson_r), metrics.experiment_type),
       stable: plannerInput.evaluation_summary?.stable,
+      runs: mapExperimentRuns(metrics),
+      contrasts: mapExperimentContrasts(metrics),
+      diagnostics: metrics.diagnostics ?? [],
     }
   }
 
@@ -1616,9 +1727,19 @@ function buildNodeDetails(
     case 'A':
       return evaluation
         ? [
-            `对照组相关性：${(evaluation.baselinePearsonR ?? 0).toFixed(4)}`,
-            `实验组相关性：${(evaluation.treatmentPearsonR ?? 0).toFixed(4)}`,
-            `改善幅度：${evaluation.deltaPearsonR.toFixed(4)}`,
+            ...(evaluation.runs ?? []).map(
+              (run) => `${run.name ?? run.runId} Pearson r：${formatOptionalNumber(run.pearsonR)}`,
+            ),
+            ...(evaluation.contrasts ?? []).slice(0, 2).map(
+              (contrast) => `${contrast.name ?? contrast.contrastId} ΔPearson r：${formatOptionalNumber(contrast.deltaPearsonR)}`,
+            ),
+            ...(evaluation.runs?.length === 0
+              ? [
+                  `对照组相关性：${formatOptionalNumber(evaluation.baselinePearsonR)}`,
+                  `实验组相关性：${formatOptionalNumber(evaluation.treatmentPearsonR)}`,
+                  `改善幅度：${formatOptionalNumber(evaluation.deltaPearsonR)}`,
+                ]
+              : []),
           ]
         : ['暂无评价结果']
     case 'W':
@@ -2107,26 +2228,44 @@ function buildExperimentEvaluationViewModel(
       : undefined,
     metricComparison: latestEntry?.metrics_snapshot
       ? {
-          baselineRmse: latestEntry.metrics_snapshot.baseline_rmse,
-          treatmentRmse: latestEntry.metrics_snapshot.treatment_rmse,
-          baselinePearsonR: latestEntry.metrics_snapshot.baseline_pearson_r,
-          treatmentPearsonR: latestEntry.metrics_snapshot.treatment_pearson_r,
-          deltaPearsonR: latestEntry.metrics_snapshot.delta?.pearson_r,
-          deltaRmse: latestEntry.metrics_snapshot.delta?.rmse,
+          experimentType: latestEntry.metrics_snapshot.experiment_type,
+          baselineRmse: finiteNumber(latestEntry.metrics_snapshot.baseline_rmse),
+          treatmentRmse: finiteNumber(latestEntry.metrics_snapshot.treatment_rmse),
+          baselinePearsonR: finiteNumber(latestEntry.metrics_snapshot.baseline_pearson_r),
+          treatmentPearsonR: finiteNumber(latestEntry.metrics_snapshot.treatment_pearson_r),
+          deltaPearsonR: finiteNumber(latestEntry.metrics_snapshot.delta?.pearson_r),
+          deltaRmse: finiteNumber(latestEntry.metrics_snapshot.delta?.rmse),
+          runs: mapExperimentRuns(latestEntry.metrics_snapshot),
+          contrasts: mapExperimentContrasts(latestEntry.metrics_snapshot),
+          diagnostics: latestEntry.metrics_snapshot.diagnostics ?? [],
         }
       : undefined,
     dataCoverage: mapDataCoverage(latestEntry?.data_coverage),
     visualizationPaths: latestEntry?.visualizations ?? [],
-    visualizationItems: (latestEntry?.visualizations ?? []).map((item) => ({
-      path: item,
-      label: getVisualizationLabel(item),
-      previewUrl: getVisualizationPreviewUrl(item, imageVersion),
-      variant: item.includes('/baseline/')
-        ? 'baseline'
-        : item.includes('/treatment/')
-          ? 'treatment'
-          : 'artifact',
-    })),
+    visualizationItems: (latestEntry?.visualizations ?? []).map((item) => {
+      const runMatch = inferVisualizationRun(
+        item,
+        mapExperimentRuns(latestEntry?.metrics_snapshot),
+      )
+      const baseLabel = getVisualizationLabel(item)
+      return {
+        path: item,
+        label: runMatch.runLabel
+          ? `${runMatch.runLabel} · ${baseLabel.replace(`${runMatch.runId}_`, '').replace(`${runMatch.runId} `, '')}`
+          : baseLabel,
+        previewUrl: getVisualizationPreviewUrl(item, imageVersion),
+        variant:
+          runMatch.runId === 'baseline'
+            ? 'baseline'
+            : runMatch.runId === 'treatment'
+              ? 'treatment'
+              : runMatch.runId
+                ? 'run'
+                : 'artifact',
+        runId: runMatch.runId,
+        runLabel: runMatch.runLabel,
+      }
+    }),
   }
 }
 
@@ -2490,6 +2629,10 @@ function buildThreeLayerConclusionViewModel(
       treatmentPearsonR: experiment.treatment_pearson_r,
       skillDelta: experiment.skill_delta,
       decisive: experiment.decisive === true,
+      experimentType: experiment.experiment_type,
+      runs: mapExperimentRuns(experiment),
+      contrasts: mapExperimentContrasts(experiment),
+      diagnostics: experiment.diagnostics ?? [],
     },
     hypothesisLayer,
     scientificLayer: {
@@ -2641,12 +2784,15 @@ function buildRoundReportViewModel(
           ? 'next_round'
           : 'adjust',
     summary: {
+      experimentType: latestEntry?.metrics_snapshot?.experiment_type,
       baselinePearsonR: latestEntry?.metrics_snapshot?.baseline_pearson_r,
       treatmentPearsonR: latestEntry?.metrics_snapshot?.treatment_pearson_r,
       deltaPearsonR: latestEntry?.metrics_snapshot?.delta?.pearson_r,
       baselineRmse: latestEntry?.metrics_snapshot?.baseline_rmse,
       treatmentRmse: latestEntry?.metrics_snapshot?.treatment_rmse,
       deltaRmse: latestEntry?.metrics_snapshot?.delta?.rmse,
+      runs: mapExperimentRuns(latestEntry?.metrics_snapshot),
+      contrasts: mapExperimentContrasts(latestEntry?.metrics_snapshot),
     },
     dataCoverage: mapDataCoverage(latestEntry?.data_coverage),
     scientificConclusions: uniqueStrings(

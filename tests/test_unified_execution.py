@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -166,6 +167,79 @@ class UnifiedExecutionTest(unittest.TestCase):
         )
         self.assertEqual(evaluation.visualizations[0].path, result.visualizations[0].path)
 
+    def test_frozen_evaluation_plan_is_shared_across_candidates(self) -> None:
+        def protocol(experiment_id: str, treatment: list[str]):
+            return ExperimentProtocol(
+                experiment_id=experiment_id,
+                round_id=1,
+                task_id="ST_004",
+                target="Vsw",
+                features={
+                    "target": "Vsw",
+                    "control": ["By", "Bz"],
+                    "treatment": treatment,
+                    "lags": {},
+                },
+                model=ModelSpec(
+                    name="ElasticNet",
+                    parameters={
+                        "window_size": 4,
+                        "use_lag_feature": False,
+                        "alpha": 0.1,
+                        "l1_ratio": 0.5,
+                        "random_state": 7,
+                        "test_split_ratio": 0.25,
+                        "forecast_horizon_days": 1,
+                        "past_lag_days": 4,
+                    },
+                ),
+            )
+
+        harness = UnifiedExperimentHarness(
+            data_source=self.data_source,
+            project_root=self.root,
+            run_shap=False,
+        )
+        first = harness.run(protocol("E04", ["By", "Bz", "DeltaDec"]))
+
+        plan_path = self.root / "config" / "evaluation_plan.json"
+        self.assertTrue(plan_path.exists())
+        first_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        self.assertEqual(first_plan["split_label"], "dev_backtest")
+        self.assertIsNotNone(first_plan["test_start"])
+
+        harness.run(protocol("E05", ["By", "Bz"]))
+        second_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            second_plan["test_start"],
+            first_plan["test_start"],
+            "候选实验改变特征集合后不得移动评估分区边界",
+        )
+
+        archived_plan = (
+            self.root
+            / "results"
+            / "round_01"
+            / "archive"
+            / first.run_id
+            / "evaluation_plan.json"
+        )
+        self.assertTrue(archived_plan.exists())
+        archived = json.loads(archived_plan.read_text(encoding="utf-8"))
+        self.assertEqual(archived["split_label"], "dev_backtest")
+        self.assertEqual(archived["test_start"], first_plan["test_start"])
+
+        archive_dir = self.root / "results" / "round_01" / "archive" / first.run_id
+        for archive_name in (
+            "data_manifest.json",
+            "sample_manifest.csv",
+            "diagnostics.json",
+            "run_notes.json",
+            "compiled_plan.json",
+        ):
+            self.assertTrue((archive_dir / archive_name).exists(), archive_name)
+        self.assertTrue((self.root / "outputs" / "latest_metrics.json").exists())
+
     def test_pfss_missing_days_only_affects_arms_using_pfss_features(self) -> None:
         base_dates = pd.date_range("2021-01-01", periods=40, freq="D")
         omni = pd.DataFrame(
@@ -260,7 +334,7 @@ class UnifiedExecutionTest(unittest.TestCase):
             self.assertEqual(item.dropped_gap_windows, 0)
             self.assertEqual(
                 item.note,
-                "缺失记录已按行剔除（inner merge + dropna），窗口直接基于剩余行构造",
+                "缺失记录保留至日历样本层，按历史特征与目标可用性判定保留或排除",
             )
 
         protocol_without_pfss = ExperimentProtocol(

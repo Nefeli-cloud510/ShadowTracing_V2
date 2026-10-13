@@ -147,6 +147,7 @@ def export_result_bundle(
     round_dir: Path,
     latest_protocol_path: Path,
     latest_metrics_path: Path,
+    write_latest: bool = True,
 ) -> None:
     round_dir.mkdir(parents=True, exist_ok=True)
     latest_protocol_path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,14 +180,15 @@ def export_result_bundle(
         json.dumps(result_payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    latest_protocol_path.write_text(
-        json.dumps(protocol_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    latest_metrics_path.write_text(
-        json.dumps(latest_metrics_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    if write_latest:
+        latest_protocol_path.write_text(
+            json.dumps(protocol_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        latest_metrics_path.write_text(
+            json.dumps(latest_metrics_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
 
 def _safe_delta(new_value: float | None, old_value: float | None) -> float | None:

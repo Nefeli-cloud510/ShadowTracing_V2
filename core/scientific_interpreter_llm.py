@@ -142,6 +142,7 @@ class ScientificInterpreterLLM:
                     response_model=ScientificInterpreterLLMResponse,
                     image_paths=image_paths,
                     fallback_factory=None,
+                    role="科学解释者llm",
                 )
             except Exception:
                 # Vision may be unsupported by the active model; retry text-only
@@ -157,6 +158,7 @@ class ScientificInterpreterLLM:
                     response_model=ScientificInterpreterLLMResponse,
                     image_paths=None,
                     fallback_factory=None,
+                    role="科学解释者llm",
                 )
         if response is None:
             response = self.gateway.generate_structured(
@@ -170,6 +172,7 @@ class ScientificInterpreterLLM:
                 response_model=ScientificInterpreterLLMResponse,
                 image_paths=None,
                 fallback_factory=None,
+                role="科学解释者llm",
             )
         return InterpreterRoundAnalysis(
             enhancements=self._build_enhancement(planner_input, baseline, response),

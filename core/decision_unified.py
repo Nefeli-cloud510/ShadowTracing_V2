@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from time import perf_counter
 
 from core.state_repository import UnifiedStateRepository
 from core.unified_schema import (
@@ -391,7 +393,14 @@ class CandidateExperimentGenerator:
                 used_signatures=used_signatures,
             )
             experiment_type = _candidate_experiment_type(record)
-            signature = _design_signature(design)
+            if experiment_type != "model_sensitivity" and _discusses_model_form(record):
+                capability_note = (
+                    "capability_boundary:当前执行层仅接通 Ridge / ElasticNet 线性模型，"
+                    "无法验证非线性机制；本候选保留为线性框架内的增量检验。"
+                )
+                if capability_note not in design.notes:
+                    design.notes.append(capability_note)
+            signature = _design_signature(design, experiment_type=experiment_type)
             if signature in used_signatures:
                 continue
             used_signatures.add(signature)
@@ -671,7 +680,8 @@ class DecisionLayerService:
             if data_dictionary.feature_candidates
             else task.payload.research_question.target
         )
-        for candidate in candidates.candidates:
+
+        def _design_one(candidate: CandidateExperiment) -> CandidateExperiment:
             record = (
                 uncertainty_index.get(candidate.related_uncertainties[0])
                 if candidate.related_uncertainties
@@ -689,6 +699,26 @@ class DecisionLayerService:
                 primary_x=primary_x,
                 round_id=resolved_round or candidates.round,
             )
+            return candidate
+
+        design_deadline = self._design_deadline_seconds()
+        design_started = perf_counter()
+        design_payloads = list(candidates.candidates)
+        with ThreadPoolExecutor(
+            max_workers=min(3, max(1, len(design_payloads)))
+        ) as pool:
+            futures = [pool.submit(_design_one, candidate) for candidate in design_payloads]
+            for future in as_completed(futures):
+                if design_deadline is not None and (
+                    perf_counter() - design_started
+                ) >= design_deadline:
+                    for pending in futures:
+                        pending.cancel()
+                    raise TimeoutError(
+                        f"候选实验设计超过统一截止时间 {design_deadline:.0f}s"
+                    )
+                future.result()
+
         self.experiment_writer.write_all(
             candidates=candidates.candidates,
             task=task,
@@ -708,6 +738,16 @@ class DecisionLayerService:
         self.repository.save_uncertainties(uncertainties)
         self.repository.save_candidate_experiments(scored)
         return scored
+
+    def _design_deadline_seconds(self) -> float | None:
+        raw = get_runtime_setting("llm_batch_deadline_seconds", None)
+        if raw is None:
+            return None
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) and value > 0 else None
 
 
 def _refresh_uncertainty_disagreement(
@@ -784,10 +824,6 @@ _MODEL_SENSITIVITY_TOKENS = (
     "ridge",
     "elasticnet",
     "elastic net",
-    "线性",
-    "非线性",
-    "linear",
-    "nonlinear",
     "算法依赖",
     "模型依赖",
     "模型家族",
@@ -797,10 +833,28 @@ _MODEL_SENSITIVITY_TOKENS = (
 )
 
 
+def _mentions_nonlinearity(text: str) -> bool:
+    """True when the uncertainty explicitly asks about a nonlinear form."""
+
+    lowered = text.lower()
+    return "非线性" in lowered or "nonlinear" in lowered
+
+
+def _discusses_model_form(record: UncertaintyRecord) -> bool:
+    """Detect uncertainty about linear/nonlinear model form for capability notes."""
+
+    text = f"{record.question} {record.description}".lower()
+    return _mentions_nonlinearity(text) or any(
+        token in text for token in ("线性", "linear", "模型形式", "model form")
+    )
+
+
 def _candidate_experiment_type(record: UncertaintyRecord) -> str:
     """Map an uncertainty to the registered execution type without inventing types."""
 
     text = f"{record.question} {record.description}".lower()
+    if _mentions_nonlinearity(text):
+        return "incremental_prediction"
     if any(token.lower() in text for token in _MODEL_SENSITIVITY_TOKENS):
         return "model_sensitivity"
     return "incremental_prediction"
@@ -848,6 +902,12 @@ def _apply_model_sensitivity_design(design: ExperimentDesign) -> None:
         )
         for family in families
     ]
+    capability_note = (
+        "capability_boundary:model_sensitivity_仅限线性家族内的正则化与设置敏感性，"
+        "不验证非线性机制"
+    )
+    if capability_note not in design.notes:
+        design.notes.append(capability_note)
 
 
 def _notes_mining_features(record: UncertaintyRecord) -> list[str]:
@@ -912,6 +972,14 @@ def _uncertainty_design_strategy(
     return "incremental_beyond_focus"
 
 
+def _lag_stability_values(record: UncertaintyRecord) -> list[int]:
+    """Keep time-stability and prediction-horizon questions on distinct axes."""
+    text = f"{record.question} {record.description}".lower()
+    if any(token in text for token in ("horizon", "lead time", "超前", "提前量", "窗口")):
+        return [1, 3, 5]
+    return [1, 2, 3]
+
+
 def _build_design_for_strategy(
     *,
     strategy: str,
@@ -920,6 +988,7 @@ def _build_design_for_strategy(
     target: str,
     feature_pool: list[str],
     uncertainty_base_features: list[str] | None = None,
+    lag_values: list[int] | None = None,
 ) -> tuple[ExperimentDesign, str]:
     """Build a 对照组/实验组 design that isolates ``primary_x``.
 
@@ -945,7 +1014,11 @@ def _build_design_for_strategy(
         ]
     control = baseline_features
     treatment = _unique_preserve_order([*baseline_features, primary_x])
-    lags = {primary_x: [1, 2, 3]} if strategy == "lag_stability" else {}
+    lags = (
+        {primary_x: lag_values or [1, 2, 3]}
+        if strategy == "lag_stability"
+        else {}
+    )
 
     return ExperimentDesign(
         target=target,
@@ -1000,7 +1073,7 @@ def _design_from_uncertainty(
 
     is_partial = record.resolution_status == "partially_resolved"
 
-    focus_candidates = _candidate_focus_features(
+    uncertainty_own_focus_candidates = _candidate_focus_features(
         record=record,
         node_index=node_index,
         primary_x=primary_x,
@@ -1010,7 +1083,11 @@ def _design_from_uncertainty(
     )
     preferred = _preferred_planning_features(planning_context, semantic, feature_pool)
     if preferred:
-        focus_candidates = _unique_preserve_order([*preferred, *focus_candidates])
+        focus_candidates = _unique_preserve_order(
+            [*preferred, *uncertainty_own_focus_candidates]
+        )
+    else:
+        focus_candidates = uncertainty_own_focus_candidates
     focus_order = _unique_preserve_order([*focus_candidates, primary_x, *feature_pool])
 
     if planning_context.prefer_simple_design and preferred:
@@ -1038,10 +1115,11 @@ def _design_from_uncertainty(
     strategy = _uncertainty_design_strategy(record, text, has_non_primary_focus)
     fallback_design: ExperimentDesign | None = None
     uncertainty_base_feature = next(
-        (feature for feature in focus_candidates if feature != primary_x),
+        (feature for feature in uncertainty_own_focus_candidates if feature != primary_x),
         None,
     )
 
+    lag_values = _lag_stability_values(record) if strategy == "lag_stability" else None
     for focus in focus_order:
         design, effective_focus = _build_design_for_strategy(
             strategy=strategy,
@@ -1052,6 +1130,7 @@ def _design_from_uncertainty(
             uncertainty_base_features=(
                 [uncertainty_base_feature] if uncertainty_base_feature else []
             ),
+            lag_values=lag_values,
         )
         strategy_notes = {
             "global_incremental": "probe_global_incremental_gain:primary variable added to compact baseline",
@@ -1089,7 +1168,11 @@ def _design_from_uncertainty(
         design.notes = notes
         if fallback_design is None:
             fallback_design = design
-        if _design_signature(design) not in used_signatures:
+        signature = _design_signature(
+            design,
+            experiment_type=_candidate_experiment_type(record),
+        )
+        if signature not in used_signatures:
             return design
 
     if fallback_design is not None:
@@ -1109,13 +1192,39 @@ def _design_from_uncertainty(
     )
 
 
+def _run_spec_signature(spec: RunSpec) -> tuple[str, str, tuple[str, ...], tuple[tuple[str, object], ...]]:
+    params = tuple(sorted(spec.parameters.items()))
+    return (
+        spec.run_id,
+        normalize_model_family(spec.model_family),
+        tuple(spec.feature_columns),
+        params,
+    )
+
+
+def _contrast_spec_signature(spec: ContrastSpec) -> tuple[str, str, str, tuple[str, ...], tuple[str, ...]]:
+    return (
+        spec.contrast_id,
+        spec.kind,
+        spec.direction,
+        tuple(spec.run_ids),
+        tuple(spec.contrast_ids),
+    )
+
+
 def _design_signature(
     design: ExperimentDesign,
+    *,
+    experiment_type: str = "incremental_prediction",
 ) -> tuple[
     tuple[str, ...],
     tuple[str, ...],
     tuple[tuple[str, tuple[int, ...]], ...],
     tuple[int | None, int | None, int | None, int | None, int | None, int | None, int | None],
+    str,
+    tuple[str, ...],
+    tuple[tuple[str, str, tuple[str, ...], tuple[tuple[str, object], ...]], ...],
+    tuple[tuple[str, str, str, tuple[str, ...], tuple[str, ...]], ...],
 ]:
     return (
         tuple(design.control),
@@ -1130,6 +1239,10 @@ def _design_signature(
             design.control_forecast_horizon_days,
             design.treatment_forecast_horizon_days,
         ),
+        experiment_type,
+        tuple(sorted({normalize_model_family(name) for name in design.model_families})),
+        tuple(sorted(_run_spec_signature(spec) for spec in design.runs_spec)),
+        tuple(sorted(_contrast_spec_signature(spec) for spec in design.contrasts_spec)),
     )
 
 
@@ -1446,12 +1559,35 @@ def _formal_information_gain(
         )
 
     pair_scores: list[float] = []
+    incomparable_pairs = 0
     focus_label = candidate.design.design_focus
     for index, left in enumerate(predictions):
         for right in predictions[index + 1 :]:
-            overlap = _prediction_overlap(left.expected_range, right.expected_range)
-            pair_scores.append(1.0 - overlap)
-    ig = sum(pair_scores) / len(pair_scores)
+            overlap = _prediction_overlap(
+                left.expected_range,
+                right.expected_range,
+                left_metric=left.metric,
+                right_metric=right.metric,
+            )
+            if overlap is None:
+                incomparable_pairs += 1
+                continue
+            score = 1.0 - overlap
+            pair_scores.append(score)
+    if pair_scores:
+        ig = sum(pair_scores) / len(pair_scores)
+    elif incomparable_pairs:
+        return (
+            0.5,
+            "候选实验关联假设的预测区间使用不同指标（metric 不一致），无法直接计算区分度；"
+            f"{incomparable_pairs} 组区间因指标单位不同被标记为不可比，按中性 0.5 处理。"
+            "请让关联假设在同一指标上给出预测区间后再做严格比较。",
+        )
+    else:
+        return (
+            0.5,
+            "候选实验预测区间缺失，无法计算区分度，按中性 0.5 处理。",
+        )
     focus_text = f"围绕设计焦点 {focus_label}，候选实验针对性区分 " if focus_label else "候选实验共区分 "
     used_metrics = sorted(
         {
@@ -1466,16 +1602,31 @@ def _formal_information_gain(
         else "，预测区间为程序回退估计"
     )
     rationale = (
-        "按 IG_pair(H_i,H_j)=1-overlap、IG(E)=avg(IG_pair) 计算；"
-        f"{focus_text}{len(predictions)} 个相关竞争假设、{len(pair_scores)} 组预测区间，"
+        "按可比的预测区间对计算 IG_pair=1-overlap、IG(E)=avg(IG_pair)；"
+        f"{focus_text}{len(predictions)} 个相关竞争假设、{len(pair_scores)} 组可比预测区间"
+        f"（{incomparable_pairs} 组因指标不一致不可比），"
         f"平均区分度为 {ig:.4f}{metric_text}。"
     )
     if current_round > 1:
-        rationale += " 当前为实验前预估；实验完成后系统以实际观测 Δ 计算后验 KL 散度审计并写入评估结果。"
+        rationale += (
+            " 本评分是实验前的预期区分度启发式评分，不是严格贝叶斯 EIG；"
+            "实验完成后系统以实际观测 Δ 计算后验 KL 散度审计并写入评估结果。"
+        )
     return round(min(max(ig, 0.0), 1.0), 4), rationale
 
 
-def _prediction_overlap(left_range: list[float] | None, right_range: list[float] | None) -> float:
+def _prediction_overlap(
+    left_range: list[float] | None,
+    right_range: list[float] | None,
+    *,
+    left_metric: str | None = None,
+    right_metric: str | None = None,
+) -> float | None:
+    if left_metric or right_metric:
+        left_norm = (left_metric or "").strip().lower()
+        right_norm = (right_metric or "").strip().lower()
+        if left_norm != right_norm:
+            return None
     if not left_range or not right_range:
         return 0.5
     left_mu = (left_range[0] + left_range[1]) / 2
@@ -1504,11 +1655,12 @@ def _formal_expected_performance_gain(
     experiment_memory: ExperimentMemoryState | None,
     current_round: int,
 ) -> tuple[float, str]:
-    current_best_rmse = _current_best_rmse(experiment_memory)
+    current_best_rmse = _current_best_rmse(experiment_memory, candidate=candidate)
     if current_round <= 1 or current_best_rmse is None:
         return (
             0.0,
-            "第一轮或尚无历史实验结果时，按规则将 PG_expected 置为 0，不参与综合价值计算。",
+            "第一轮、尚无历史实验结果、或没有同类型可比的对照组/实验组 RMSE 时，"
+            "按规则将 PG_expected 置为 0，不参与综合价值计算。",
         )
     predicted_after_rmse, similarity, historical_gain = _predict_after_rmse_from_history(
         candidate=candidate,
@@ -1517,11 +1669,12 @@ def _formal_expected_performance_gain(
     )
     pg_expected = (current_best_rmse - predicted_after_rmse) / max(current_best_rmse, EPSILON)
     rationale = (
-        "按 PG_expected(E)=(RMSE_current_best-RMSE_predicted_after(E))/RMSE_current_best 计算；"
+        "按 PG_expected(E)=(RMSE_current_best-RMSE_predicted_after(E))/RMSE_current_best "
+        "仅使用同类型、同对比结构、同时间定义的历史结果计算；"
         f"当前最优 RMSE={current_best_rmse:.4f}，历史相似度={similarity:.4f}，"
         f"历史平均实际增益={historical_gain:.4f}，预测实验后 RMSE={predicted_after_rmse:.4f}。"
     )
-    return round(min(max(pg_expected, 0.0), 1.0), 4), rationale
+    return round(min(max(pg_expected, -1.0), 1.0), 4), rationale
 
 
 def _predict_after_rmse_from_history(
@@ -1538,10 +1691,11 @@ def _predict_after_rmse_from_history(
     fallback_gains: list[float] = []
     for entry in experiment_memory.entries:
         metrics = entry.metrics_snapshot
-        gain = _entry_actual_pg(metrics)
+        if not _same_experiment_structure(candidate, entry):
+            continue
+        gain = _entry_actual_pg(metrics, experiment_type=entry.experiment_type)
         if gain is None:
             continue
-        gain = max(gain, 0.0)
         fallback_gains.append(gain)
         similarity = _historical_similarity(candidate, entry)
         if similarity <= 0.0:
@@ -1552,29 +1706,102 @@ def _predict_after_rmse_from_history(
     historical_gain = weighted_gain / similarity_total if similarity_total > 0 else (
         sum(fallback_gains) / len(fallback_gains) if fallback_gains else 0.0
     )
-    design_bonus = min(0.04, 0.01 * max(len(candidate.design.treatment) - len(candidate.design.control), 0))
     lag_penalty = 0.01 * len(candidate.design.lags)
-    predicted_gain = min(max(historical_gain + design_bonus - lag_penalty, 0.0), 0.35)
+    predicted_gain = min(historical_gain - lag_penalty, 0.35)
     predicted_after_rmse = max(current_best_rmse * (1.0 - predicted_gain), EPSILON)
     normalized_similarity = min(similarity_total / max(len(fallback_gains), 1), 1.0) if fallback_gains else 0.0
     return predicted_after_rmse, normalized_similarity, historical_gain
 
 
-def _entry_actual_pg(metrics) -> float | None:
+def _entry_actual_pg(metrics, *, experiment_type: str | None = None) -> float | None:
     if metrics is None:
         return None
     if metrics.pg_actual_signed is not None:
         return metrics.pg_actual_signed
+    if experiment_type in {"model_sensitivity", "baseline_benchmark", "robustness_diagnostic"}:
+        return None
     if metrics.baseline_rmse is None or metrics.treatment_rmse is None:
         return None
     return (metrics.baseline_rmse - metrics.treatment_rmse) / max(metrics.baseline_rmse, EPSILON)
+
+
+def _structure_signature(entry) -> tuple[str, tuple[str, ...]]:
+    entry_type = str(entry.experiment_type or "incremental_prediction").strip()
+    families = tuple(
+        sorted(normalize_model_family(str(name)) for name in (entry.model_families or []))
+    )
+    return entry_type, families
+
+
+def _entry_horizon_days(entry) -> int | None:
+    metrics = entry.metrics_snapshot
+    if metrics is None:
+        return None
+    horizons = []
+    for run in metrics.runs:
+        params = run.parameters or {}
+        for key in ("forecast_horizon_days", "forecast_horizon", "horizon_days"):
+            raw = params.get(key)
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                horizons.append(value)
+    return max(horizons) if horizons else None
+
+
+def _same_experiment_structure(candidate: CandidateExperiment, entry) -> bool:
+    candidate_type = str(candidate.experiment_type or candidate.type or "incremental_prediction").strip()
+    candidate_families = tuple(
+        sorted(normalize_model_family(str(name)) for name in candidate.design.model_families)
+    )
+    entry_type, entry_families = _structure_signature(entry)
+    if entry_type != candidate_type:
+        return False
+    if candidate_type == "model_sensitivity" and candidate_families and entry_families:
+        if set(candidate_families) != set(entry_families):
+            return False
+    candidate_horizons = {
+        candidate.design.control_forecast_horizon_days,
+        candidate.design.treatment_forecast_horizon_days,
+        candidate.design.forecast_horizon_days,
+    }
+    non_null_horizons = {value for value in candidate_horizons if value is not None}
+    if non_null_horizons:
+        candidate_horizon = min(non_null_horizons)
+        entry_horizon = _entry_horizon_days(entry)
+        if entry_horizon is not None and int(entry_horizon) != int(candidate_horizon):
+            return False
+    return True
 
 
 def _historical_similarity(candidate: CandidateExperiment, entry) -> float:
     hypothesis_overlap = _jaccard_similarity(set(candidate.tested_hypotheses), set(entry.tested_hypotheses))
     finding_overlap = _token_overlap(candidate.purpose, " ".join(entry.key_findings))
     status_bonus = 0.1 if entry.status == "completed" else 0.0
-    return min(0.65 * hypothesis_overlap + 0.25 * finding_overlap + status_bonus, 1.0)
+    structure = _structure_signature(entry)
+    candidate_type = str(candidate.experiment_type or candidate.type or "incremental_prediction").strip()
+    family_similarity = 1.0
+    entry_families = set(structure[1])
+    candidate_families = {
+        normalize_model_family(str(name)) for name in candidate.design.model_families
+    }
+    if candidate_families or entry_families:
+        family_similarity = (
+            len(candidate_families & entry_families) / max(len(candidate_families | entry_families), 1)
+            if (candidate_families or entry_families)
+            else 1.0
+        )
+    type_similarity = 0.2 if structure[0] == candidate_type else 0.0
+    return min(
+        0.45 * hypothesis_overlap
+        + 0.15 * finding_overlap
+        + 0.10 * family_similarity
+        + type_similarity
+        + status_bonus,
+        1.0,
+    )
 
 
 def _jaccard_similarity(left: set[str], right: set[str]) -> float:
@@ -1761,7 +1988,45 @@ def _estimate_compute_seconds(candidate: CandidateExperiment, data_dictionary: D
     step_count = max(len(candidate.design.lags), 1)
     data_coeff = max(1.0, (n_samples / 1000.0) * (n_features / 20.0))
     step_coeff = 1.0 + (step_count - 1) * 0.2
-    return 10.0 * data_coeff * step_coeff
+    run_specs = list(candidate.design.runs_spec or [])
+    run_count = max(len(run_specs), 2 if candidate.design.treatment else 1)
+    search_candidates = max(
+        1,
+        sum(
+            int(spec.parameters.get("search_candidates") or 0)
+            or int(spec.parameters.get("alpha_candidates") or 0)
+            or int(spec.parameters.get("l1_ratio_candidates") or 0)
+            for spec in run_specs
+        ),
+    )
+    diagnostics = list(candidate.design.diagnostics_spec or [])
+    diagnostic_runs = max(
+        sum(int(item.parameters.get("n_iterations") or 0) for item in diagnostics)
+        or len(diagnostics),
+        0,
+    )
+    cv_folds = max(
+        [
+            int(item.parameters.get("cv_folds") or 0)
+            for item in diagnostics
+            if int(item.parameters.get("cv_folds") or 0) > 0
+        ]
+        or [5],
+    )
+    run_coeff = 1.0 + (run_count - 2 if run_count > 2 else 0) * 0.45
+    search_coeff = 1.0 + max(search_candidates - 1, 0) * 0.08
+    cv_coeff = 1.0 + max(int(cv_folds) - 5, 0) * 0.06
+    diagnostic_coeff = 1.0 + diagnostic_runs * 0.12
+    return round(
+        10.0
+        * data_coeff
+        * step_coeff
+        * run_coeff
+        * search_coeff
+        * cv_coeff
+        * diagnostic_coeff,
+        2,
+    )
 
 
 def _has_similar_history(candidate: CandidateExperiment, experiment_memory: ExperimentMemoryState | None) -> bool:
@@ -1801,7 +2066,7 @@ def _estimate_performance_gain_from_text(
         partially_resolved=partially_resolved,
     )
     pg_expected = (current_best_rmse - predicted_after_rmse) / max(current_best_rmse, EPSILON)
-    return round(min(max(pg_expected, 0.0), 1.0), 4)
+    return round(min(max(pg_expected, -1.0), 1.0), 4)
 
 
 def _performance_gain_rationale(
@@ -1838,7 +2103,7 @@ def _performance_gain_rationale_from_text(
     return (
         "按 PG_expected(E) = (RMSE_current_best - RMSE_predicted_after(E)) / RMSE_current_best 估计；"
         f"当前最优 RMSE={current_best_rmse:.4f}，预测实验后 RMSE={predicted_after_rmse:.4f}，"
-        f"得到 PG_expected≈{max(pg_expected, 0.0):.4f}。"
+        f"得到 PG_expected≈{pg_expected:.4f}。"
     )
 
 
@@ -1884,11 +2149,17 @@ def _baseline_performance_gain_rationale(experiment_memory: ExperimentMemoryStat
     )
 
 
-def _current_best_rmse(experiment_memory: ExperimentMemoryState | None) -> float | None:
+def _current_best_rmse(
+    experiment_memory: ExperimentMemoryState | None,
+    *,
+    candidate: CandidateExperiment | None = None,
+) -> float | None:
     if experiment_memory is None:
         return None
     best: float | None = None
     for entry in experiment_memory.entries:
+        if candidate is not None and not _same_experiment_structure(candidate, entry):
+            continue
         metrics = entry.metrics_snapshot
         if metrics is None:
             continue

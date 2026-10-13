@@ -256,7 +256,7 @@ function ApprovalDetail({ rawLog, rawTree, displayText }: { rawLog: any; rawTree
               <strong>{requested?.details?.candidate_id ?? '--'}</strong>
               <p>{requested?.summary ?? '暂无候选实验请求'}</p>
               <div className="approval-metric-grid">
-                <span>IG {Number(requested?.details?.information_gain ?? 0).toFixed(3)}</span>
+                <span>预期区分度 {Number(requested?.details?.information_gain ?? 0).toFixed(3)}</span>
                 <span>PG {Number(requested?.details?.performance_gain ?? 0).toFixed(3)}</span>
                 <span>Risk {Number(requested?.details?.risk ?? 0).toFixed(3)}</span>
                 <span>Cost {Number(requested?.details?.cost ?? 0).toFixed(3)}</span>
@@ -268,7 +268,7 @@ function ApprovalDetail({ rawLog, rawTree, displayText }: { rawLog: any; rawTree
               <strong>{approved?.details?.candidate_id ?? '--'}</strong>
               <p>{approved?.summary ?? '当前尚未批准'}</p>
               <div className="approval-metric-grid">
-                <span>IG {Number(approved?.details?.information_gain ?? 0).toFixed(3)}</span>
+                <span>预期区分度 {Number(approved?.details?.information_gain ?? 0).toFixed(3)}</span>
                 <span>PG {Number(approved?.details?.performance_gain ?? 0).toFixed(3)}</span>
                 <span>Risk {Number(approved?.details?.risk ?? 0).toFixed(3)}</span>
                 <span>Cost {Number(approved?.details?.cost ?? 0).toFixed(3)}</span>

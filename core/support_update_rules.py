@@ -13,6 +13,36 @@ class SupportUpdateOutcome:
     magnitude_matched: bool | str
     status: str
     support_delta: float
+    updated: bool = True
+    evidence_classification: str | None = None
+
+
+# 证据分类。数值结论一律以 RMSE 增量为主指标：
+# gain_rmse = RMSE_baseline - RMSE_treatment，正值表示实验组更优。
+EVIDENCE_NOT_EXECUTED = "not_executed"
+EVIDENCE_INVALID = "invalid"
+EVIDENCE_NO_STABLE_GAIN = "no_stable_gain"
+EVIDENCE_STABLE_IMPROVEMENT = "stable_improvement"
+EVIDENCE_STABLE_DEGRADATION = "stable_degradation"
+EVIDENCE_INCONCLUSIVE = "inconclusive"
+
+EVIDENCE_CLASSIFICATION_LABELS = {
+    EVIDENCE_NOT_EXECUTED: "实验未执行，无可用证据",
+    EVIDENCE_INVALID: "实验执行无效，仅作审计记录",
+    EVIDENCE_NO_STABLE_GAIN: "未检出稳定增益，不更新支持度",
+    EVIDENCE_STABLE_IMPROVEMENT: "检测到稳定 RMSE 增益",
+    EVIDENCE_STABLE_DEGRADATION: "检测到稳定 RMSE 退化",
+    EVIDENCE_INCONCLUSIVE: "RMSE 增益 CI 跨零，证据不足以确定方向",
+}
+
+
+@dataclass(frozen=True)
+class EvidenceClassification:
+    classification: str
+    labels: list[str]
+    updated: bool = False
+    direction_matched: bool | str = "partial"
+    magnitude_matched: bool | str = "partial"
 
 
 def observed_delta_from_comparison(
@@ -20,15 +50,195 @@ def observed_delta_from_comparison(
     skill_delta: float | None,
     pearson_delta: float | None,
     rmse_delta: float | None,
+    primary_metric: str = "rmse",
 ) -> float:
-    # 所有 delta 统一为“正值 = 实验组增益”，rmse_delta 直接参与比较。
-    if skill_delta is not None:
-        return skill_delta
-    if pearson_delta is not None:
-        return pearson_delta
-    if rmse_delta is not None:
-        return rmse_delta
+    # 所有 delta 统一为“正值 = 实验组增益”。
+    metric_deltas = {
+        "rmse": rmse_delta,
+        "pearson_r": pearson_delta,
+        "skill": skill_delta,
+    }
+    metric = (primary_metric or "rmse").lower()
+    if metric_deltas.get(metric) is not None:
+        return metric_deltas[metric]
+    for value in metric_deltas.values():
+        if value is not None:
+            return value
     return 0.0
+
+
+def classify_rmse_gain_evidence(
+    *,
+    rmse_delta: float | None,
+    rmse_ci: list[float] | None = None,
+    execution_status: str = "completed",
+    validity_status: str = "valid",
+    allowed_conclusions: list[str] | None = None,
+    warnings: list[str] | None = None,
+) -> EvidenceClassification:
+    """把一次对照实验的主指标证据归入可审计分类。
+
+    CI 跨零时记录为 inconclusive，不自动当作反证；只有稳定改善/稳定退化
+    才允许保守更新支持度。``allowed_conclusions`` 中的特定结论只用于附加
+    标签（如 ElasticNet 筛零、无预测增量、磁场信息冗余），不改变分类本身。
+    """
+
+    if str(validity_status) == "invalid":
+        return EvidenceClassification(
+            classification=EVIDENCE_INVALID,
+            labels=_conclusion_labels(allowed_conclusions)
+            + (["实验校验失败"] if warnings else []),
+        )
+    if str(execution_status) != "completed":
+        return EvidenceClassification(
+            classification=EVIDENCE_NOT_EXECUTED,
+            labels=["实验未完成，暂缓支持度判定"],
+        )
+    if rmse_delta is None or not _finite(rmse_delta):
+        return EvidenceClassification(
+            classification=EVIDENCE_NO_STABLE_GAIN,
+            labels=["缺少成对 RMSE 增量，无法进行支持度判定"],
+        )
+
+    labels = _conclusion_labels(allowed_conclusions)
+    ci = _finite_ci(rmse_ci)
+    if ci is not None:
+        lower, upper = ci
+        if lower > 0.0:
+            return EvidenceClassification(
+                classification=EVIDENCE_STABLE_IMPROVEMENT,
+                labels=["bootstrap RMSE 增益 95% CI 整体为正"]
+                + labels,
+                updated=True,
+                direction_matched=True,
+            )
+        if upper < 0.0:
+            return EvidenceClassification(
+                classification=EVIDENCE_STABLE_DEGRADATION,
+                labels=["bootstrap RMSE 增益 95% CI 整体为负"]
+                + labels,
+                updated=True,
+                direction_matched=False,
+            )
+        return EvidenceClassification(
+            classification=EVIDENCE_INCONCLUSIVE,
+            labels=["bootstrap RMSE 增益 95% CI 跨越零，证据不足以确定方向"]
+            + labels,
+        )
+
+    labels.append("缺少 bootstrap CI，点估计无法确认稳定性")
+    if abs(rmse_delta) < 1e-6:
+        labels.append("观测 RMSE 增量接近零")
+    return EvidenceClassification(
+        classification=EVIDENCE_NO_STABLE_GAIN,
+        labels=labels,
+    )
+
+
+def compute_support_update_from_evidence(
+    *,
+    current_support: float,
+    evidence_classification: str,
+    evidence_labels: list[str] | None = None,
+    expected_effect: str | None = None,
+    expected_range: list[float] | None = None,
+    observed_delta: float | None = None,
+) -> SupportUpdateOutcome:
+    """按证据分类做保守、有界的支持度更新。
+
+    只有稳定改善/稳定退化会产生小幅度移动；CI 跨零、未检出稳定增益、
+    未执行或无效证据一律保持支持度不变。该结果不声称是后验概率。
+    """
+
+    effect = str(expected_effect or "").lower()
+    no_update_classifications = {
+        EVIDENCE_NOT_EXECUTED,
+        EVIDENCE_INVALID,
+        EVIDENCE_NO_STABLE_GAIN,
+        EVIDENCE_INCONCLUSIVE,
+    }
+    magnitude_matched = (
+        match_magnitude(observed_delta or 0.0, expected_range)
+        if expected_range
+        else "partial"
+    )
+    if evidence_classification in no_update_classifications:
+        return SupportUpdateOutcome(
+            support_before=current_support,
+            support_after=current_support,
+            direction_matched="partial",
+            magnitude_matched="partial",
+            status="partially_supported",
+            support_delta=0.0,
+            updated=False,
+            evidence_classification=evidence_classification,
+        )
+
+    if evidence_classification == EVIDENCE_STABLE_IMPROVEMENT:
+        if effect == "positive":
+            direction_matched, delta = True, 0.05
+        elif effect == "negative":
+            direction_matched, delta = False, -0.05
+        elif effect == "near_zero":
+            direction_matched, delta = False, -0.03
+        else:
+            direction_matched, delta = True, 0.03
+    elif evidence_classification == EVIDENCE_STABLE_DEGRADATION:
+        if effect == "positive":
+            direction_matched, delta = False, -0.05
+        elif effect == "negative":
+            direction_matched, delta = True, 0.05
+        elif effect == "near_zero":
+            direction_matched, delta = False, -0.03
+        else:
+            direction_matched, delta = False, -0.03
+    else:
+        direction_matched, delta = "partial", 0.0
+
+    support_after = round(min(max(current_support + delta, 0.05), 0.95), 4)
+    return SupportUpdateOutcome(
+        support_before=current_support,
+        support_after=support_after,
+        direction_matched=direction_matched,
+        magnitude_matched=magnitude_matched,
+        status=_assessment_status(direction_matched, magnitude_matched),
+        support_delta=round(support_after - current_support, 4),
+        updated=True,
+        evidence_classification=evidence_classification,
+    )
+
+
+def _finite(value: float) -> bool:
+    try:
+        return float(value) == float(value) and abs(float(value)) != float("inf")
+    except (TypeError, ValueError):
+        return False
+
+
+def _finite_ci(rmse_ci: list[float] | None) -> list[float] | None:
+    if not rmse_ci or len(rmse_ci) < 2:
+        return None
+    try:
+        lower, upper = float(rmse_ci[0]), float(rmse_ci[1])
+    except (TypeError, ValueError):
+        return None
+    if not (_finite(lower) and _finite(upper)):
+        return None
+    return [lower, upper]
+
+
+def _conclusion_labels(allowed_conclusions: list[str] | None) -> list[str]:
+    if not allowed_conclusions:
+        return []
+    text = " ".join(str(item).lower() for item in allowed_conclusions)
+    labels: list[str] = []
+    if "elasticnet" in text and any(token in text for token in ("zero", "筛零", "shrunk")):
+        labels.append("ElasticNet 焦点系数被筛为零")
+    if any(token in text for token in ("无预测增量", "no_incremental_gain", "no_incremental_value")):
+        labels.append("未检出焦点变量预测增量")
+    if any(token in text for token in ("磁场信息冗余", "redundant", "redundancy")):
+        labels.append("磁场信息冗余，增量信息已被对照变量覆盖")
+    return labels
 
 
 def match_direction(

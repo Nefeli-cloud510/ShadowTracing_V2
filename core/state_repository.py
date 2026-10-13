@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -54,6 +55,7 @@ class StatePaths:
     planner_input: Path
     planner_output: Path
     round_snapshots: Path
+    update_commit: Path
 
 
 class UnifiedStateRepository:
@@ -79,6 +81,7 @@ class UnifiedStateRepository:
             planner_input=self.state_dir / "planner_input.json",
             planner_output=self.state_dir / "planner_output.json",
             round_snapshots=self.state_dir / "round_snapshots",
+            update_commit=self.state_dir / "update_commit.json",
         )
 
     def initialize_state_skeleton(
@@ -388,8 +391,10 @@ class UnifiedStateRepository:
 
     def save_round_snapshot(self, round_id: int, snapshot: dict[str, Any]) -> Path:
         path = self.round_snapshot_path(round_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._write_atomic_text(
+            path,
+            json.dumps(snapshot, ensure_ascii=False, indent=2),
+        )
         return path
 
     def load_round_snapshot(self, round_id: int) -> dict[str, Any]:
@@ -408,9 +413,82 @@ class UnifiedStateRepository:
             return candidate.as_posix()
 
     def _save_model(self, file_path: Path, model: object) -> None:
-        file_path.parent.mkdir(parents=True, exist_ok=True)
         payload = getattr(model, "model_dump")(mode="json", exclude_none=True)
-        file_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._write_atomic_text(
+            file_path,
+            json.dumps(payload, ensure_ascii=False, indent=2),
+        )
+
+    @staticmethod
+    def _write_atomic_text(path: Path, data: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_name(f".{path.name}.tmp")
+        tmp_path.write_text(data, encoding="utf-8")
+        os.replace(tmp_path, path)
+
+    def load_update_commit(self) -> dict[str, Any]:
+        path = self.paths.update_commit
+        if not path.exists():
+            return {"experiments": {}}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {"experiments": {}}
+        if not isinstance(payload, dict):
+            return {"experiments": {}}
+        payload.setdefault("experiments", {})
+        return payload
+
+    def has_state_update_commit(
+        self,
+        experiment_id: str,
+        evidence_version: str | None,
+        *,
+        update_type: str = "evaluation",
+    ) -> bool:
+        if not evidence_version:
+            return False
+        payload = self.load_update_commit()
+        entry = payload.get("experiments", {}).get(experiment_id)
+        return bool(
+            isinstance(entry, dict)
+            and entry.get("status") == "committed"
+            and entry.get("evidence_version") == evidence_version
+            and update_type in entry.get("update_types", [])
+        )
+
+    def mark_state_update_committed(
+        self,
+        experiment_id: str,
+        evidence_version: str | None,
+        *,
+        update_type: str = "evaluation",
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        payload = self.load_update_commit()
+        experiments = payload.setdefault("experiments", {})
+        previous = experiments.get(experiment_id)
+        update_types = (
+            list(previous.get("update_types", []))
+            if isinstance(previous, dict)
+            else []
+        )
+        if update_type not in update_types:
+            update_types.append(update_type)
+        entry = {
+            "experiment_id": experiment_id,
+            "evidence_version": evidence_version,
+            "status": "committed",
+            "committed_at": datetime.now().isoformat(),
+            "update_types": update_types,
+        }
+        if extra:
+            entry.update(extra)
+        experiments[experiment_id] = entry
+        self._write_atomic_text(
+            self.paths.update_commit,
+            json.dumps(payload, ensure_ascii=False, indent=2),
+        )
 
     def _load_model(self, file_path: Path, model_cls: type[SchemaModelT]) -> SchemaModelT:
         payload = json.loads(file_path.read_text(encoding="utf-8"))

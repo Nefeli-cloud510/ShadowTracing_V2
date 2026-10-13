@@ -51,6 +51,14 @@ STATUS_COLORS = {
     "running": "#1f5f9e",
 }
 
+EXPERIMENT_TYPE_LABELS = {
+    "incremental_prediction": "增量预测",
+    "model_sensitivity": "模型敏感性",
+    "baseline_benchmark": "单臂基准",
+    "robustness_diagnostic": "稳健性诊断",
+    "temporal_sensitivity": "时间轴敏感性",
+}
+
 
 def _load_json(path: Path) -> dict[str, Any]:
     try:
@@ -298,55 +306,88 @@ def _figure_grid(bundle: dict[str, Any], round_number: int) -> str:
     evaluation = bundle.get("evaluation", {})
     result = bundle.get("result", {})
     visualizations = evaluation.get("visualizations") or result.get("visualizations") or []
-    figures: list[tuple[str, str]] = []
+    runs = evaluation.get("runs") or result.get("runs") or []
+    run_ids: list[str] = []
+    run_label_by_id: dict[str, str] = {}
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        rid = str(run.get("run_id") or run.get("name") or "")
+        if not rid:
+            continue
+        run_ids.append(rid)
+        run_label_by_id[rid] = str(run.get("name") or rid)
+    figures: list[tuple[str, str, str | None]] = []
     seen: set[str] = set()
     if visualizations:
         for item in visualizations:
             path = item.get("path") if isinstance(item, dict) else None
             name = item.get("name") or (Path(path or "").stem) if isinstance(item, dict) else ""
+            run_id = None
+            lowered_name = str(name).lower()
+            for rid in run_ids:
+                if lowered_name == rid.lower() or lowered_name.startswith(rid.lower() + "_"):
+                    run_id = rid
+                    break
+            if run_id is None and path:
+                segments = [segment.lower() for segment in str(path).replace("\\", "/").split("/")]
+                for rid in run_ids:
+                    if rid.lower() in segments:
+                        run_id = rid
+                        break
+                if run_id is None and "baseline" in segments:
+                    run_id = "baseline"
+                elif run_id is None and "treatment" in segments:
+                    run_id = "treatment"
             if path and path not in seen:
                 seen.add(str(path))
-                figures.append((str(name), str(path)))
+                figures.append((str(name), str(path), run_id))
     if not figures:
         run_dirs = list((LIVE_ROOT / "results" / f"round_{round_number:02d}").glob("E_*/"))
         for run_dir in run_dirs:
-            for arm in ("baseline", "treatment"):
-                for image in (run_dir / arm).glob("*.png"):
+            if not run_dir.is_dir():
+                continue
+            for arm_dir in sorted(item for item in run_dir.iterdir() if item.is_dir()):
+                for image in arm_dir.glob("*.png"):
                     if str(image) not in seen:
                         seen.add(str(image))
-                        figures.append((image.stem, str(image.relative_to(LIVE_ROOT))))
+                        figures.append((image.stem, str(image.relative_to(LIVE_ROOT)), arm_dir.name))
     if not figures:
         return '<p class="muted">本轮未收集到可导出的结果图。</p>'
 
-    group_baseline = [
-        item for item in figures if "baseline" in item[0].lower() or "/baseline/" in item[1].replace("\\", "/")
-    ]
-    group_treatment = [
-        item for item in figures if "treatment" in item[0].lower() or "/treatment/" in item[1].replace("\\", "/")
-    ]
-    group_other = [item for item in figures if item not in group_baseline and item not in group_treatment]
-    groups: list[tuple[str, list[tuple[str, str]]]] = []
-    if group_baseline:
-        groups.append(("对照组结果图", group_baseline))
-    if group_treatment:
-        groups.append(("实验组结果图", group_treatment))
-    if group_other:
-        groups.append(("其他结果图", group_other))
+    def group_label(run_id: str | None) -> str:
+        if run_id is None:
+            return "其他结果图"
+        if run_id == "baseline" or run_label_by_id.get(run_id) == "baseline":
+            return "实验结果图 · 对照组"
+        if run_id == "treatment" or run_label_by_id.get(run_id) == "treatment":
+            return "实验结果图 · 实验组"
+        return f"实验结果图 · {run_label_by_id.get(run_id, run_id)}"
+
+    grouped: dict[str, list[tuple[str, str]]] = {}
+    order: list[str] = []
+    for name, path, run_id in figures:
+        label = group_label(run_id)
+        if label not in grouped:
+            order.append(label)
+            grouped[label] = []
+        grouped[label].append((name, path))
 
     parts: list[str] = []
-    for group_label, items in groups:
+    for label in order:
+        items = grouped[label]
         cells: list[str] = []
         for name, path in items:
             data_uri = _embed_image(path)
             if not data_uri:
                 continue
-            label = name.replace("_", " ").replace("elasticnet ", "")
+            caption = name.replace("_", " ").replace("elasticnet ", "")
             cells.append(
-                f'<figure class="figure"><img src="{data_uri}" alt="{_esc(label)}"/>'
-                f"<figcaption>{_esc(label)}</figcaption></figure>"
+                f'<figure class="figure"><img src="{data_uri}" alt="{_esc(caption)}"/>'
+                f"<figcaption>{_esc(caption)}</figcaption></figure>"
             )
         if cells:
-            parts.append(f'<h4>{_esc(group_label)}</h4><div class="figure-grid">{"".join(cells)}</div>')
+            parts.append(f'<h4>{_esc(label)}</h4><div class="figure-grid">{"".join(cells)}</div>')
     return "".join(parts)
 
 
@@ -720,6 +761,11 @@ def _execution_section(bundle: dict[str, Any]) -> str:
     evaluation = bundle.get("evaluation", {})
     metrics = evaluation.get("metrics") or {}
     runs = result.get("runs") or []
+    experiment_type = str(
+        result.get("experiment_type")
+        or protocol.get("experiment_type")
+        or ""
+    ).lower()
 
     if not (protocol or result):
         body.append('<p class="muted">本轮尚未进入实验执行或结果未落盘。</p>')
@@ -729,6 +775,7 @@ def _execution_section(bundle: dict[str, Any]) -> str:
     approval = _last_decision(bundle, "experiment_approved", round_id=round_number)
     body.append(_kv_table([
         ("实验 ID", protocol.get("experiment_id") or result.get("experiment_id")),
+        ("实验类型", EXPERIMENT_TYPE_LABELS.get(experiment_type, experiment_type or "--")),
         ("执行状态", result.get("status") or "进行中"),
         ("审批记录", approval.get("timestamp") if approval else "--"),
         ("目标变量", protocol.get("target") or protocol.get("display_target")),
@@ -739,23 +786,89 @@ def _execution_section(bundle: dict[str, Any]) -> str:
     ]))
 
     body.append(_h3("4.2 指标对照"))
-    run_by_id = {str(run.get("run_id") or run.get("name")): run for run in runs}
-    baseline = run_by_id.get("baseline") or {}
-    treatment = run_by_id.get("treatment") or {}
+    result_runs = result.get("runs") or []
+    metrics_runs = metrics.get("runs") if isinstance(metrics, dict) else []
+    all_runs = result_runs or metrics_runs or runs
+    run_by_id = {str(run.get("run_id") or run.get("name")): run for run in all_runs if isinstance(run, dict)}
+    run_ids = list(run_by_id.keys())
     delta = result.get("comparison") or metrics.get("delta") or {}
     metric_names = [("Pearson r", "pearson_r"), ("RMSE", "rmse"), ("MAE", "mae"), ("R²", "r2")]
-    header = "<tr><th>指标</th><th>对照组</th><th>实验组</th><th>增量</th></tr>"
-    metric_rows = []
-    for label, key in metric_names:
-        baseline_value = metrics.get(f"baseline_{key}", baseline.get("metrics", {}).get(key))
-        treatment_value = metrics.get(f"treatment_{key}", treatment.get("metrics", {}).get(key))
-        delta_value = delta.get(key)
-        metric_rows.append(
-            "<tr>"
-            f"<td>{label}</td><td>{_fmt(baseline_value)}</td>"
-            f"<td>{_fmt(treatment_value)}</td><td>{_fmt(delta_value)}</td></tr>"
+    if run_ids:
+        header = "<tr><th>指标</th>" + "".join(
+            f"<th>{_esc(str(run_by_id[rid].get('name') or rid))}</th>" for rid in run_ids
+        ) + "</tr>"
+        metric_rows = []
+        for label, key in metric_names:
+            cells = []
+            for rid in run_ids:
+                run = run_by_id[rid]
+                run_metrics = run.get("metrics") or {}
+                cells.append(_fmt(metrics.get(f"{rid}_{key}", run_metrics.get(key))))
+            metric_rows.append(f"<tr><td>{label}</td>{''.join(f'<td>{cell}</td>' for cell in cells)}</tr>")
+        body.append(f"<table>{header}{''.join(metric_rows)}</table>")
+    else:
+        baseline = metrics.get("baseline") or {}
+        treatment = metrics.get("treatment") or {}
+        header = "<tr><th>指标</th><th>对照组</th><th>实验组</th><th>增量</th></tr>"
+        metric_rows = []
+        for label, key in metric_names:
+            metric_rows.append(
+                "<tr>"
+                f"<td>{label}</td><td>{_fmt(metrics.get(f'baseline_{key}', baseline.get(key)))}</td>"
+                f"<td>{_fmt(metrics.get(f'treatment_{key}', treatment.get(key)))}</td>"
+                f"<td>{_fmt(delta.get(key))}</td></tr>"
+            )
+        body.append(f"<table>{header}{''.join(metric_rows)}</table>")
+
+    contrasts = result.get("contrasts") or (metrics.get("contrasts") if isinstance(metrics, dict) else []) or []
+    if contrasts:
+        body.append(_h3("4.2.1 对比检验与置信区间"))
+        contrast_header = "<tr><th>对比</th><th>ΔPearson r</th><th>95% CI</th><th>ΔRMSE</th><th>95% CI</th><th>说明</th></tr>"
+        contrast_rows = []
+        for contrast in contrasts:
+            if not isinstance(contrast, dict):
+                continue
+            contrast_delta = contrast.get("metrics_delta") or {}
+            ci = contrast.get("bootstrap_ci") or {}
+            pearson_ci = ci.get("pearson_r_ci")
+            rmse_ci = ci.get("rmse_ci")
+            contrast_rows.append(
+                "<tr>"
+                f"<td>{_esc(contrast.get('name') or contrast.get('contrast_id'))}</td>"
+                f"<td>{_fmt(contrast_delta.get('pearson_r'))}</td>"
+                f"<td>{_fmt(pearson_ci[0])} ~ {_fmt(pearson_ci[1]) if isinstance(pearson_ci, list) and len(pearson_ci) == 2 else '--'}</td>"
+                f"<td>{_fmt(contrast_delta.get('rmse'))}</td>"
+                f"<td>{_fmt(rmse_ci[0])} ~ {_fmt(rmse_ci[1]) if isinstance(rmse_ci, list) and len(rmse_ci) == 2 else '--'}</td>"
+                f"<td>{_esc(contrast.get('note'))}</td></tr>"
+            )
+        body.append(f"<table>{contrast_header}{''.join(contrast_rows)}</table>")
+
+    diagnostics = (
+        result.get("diagnostics")
+        or (metrics.get("diagnostics") if isinstance(metrics, dict) else [])
+        or []
+    )
+    if diagnostics:
+        body.append(_h3("4.2.2 诊断与稳健性"))
+        diagnostic_rows = []
+        for item in diagnostics:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name") or item.get("diagnostic") or item.get("type") or "--"
+            status = item.get("status") or "completed"
+            detail = {
+                key: value
+                for key, value in item.items()
+                if key not in ("name", "diagnostic", "type", "status")
+            }
+            diagnostic_rows.append(
+                f"<tr><td>{_esc(name)}</td><td>{_esc(status)}</td><td>{_esc(detail)}</td></tr>"
+            )
+        body.append(
+            "<table><tr><th>诊断项</th><th>状态</th><th>配置与结果</th></tr>"
+            + "".join(diagnostic_rows)
+            + "</table>"
         )
-    body.append(f"<table>{header}{''.join(metric_rows)}</table>")
 
     model = protocol.get("model", {}) or {}
     parameters = model.get("parameters") if isinstance(model, dict) else {}
@@ -796,6 +909,7 @@ def _four_layer_section(bundle: dict[str, Any]) -> str:
     scientific = evaluation.get("scientific", {}) or {}
     conclusion = scientific.get("three_layer_conclusion") or {}
     metrics = evaluation.get("metrics") or {}
+    result = bundle.get("result", {})
     assessments = scientific.get("hypothesis_assessments") or conclusion.get("hypothesis_layer") or []
     data_layer = conclusion.get("data_layer") or {}
     scientific_layer = conclusion.get("scientific_layer") or {}
@@ -805,22 +919,65 @@ def _four_layer_section(bundle: dict[str, Any]) -> str:
         body.append('<p class="muted">本轮评估结果尚未落盘，四层分析将在评估完成后补齐。</p>')
         return "<section>" + "".join(body) + "</section>"
 
+    experiment_type = str(result.get("experiment_type") or "").lower()
+    type_label = EXPERIMENT_TYPE_LABELS.get(experiment_type, experiment_type or "未标注")
+    body.append(f'<p class="detail-card__meta">实验类型 · {_esc(type_label)}</p>')
     body.append(_h3("5.1 指标快照"))
     delta = metrics.get("delta") or {}
-    header = "<tr><th>指标</th><th>对照组</th><th>实验组</th><th>变化</th></tr>"
-    rows = [
-        ("RMSE", "baseline_rmse", "treatment_rmse", "rmse"),
-        ("Pearson r", "baseline_pearson_r", "treatment_pearson_r", "pearson_r"),
-        ("MAE", "baseline_mae", "treatment_mae", "mae"),
-    ]
-    table_rows = []
-    for label, base_key, treat_key, delta_key in rows:
-        table_rows.append(
-            "<tr>"
-            f"<td>{label}</td><td>{_fmt(metrics.get(base_key))}</td>"
-            f"<td>{_fmt(metrics.get(treat_key))}</td><td>{_fmt(delta.get(delta_key))}</td></tr>"
-        )
-    body.append(f"<table>{header}{''.join(table_rows)}</table>")
+    result_runs = result.get("runs") or (metrics.get("runs") if isinstance(metrics, dict) else []) or []
+    run_by_id = {
+        str(run.get("run_id") or run.get("name")): run
+        for run in result_runs
+        if isinstance(run, dict)
+    }
+    run_ids = list(run_by_id.keys())
+    if run_ids:
+        header = "<tr><th>指标</th>" + "".join(
+            f"<th>{_esc(str(run_by_id[rid].get('name') or rid))}</th>" for rid in run_ids
+        ) + "</tr>"
+        table_rows = []
+        for label, key in [("Pearson r", "pearson_r"), ("RMSE", "rmse"), ("MAE", "mae"), ("R²", "r2")]:
+            cells = []
+            for rid in run_ids:
+                run_metrics = run_by_id[rid].get("metrics") or {}
+                cells.append(_fmt(metrics.get(f"{rid}_{key}", run_metrics.get(key))))
+            table_rows.append(f"<tr><td>{label}</td>{''.join(f'<td>{cell}</td>' for cell in cells)}</tr>")
+        body.append(f"<table>{header}{''.join(table_rows)}</table>")
+        contrasts = result.get("contrasts") or (metrics.get("contrasts") if isinstance(metrics, dict) else []) or []
+        if contrasts:
+            contrast_header = "<tr><th>对比</th><th>ΔPearson r</th><th>95% CI</th><th>ΔRMSE</th><th>95% CI</th></tr>"
+            contrast_rows = []
+            for contrast in contrasts:
+                if not isinstance(contrast, dict):
+                    continue
+                contrast_delta = contrast.get("metrics_delta") or {}
+                ci = contrast.get("bootstrap_ci") or {}
+                pearson_ci = ci.get("pearson_r_ci")
+                rmse_ci = ci.get("rmse_ci")
+                contrast_rows.append(
+                    "<tr>"
+                    f"<td>{_esc(contrast.get('name') or contrast.get('contrast_id'))}</td>"
+                    f"<td>{_fmt(contrast_delta.get('pearson_r'))}</td>"
+                    f"<td>{_fmt(pearson_ci[0])} ~ {_fmt(pearson_ci[1]) if isinstance(pearson_ci, list) and len(pearson_ci) == 2 else '--'}</td>"
+                    f"<td>{_fmt(contrast_delta.get('rmse'))}</td>"
+                    f"<td>{_fmt(rmse_ci[0])} ~ {_fmt(rmse_ci[1]) if isinstance(rmse_ci, list) and len(rmse_ci) == 2 else '--'}</td></tr>"
+                )
+            body.append(f"<table>{contrast_header}{''.join(contrast_rows)}</table>")
+    else:
+        header = "<tr><th>指标</th><th>对照组</th><th>实验组</th><th>变化</th></tr>"
+        rows = [
+            ("RMSE", "baseline_rmse", "treatment_rmse", "rmse"),
+            ("Pearson r", "baseline_pearson_r", "treatment_pearson_r", "pearson_r"),
+            ("MAE", "baseline_mae", "treatment_mae", "mae"),
+        ]
+        table_rows = []
+        for label, base_key, treat_key, delta_key in rows:
+            table_rows.append(
+                "<tr>"
+                f"<td>{label}</td><td>{_fmt(metrics.get(base_key))}</td>"
+                f"<td>{_fmt(metrics.get(treat_key))}</td><td>{_fmt(delta.get(delta_key))}</td></tr>"
+            )
+        body.append(f"<table>{header}{''.join(table_rows)}</table>")
 
     body.append(_h3("5.2 第一层 · 数据层"))
     body.append(_quote("RMSE 变化归因（LLM 原文 / 程序回退）", data_layer.get("rmse_attribution")))
@@ -955,13 +1112,32 @@ def _conclusion_section(bundle: dict[str, Any]) -> str:
     data_layer = conclusion.get("data_layer") or {}
 
     body.append(_h3("7.1 数据指标分析"))
+    metrics = evaluation.get("metrics") or {}
+    result = bundle.get("result", {})
+    result_runs = result.get("runs") or (metrics.get("runs") if isinstance(metrics, dict) else []) or []
+    metric_summary: list[str] = []
+    for run in result_runs:
+        if not isinstance(run, dict):
+            continue
+        name = str(run.get("name") or run.get("run_id") or "运行")
+        rid = str(run.get("run_id") or name)
+        run_metrics = run.get("metrics") or {}
+        pearson = run_metrics.get("pearson_r", metrics.get(f"{rid}_pearson_r"))
+        rmse = run_metrics.get("rmse", metrics.get(f"{rid}_rmse"))
+        metric_summary.append(f"{name} Pearson r={_fmt(pearson)}，RMSE={_fmt(rmse)}")
+    if metric_summary:
+        metric_analysis = "；".join(metric_summary)
+    else:
+        metric_analysis = (
+            f"对照组 Pearson r={_fmt(metrics.get('baseline_pearson_r'))}，"
+            f"实验组 Pearson r={_fmt(metrics.get('treatment_pearson_r'))}"
+        )
     body.append(
         _quote(
             "科学结论 · 数据指标分析",
             (
                 "对太阳风速度的预测："
-                f"对照组 Pearson r={_fmt(evaluation.get('metrics', {}).get('baseline_pearson_r'))}，"
-                f"实验组 Pearson r={_fmt(evaluation.get('metrics', {}).get('treatment_pearson_r'))}；"
+                f"{metric_analysis}；"
                 f"{_to_text(data_layer.get('rmse_attribution'))}；"
                 f"{_to_text(data_layer.get('pearson_attribution'))}。"
             ),
@@ -1000,9 +1176,16 @@ def _conclusion_section(bundle: dict[str, Any]) -> str:
     body.append(_h3("7.5 人工 PI 最终决策"))
     review = _last_decision(bundle, "round_review_requested", round_id=round_number)
     continue_decision = _last_decision(bundle, "continue_next_round", round_id=round_number)
+    decision_reason = review.get("summary") if review else None
+    if not decision_reason and continue_decision:
+        decision_reason = (
+            continue_decision.get("details", {})
+            .get("human_feedback")
+            or "--"
+        )
     body.append(_kv_table([
         ("决策", "进入下一轮" if continue_decision else "--"),
-        ("决策理由", review.get("summary") or continue_decision.get("details", {}).get("human_feedback") or "--"),
+        ("决策理由", decision_reason or "--"),
         ("决策时间", review.get("timestamp") if review else "--"),
     ]))
     return "<section>" + "".join(body) + "</section>"

@@ -1,5 +1,6 @@
 import type { ThreeLayerConclusionViewModel } from '../types/timeline'
 import { getVisualizationPreviewUrl } from '../data/realStateLoader'
+import { ContrastRows, RunMetricsGrid, experimentTypeLabel } from './ExperimentMetrics'
 
 function formatNumber(value?: number, digits = 4): string {
   if (value === undefined || value === null || !Number.isFinite(value)) {
@@ -45,13 +46,29 @@ function matchLabel(value?: boolean | string): string {
 }
 
 function chartRoleLabel(role: string): string {
-  const labels: Record<string, string> = {
+  const exactLabels: Record<string, string> = {
     baseline_timeseries: '对照组时序',
     treatment_timeseries: '实验组时序',
     baseline_scatter: '对照组散点',
     treatment_scatter: '实验组散点',
   }
-  return labels[role] ?? role
+  if (exactLabels[role]) {
+    return exactLabels[role]
+  }
+  const model = ['ridge', 'elasticnet', 'lasso', 'linear'].find((token) =>
+    role.toLowerCase().includes(token),
+  )
+  const arm = role.toLowerCase().includes('treatment')
+    ? '实验组'
+    : role.toLowerCase().includes('baseline') || role.toLowerCase().includes('control')
+      ? '对照组'
+      : ''
+  const chart = role.toLowerCase().includes('scatter')
+    ? '散点'
+    : role.toLowerCase().includes('timeseries') || role.toLowerCase().includes('series')
+      ? '时序'
+      : ''
+  return [model, arm, chart].filter(Boolean).join(' ') || role || '未命名图表'
 }
 
 function classForMatch(value?: boolean | string): string {
@@ -139,7 +156,10 @@ export function ThreeLayerConclusionView({
       <div className="four-layer-conclusion">
         <div className="four-layer-conclusion__main">
           <div className="three-layer-conclusion__block">
-            <h3>指标快照 · 本轮实验</h3>
+            <h3>
+              指标快照 · 本轮实验
+              {experiment.experimentType ? ` · ${experimentTypeLabel(experiment.experimentType)}` : ''}
+            </h3>
             <div className="three-layer-conclusion__experiment">
               <div className="three-layer-conclusion__experiment-main">
                 <div className="three-layer-conclusion__experiment-id">
@@ -148,34 +168,56 @@ export function ThreeLayerConclusionView({
                 </div>
                 <p>{experiment.designSummary || '尚未形成实验设计摘要。'}</p>
               </div>
-              <div className="three-layer-conclusion__metrics">
-                <div className="three-layer-conclusion__metric">
-                  <span>对照组 RMSE</span>
-                  <strong>{formatNumber(experiment.baselineRmse)}</strong>
+              {experiment.runs && experiment.runs.length > 0 ? (
+                <>
+                  <div className="three-layer-conclusion__dynamic-metrics">
+                    <RunMetricsGrid
+                      runs={experiment.runs}
+                      experimentType={experiment.experimentType}
+                    />
+                    <div
+                      className={
+                        experiment.decisive
+                          ? 'three-layer-conclusion__metric three-layer-conclusion__metric--decisive'
+                          : 'three-layer-conclusion__metric'
+                      }
+                    >
+                      <span>判定</span>
+                      <strong>{experiment.decisive ? '假设可区分' : '无法区分假设'}</strong>
+                    </div>
+                  </div>
+                  <ContrastRows contrasts={experiment.contrasts ?? []} />
+                </>
+              ) : (
+                <div className="three-layer-conclusion__metrics">
+                  <div className="three-layer-conclusion__metric">
+                    <span>对照组 RMSE</span>
+                    <strong>{formatNumber(experiment.baselineRmse)}</strong>
+                  </div>
+                  <div className="three-layer-conclusion__metric">
+                    <span>实验组 RMSE</span>
+                    <strong>{formatNumber(experiment.treatmentRmse)}</strong>
+                  </div>
+                  <div className="three-layer-conclusion__metric three-layer-conclusion__metric--accent">
+                    <span>对照组 Pearson-r</span>
+                    <strong>{formatNumber(experiment.baselinePearsonR)}</strong>
+                  </div>
+                  <div className="three-layer-conclusion__metric">
+                    <span>实验组 Pearson-r</span>
+                    <strong>{formatNumber(experiment.treatmentPearsonR)}</strong>
+                  </div>
+                  <div
+                    className={
+                      experiment.decisive
+                        ? 'three-layer-conclusion__metric three-layer-conclusion__metric--decisive'
+                        : 'three-layer-conclusion__metric'
+                    }
+                  >
+                    <span>判定</span>
+                    <strong>{experiment.decisive ? '假设可区分' : '无法区分假设'}</strong>
+                  </div>
                 </div>
-                <div className="three-layer-conclusion__metric">
-                  <span>实验组 RMSE</span>
-                  <strong>{formatNumber(experiment.treatmentRmse)}</strong>
-                </div>
-                <div className="three-layer-conclusion__metric three-layer-conclusion__metric--accent">
-                  <span>对照组 Pearson-r</span>
-                  <strong>{formatNumber(experiment.baselinePearsonR)}</strong>
-                </div>
-                <div className="three-layer-conclusion__metric">
-                  <span>实验组 Pearson-r</span>
-                  <strong>{formatNumber(experiment.treatmentPearsonR)}</strong>
-                </div>
-                <div
-                  className={
-                    experiment.decisive
-                      ? 'three-layer-conclusion__metric three-layer-conclusion__metric--decisive'
-                      : 'three-layer-conclusion__metric'
-                  }
-                >
-                  <span>判定</span>
-                  <strong>{experiment.decisive ? '假设可区分' : '无法区分假设'}</strong>
-                </div>
-              </div>
+              )}
             </div>
           </div>
 
@@ -211,7 +253,7 @@ export function ThreeLayerConclusionView({
             </div>
             {chartAnalyses.length > 0 ? (
               <div className="three-layer-conclusion__charts">
-                <span className="three-layer-conclusion__charts-title">四张图表分析（本轮真实图像）</span>
+                <span className="three-layer-conclusion__charts-title">本轮图表分析（真实图像）</span>
                 <div className="three-layer-conclusion__chart-grid">
                   {chartAnalyses.map((chart) => (
                     <article className="three-layer-conclusion__chart" key={chart.chartRole}>

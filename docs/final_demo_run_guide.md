@@ -152,7 +152,7 @@ What does **not** change:
 
 ## 5. How To Run The Two-Round Closed-Loop Demo
 
-### Option A: Run the LLM-mode test demo
+### Option A: Run the stubbed-agent closed-loop demo
 
 Run:
 
@@ -160,8 +160,11 @@ Run:
 python -m unittest tests.test_full_llm_closed_loop -v
 ```
 
-This verifies:
+This uses stub agents (no real API key required) and verifies:
 - `RAG -> proposer/questioner -> hypothesis_generation -> candidate -> protocol -> execution -> evaluation -> scientific_interpreter -> next planner_input -> next candidate`
+
+It is an integration test, not a real-LLM test. Real DashScope/Bailian
+coverage lives in Option C.
 
 ### Option B: Run all regression tests
 

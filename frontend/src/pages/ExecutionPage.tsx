@@ -54,6 +54,14 @@ function isExecutionActive(sessionStatus: { status?: string; stage?: string; mes
   )
 }
 
+function formatRunPearson(experiment: ExperimentEvaluationViewModel | undefined, runId?: string): string | undefined {
+  if (!runId) {
+    return undefined
+  }
+  const run = experiment?.metricComparison?.runs?.find((item) => item.runId === runId)
+  return run?.pearsonR === undefined ? undefined : `Pearson r ${run.pearsonR.toFixed(4)}`
+}
+
 export function ExecutionPage() {
   const { data, loading, error, refresh, refreshing } = useTimelineBundle()
   const monitor = data?.viewModels.processMonitor
@@ -81,26 +89,73 @@ export function ExecutionPage() {
     return executionStage?.steps ?? []
   }, [monitor?.stages])
 
-  const visualCharts = useMemo(() => {
+  const visualRuns = useMemo(() => {
     const items = experiment?.visualizationItems ?? []
-    const pickVariantItem = (
-      variant: 'baseline' | 'treatment',
-      matcher: (label: string) => boolean,
-    ) => {
-      const variantItems = items.filter((item) => item.variant === variant)
-      return variantItems.find((item) => matcher(item.label.toLowerCase()))
+    const runOrder = experiment?.metricComparison?.runs?.map((run) => run.runId) ?? []
+    const defaultLabels: Record<string, string> = {
+      baseline: '对照组',
+      treatment: '实验组',
     }
-    const pickTimeseries = (variant: 'baseline' | 'treatment') =>
-      pickVariantItem(variant, (label) => label.includes('timeseries'))
-    const pickScatter = (variant: 'baseline' | 'treatment') =>
-      pickVariantItem(variant, (label) => label.includes('scatter') && !label.includes('residual'))
-    return {
-      baselineTimeseries: pickTimeseries('baseline'),
-      treatmentTimeseries: pickTimeseries('treatment'),
-      baselineScatter: pickScatter('baseline'),
-      treatmentScatter: pickScatter('treatment'),
+    const groups: Array<{
+      key: string
+      runId?: string
+      runLabel: string
+      timeseries?: VisualizationItem
+      scatter?: VisualizationItem
+    }> = []
+    const byKey = new Map<string, (typeof groups)[number]>()
+
+    const ensureGroup = (key: string, runId?: string) => {
+      let group = byKey.get(key)
+      if (!group) {
+        const vizItem = items.find((item) => item.runId === runId || (!runId && !item.runId))
+        group = {
+          key,
+          runId,
+          runLabel:
+            runId && runId !== 'baseline' && runId !== 'treatment'
+              ? vizItem?.runLabel ?? runId
+              : runId
+                ? defaultLabels[runId] ?? runId
+                : '其他产物',
+          timeseries: undefined,
+          scatter: undefined,
+        }
+        byKey.set(key, group)
+        groups.push(group)
+      }
+      return group
     }
-  }, [experiment?.visualizationItems])
+
+    for (const run of runOrder) {
+      ensureGroup(run, run)
+    }
+    for (const item of items) {
+      const key = item.runId ?? 'artifact'
+      const group = ensureGroup(key, item.runId)
+      const label = item.label.toLowerCase()
+      if (!group.timeseries && label.includes('timeseries')) {
+        group.timeseries = item
+      }
+      if (!group.scatter && label.includes('scatter') && !label.includes('residual')) {
+        group.scatter = item
+      }
+    }
+    return groups
+      .filter((group) => group.timeseries || group.scatter || group.runId)
+      .sort((left, right) => {
+        const leftIndex = runOrder.indexOf(left.key)
+        const rightIndex = runOrder.indexOf(right.key)
+        if (leftIndex >= 0 && rightIndex >= 0) return leftIndex - rightIndex
+        if (leftIndex >= 0) return -1
+        if (rightIndex >= 0) return 1
+        if (left.runId === 'baseline') return -1
+        if (right.runId === 'baseline') return 1
+        if (left.runId === 'treatment') return -1
+        if (right.runId === 'treatment') return 1
+        return left.runLabel.localeCompare(right.runLabel, 'zh-CN')
+      })
+  }, [experiment?.metricComparison?.runs, experiment?.visualizationItems])
   const executedExperimentId = experiment?.executedExperimentId ?? '--'
 
   return (
@@ -217,22 +272,32 @@ export function ExecutionPage() {
                 <h2>指标对照</h2>
                 {experiment.metricComparison ? (
                   <div className="metrics-grid metrics-grid--two">
-                    <div className="metric-box">
-                      <span className="metric-box__label">对照组相关性</span>
-                      <span className="metric-box__value">{(experiment.metricComparison.baselinePearsonR ?? 0).toFixed(4)}</span>
-                    </div>
-                    <div className="metric-box">
-                      <span className="metric-box__label">实验组相关性</span>
-                      <span className="metric-box__value">{(experiment.metricComparison.treatmentPearsonR ?? 0).toFixed(4)}</span>
-                    </div>
-                    <div className="metric-box metric-box--highlight">
-                      <span className="metric-box__label">改善幅度</span>
-                      <span className="metric-box__value">{(experiment.metricComparison.deltaPearsonR ?? 0).toFixed(4)}</span>
-                    </div>
-                    <div className="metric-box">
-                      <span className="metric-box__label">误差变化</span>
-                      <span className="metric-box__value">{(experiment.metricComparison.deltaRmse ?? 0).toFixed(3)}</span>
-                    </div>
+                    {(experiment.metricComparison.runs?.length
+                      ? experiment.metricComparison.runs
+                      : []
+                    ).map((run) => (
+                      <div className="metric-box" key={run.runId}>
+                        <span className="metric-box__label">{run.name ?? run.runId}</span>
+                        <span className="metric-box__value">
+                          {run.pearsonR === undefined ? '--' : run.pearsonR.toFixed(4)}
+                        </span>
+                        <span className="metric-box__sub">
+                          RMSE {run.rmse === undefined ? '未计算' : run.rmse.toFixed(3)}
+                        </span>
+                      </div>
+                    ))}
+                    {experiment.metricComparison.deltaPearsonR !== undefined ? (
+                      <div className="metric-box metric-box--highlight">
+                        <span className="metric-box__label">Pearson r 改善幅度</span>
+                        <span className="metric-box__value">{experiment.metricComparison.deltaPearsonR.toFixed(4)}</span>
+                      </div>
+                    ) : null}
+                    {experiment.metricComparison.deltaRmse !== undefined ? (
+                      <div className="metric-box">
+                        <span className="metric-box__label">RMSE 变化</span>
+                        <span className="metric-box__value">{experiment.metricComparison.deltaRmse.toFixed(3)}</span>
+                      </div>
+                    ) : null}
                   </div>
                 ) : (
                   <div className="timeline-empty-state">
@@ -252,77 +317,49 @@ export function ExecutionPage() {
               <section className="detail-card detail-card--wide">
                 <span className="detail-card__eyebrow">Key Visuals</span>
                 <h2>实验图像</h2>
-                <div className="execution-visual-comparison execution-visual-comparison--three-rows">
-                  <div className="execution-visual-row execution-visual-row--timeseries">
-                    <div className="execution-visual-row__header">
-                      <strong>对照组实验 · {executedExperimentId} · 真实值 / 预测值对比图</strong>
-                      <span>对照组 Pearson r {experiment.metricComparison?.baselinePearsonR?.toFixed(4) ?? '--'}</span>
-                    </div>
-                    {visualCharts.baselineTimeseries ? (
-                      <VisualCard
-                        key={visualCharts.baselineTimeseries.path}
-                        item={visualCharts.baselineTimeseries}
-                        title="真实值 / 预测值对比图"
-                        experimentLabel={executedExperimentId}
-                      />
-                    ) : (
-                      <div className="timeline-empty-state">
-                        {executionActive ? '实验执行中，正在生成对照组图表。' : '对照组时间轴散点图尚未产出。'}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="execution-visual-row execution-visual-row--timeseries">
-                    <div className="execution-visual-row__header">
-                      <strong>实验组实验 · {executedExperimentId} · 真实值 / 预测值对比图</strong>
-                      <span>实验组 Pearson r {experiment.metricComparison?.treatmentPearsonR?.toFixed(4) ?? '--'}</span>
-                    </div>
-                    {visualCharts.treatmentTimeseries ? (
-                      <VisualCard
-                        key={visualCharts.treatmentTimeseries.path}
-                        item={visualCharts.treatmentTimeseries}
-                        title="真实值 / 预测值对比图"
-                        experimentLabel={executedExperimentId}
-                      />
-                    ) : (
-                      <div className="timeline-empty-state">
-                        {executionActive ? '实验执行中，正在生成实验组图表。' : '实验组时间轴散点图尚未产出。'}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="execution-visual-row execution-visual-row--scatter-pair">
-                    <div className="execution-visual-row__header">
-                      <strong>线性散点图</strong>
-                      <span>左：对照组实验 · 右：实验组实验</span>
-                    </div>
-                    <div className="execution-visual-row__pair">
-                      {visualCharts.baselineScatter ? (
-                        <VisualCard
-                          key={visualCharts.baselineScatter.path}
-                          item={visualCharts.baselineScatter}
-                          title="对照组实验 · 线性散点图"
-                          experimentLabel={executedExperimentId}
-                        />
-                      ) : (
-                        <div className="timeline-empty-state">
-                          {executionActive ? '实验执行中，正在生成对照散点图。' : '对照组散点图尚未产出。'}
+                <div className="execution-visual-comparison">
+                  {visualRuns.map((group) =>
+                    group.timeseries ? (
+                      <div className="execution-visual-row execution-visual-row--timeseries" key={`${group.key}-timeseries`}>
+                        <div className="execution-visual-row__header">
+                          <strong>{group.runLabel} · {executedExperimentId} · 真实值 / 预测值对比图</strong>
+                          <span>Pearson r {formatRunPearson(experiment, group.runId)}</span>
                         </div>
-                      )}
-                      {visualCharts.treatmentScatter ? (
                         <VisualCard
-                          key={visualCharts.treatmentScatter.path}
-                          item={visualCharts.treatmentScatter}
-                          title="实验组实验 · 线性散点图"
-                          experimentLabel={executedExperimentId}
+                          item={group.timeseries}
+                          title="真实值 / 预测值对比图"
+                          experimentLabel={`${executedExperimentId} / ${group.runLabel}`}
+                          metric={formatRunPearson(experiment, group.runId)}
                         />
-                      ) : (
-                        <div className="timeline-empty-state">
-                          {executionActive ? '实验执行中，正在生成实验组散点图。' : '实验组散点图尚未产出。'}
-                        </div>
-                      )}
+                      </div>
+                    ) : null,
+                  )}
+
+                  {visualRuns.some((group) => group.scatter) ? (
+                    <div className="execution-visual-row execution-visual-row--scatter-pair">
+                      <div className="execution-visual-row__header">
+                        <strong>线性散点图</strong>
+                        <span>{visualRuns.filter((group) => group.scatter).map((group) => group.runLabel).join(' · ')}</span>
+                      </div>
+                      <div className="execution-visual-row__pair">
+                        {visualRuns
+                          .filter((group) => group.scatter)
+                          .map((group) => (
+                            <VisualCard
+                              key={`${group.key}-scatter`}
+                              item={group.scatter!}
+                              title={`${group.runLabel} · 线性散点图`}
+                              experimentLabel={`${executedExperimentId} / ${group.runLabel}`}
+                              metric={formatRunPearson(experiment, group.runId)}
+                            />
+                          ))}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="timeline-empty-state">
+                      {executionActive ? '实验执行中，正在生成散点图。' : '散点图尚未产出。'}
+                    </div>
+                  )}
                 </div>
               </section>
 

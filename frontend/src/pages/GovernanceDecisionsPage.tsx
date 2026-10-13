@@ -219,8 +219,8 @@ export function GovernanceDecisionsPage() {
                       </div>
                       <div className="approval-candidate-card__utility">{candidate.utility.toFixed(3)}</div>
                       <div className="approval-candidate-card__metrics">
-                        <span>IG {candidate.informationGain.toFixed(3)}</span>
-                        <span>PG {candidate.performanceGain.toFixed(3)}</span>
+                        <span>预期区分度 {candidate.informationGain.toFixed(3)}</span>
+                        <span>预期性能 {candidate.performanceGain.toFixed(3)}</span>
                         <span>Risk {candidate.risk.toFixed(3)}</span>
                         <span>Cost {candidate.cost.toFixed(3)}</span>
                       </div>

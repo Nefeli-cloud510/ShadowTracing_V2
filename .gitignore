@@ -31,6 +31,12 @@ tmp_validation/
 /task.json
 /test_*.txt
 
+# Generated experiment outputs and one-off debug probes
+/results/
+/config/latest_protocol.json
+/outputs/latest_metrics.json
+/debug_closed_loop_state.py
+
 # One-off local repair/diagnostic scripts
 /scripts/_*.py
 /scripts/_*.ps1

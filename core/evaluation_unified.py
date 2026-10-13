@@ -5,10 +5,16 @@ import math
 from pathlib import Path
 
 from core.support_update_rules import (
-    compute_support_update_from_prediction,
+    EVIDENCE_CLASSIFICATION_LABELS,
+    EVIDENCE_INCONCLUSIVE,
+    EVIDENCE_INVALID,
+    EVIDENCE_NO_STABLE_GAIN,
+    EVIDENCE_NOT_EXECUTED,
+    EVIDENCE_STABLE_DEGRADATION,
+    EVIDENCE_STABLE_IMPROVEMENT,
+    classify_rmse_gain_evidence,
+    compute_support_update_from_evidence,
     observed_delta_from_comparison,
-    signal_from_metric_deltas,
-    signal_strength,
 )
 from core.robustness_diagnostics import summary_to_robustness_report
 from core.hypothesis_identity import CANONICAL_HYPOTHESIS_IDS
@@ -63,6 +69,10 @@ def build_performance_metrics(
     return PerformanceMetrics(
         experiment_id=result.experiment_id,
         round_id=result.round_id,
+        experiment_type=result.experiment_type,
+        runs=list(result.runs),
+        contrasts=list(result.contrasts),
+        diagnostics=list(result.diagnostics),
         baseline_rmse=baseline_rmse,
         baseline_mae=baseline.metrics.mae if baseline else None,
         baseline_pearson_r=baseline.metrics.pearson_r if baseline else None,
@@ -95,33 +105,60 @@ def build_minimal_scientific_evaluation(
 
     rmse_delta = result.comparison.rmse
     pearson_delta = result.comparison.pearson_r
-    improvement_signal = signal_from_metric_deltas(rmse_delta, pearson_delta)
+    rmse_ci = _rmse_ci_from_result(result)
+    evidence = classify_rmse_gain_evidence(
+        rmse_delta=rmse_delta,
+        rmse_ci=rmse_ci,
+        execution_status=str(result.status or "not_run"),
+        validity_status=str(result.validity_status or "valid"),
+        allowed_conclusions=result.allowed_conclusions,
+        warnings=result.warnings,
+    )
+    classification = evidence.classification
     observed_delta = observed_delta_from_comparison(
         skill_delta=result.comparison.skill,
         pearson_delta=pearson_delta,
         rmse_delta=rmse_delta,
+        primary_metric="rmse",
     )
 
-    if improvement_signal == "supports":
+    if classification == EVIDENCE_STABLE_IMPROVEMENT:
         evidence_for.append(
             EvidenceClaim(
-                claim="实验组相比对照组带来更好的预测表现，说明新增实验条件可能包含有效信息。",
-                strength=signal_strength(rmse_delta, pearson_delta),
-                source="experiment_result.comparison",
+                claim=(
+                    "bootstrap RMSE 增益 95% CI 整体为正，"
+                    "实验组相比对照组存在稳定误差改善。"
+                ),
+                strength="high" if rmse_ci else "medium",
+                source="experiment_result.robustness.bootstrap.rmse_ci",
             )
         )
-    elif improvement_signal == "weakens":
+    elif classification == EVIDENCE_STABLE_DEGRADATION:
         evidence_against.append(
             EvidenceClaim(
-                claim="实验组未优于对照组，当前新增实验条件的增量信息尚不充分。",
-                strength=signal_strength(rmse_delta, pearson_delta),
-                source="experiment_result.comparison",
+                claim=(
+                    "bootstrap RMSE 增益 95% CI 整体为负，"
+                    "实验组相对对照组的误差出现稳定退化。"
+                ),
+                strength="high" if rmse_ci else "medium",
+                source="experiment_result.robustness.bootstrap.rmse_ci",
+            )
+        )
+    elif classification in {EVIDENCE_INVALID, EVIDENCE_NOT_EXECUTED}:
+        evidence_against.append(
+            EvidenceClaim(
+                claim="本轮实验无效或未完成，仅保留审计证据，不做支持度判定。",
+                strength="high",
+                source="experiment_result.validity_status",
             )
         )
     else:
         evidence_for.append(
             EvidenceClaim(
-                claim="本轮实验结果呈混合信号，需要结合更多实验或稳健性分析继续判断。",
+                claim=(
+                    "RMSE 增益 CI 跨零或缺少 bootstrap 稳定性证据，"
+                    "当前不足以确定支持度方向。"
+                ),
                 strength="medium",
                 source="experiment_result.comparison",
             )
@@ -131,11 +168,16 @@ def build_minimal_scientific_evaluation(
         for hypothesis_id in protocol.tested_hypotheses:
             prediction = protocol.hypothesis_predictions.get(hypothesis_id)
             if prediction is not None:
-                outcome = compute_support_update_from_prediction(
-                    current_support=(prior_supports or {}).get(hypothesis_id, 0.5),
+                outcome = compute_support_update_from_evidence(
+                    current_support=min(
+                        max((prior_supports or {}).get(hypothesis_id, 0.5), 0.05),
+                        0.95,
+                    ),
+                    evidence_classification=classification,
+                    evidence_labels=evidence.labels,
                     expected_effect=prediction.expected_effect,
                     expected_range=prediction.expected_range,
-                    observed_delta=observed_delta,
+                    observed_delta=rmse_delta,
                 )
                 assessments.append(
                     HypothesisAssessment(
@@ -151,14 +193,30 @@ def build_minimal_scientific_evaluation(
                             observed_delta,
                             outcome.direction_matched,
                             outcome.magnitude_matched,
+                            evidence_classification=classification,
+                            metric_ci=rmse_ci,
                         ),
+                        metric="rmse",
+                        observed_metric_delta=rmse_delta,
+                        metric_ci=rmse_ci,
+                        evidence_classification=classification,
+                        evidence_labels=evidence.labels,
+                        updated=outcome.updated,
                     )
                 )
-            target_list = evidence_for if improvement_signal == "supports" else evidence_against
             display_label = _display_hypothesis_label(hypothesis_id)
+            target_list = (
+                evidence_for
+                if classification == EVIDENCE_STABLE_IMPROVEMENT
+                else evidence_against
+            )
             target_list.append(
                 EvidenceClaim(
-                    claim=f"{display_label} 在本轮被间接检验，但仍缺少与方向/量级预测严格对齐的证据。",
+                    claim=(
+                        f"{display_label} 在本轮获得了一次对照检验；"
+                        "支持度仅在稳定增益/退化时调整，"
+                        f"当前证据分类为{EVIDENCE_CLASSIFICATION_LABELS.get(classification, classification)}。"
+                    ),
                     strength="medium",
                     source="protocol.tested_hypotheses",
                 )
@@ -202,7 +260,8 @@ def build_minimal_scientific_evaluation(
 
 
 def build_minimal_robustness_report(result: ExperimentResult) -> RobustnessReport:
-    complete = result.status == "completed" and len(result.runs) >= 2
+    if result.robustness is not None:
+        return result.robustness
     rmse_delta = result.comparison.rmse
     pearson_delta = result.comparison.pearson_r
     mixed_signal = (
@@ -210,21 +269,16 @@ def build_minimal_robustness_report(result: ExperimentResult) -> RobustnessRepor
         and pearson_delta is not None
         and ((rmse_delta > 0 and pearson_delta < 0) or (rmse_delta < 0 and pearson_delta > 0))
     )
-    stable = complete and not mixed_signal
-    recommendation = (
-        "可以进入下一轮假设解释，但建议补充 bootstrap/time-slice 稳健性检验。"
-        if stable
-        else "建议先补充更多稳健性检验，再据此更新假设支持度。"
+    concern = (
+        "RMSE 与 Pearson r 方向冲突，不能仅凭点估计判定稳定。"
+        if mixed_signal
+        else "未运行配对日历块 bootstrap，无法判定主增益是否稳定。"
     )
-
     return RobustnessReport(
-        bootstrap=BootstrapReport(stable=stable, n_iterations=0),
-        time_slice=TimeSliceReport(stable=stable),
-        overall=RobustnessOverall(
-            stable=stable,
-            concern=None if stable else "当前仅完成单次主实验比较，稳健性证据不足。",
-        ),
-        recommendation=recommendation,
+        bootstrap=BootstrapReport(stable=False, n_iterations=0, status="not_run"),
+        time_slice=TimeSliceReport(stable=False),
+        overall=RobustnessOverall(stable=False, concern=concern),
+        recommendation="补充配对日历块 bootstrap 后再作方向性支持度结论。",
     )
 
 
@@ -315,14 +369,29 @@ def _hypothesis_layer_conclusion(
     magnitude_matched: bool | str | None,
     predicted_direction: str | None,
     actual_delta: float | None,
+    evidence_classification: str | None = None,
+    metric_ci: list[float] | None = None,
+    observed_metric_delta: float | None = None,
 ) -> str:
     display_label = _display_hypothesis_label(hypothesis_id)
+    if evidence_classification in {EVIDENCE_INCONCLUSIVE, EVIDENCE_NO_STABLE_GAIN}:
+        return (
+            f"{display_label} 主指标证据不足以稳定判定方向"
+            f"（{EVIDENCE_CLASSIFICATION_LABELS.get(evidence_classification, evidence_classification)}），"
+            "支持度暂不调整。"
+        )
+    if evidence_classification == EVIDENCE_STABLE_IMPROVEMENT:
+        return f"{display_label} 主指标出现稳定改善，支持度小幅上调。"
+    if evidence_classification == EVIDENCE_STABLE_DEGRADATION:
+        return f"{display_label} 主指标出现稳定退化，支持度小幅下调。"
+    if evidence_classification in {EVIDENCE_INVALID, EVIDENCE_NOT_EXECUTED}:
+        return f"{display_label} 本轮实验无效或未完成，仅保留审计证据，支持度不变。"
     if direction_matched is False:
         return f"{display_label} 观测方向与预期不符，证据不支持该约定"
     if magnitude_matched is False:
         return f"{display_label} 方向正确，幅度不足预期"
     if direction_matched is True:
-        return f"{display_label} 与预期一致，获得支持"
+        return f"{display_label} 与预期一致，但需 bootstrap CI 确认后才调整支持度"
     if predicted_direction == "near_zero" and actual_delta is not None and abs(actual_delta) < _CONCLUSION_THRESHOLD:
         return f"{display_label} 观测接近零效应，与预期一致"
     if actual_delta is not None and abs(actual_delta) < _CONCLUSION_THRESHOLD:
@@ -341,6 +410,19 @@ def _build_three_layer_conclusion(
     """Build the experiment -> hypothesis -> scientific-question conclusion."""
     if protocol is None:
         return None
+    first_assessment = next(
+        (item for item in assessments if item.evidence_classification is not None),
+        None,
+    )
+    evidence_classification = (
+        first_assessment.evidence_classification
+        if first_assessment is not None
+        else None
+    )
+    metric_ci = first_assessment.metric_ci if first_assessment is not None else None
+    evidence_labels = (
+        first_assessment.evidence_labels if first_assessment is not None else []
+    )
     design = protocol.features
     baseline = _get_run(result, "baseline")
     treatment = _get_run(result, "treatment")
@@ -390,13 +472,34 @@ def _build_three_layer_conclusion(
                     magnitude_matched,
                     predicted_direction,
                     observed_delta,
+                    evidence_classification=(
+                        assessment.evidence_classification
+                        if assessment is not None
+                        else evidence_classification
+                    ),
+                    metric_ci=assessment.metric_ci if assessment is not None else metric_ci,
                 ),
                 support_after=assessment.support_after if assessment is not None else None,
             )
         )
 
     core_question = main_question or protocol.scientific_objective or "宇宙线日影南北偏移是否可提前改善太阳风速度预测？"
-    if observed_delta >= _CONCLUSION_THRESHOLD:
+    if evidence_classification == EVIDENCE_STABLE_IMPROVEMENT:
+        answer = (
+            "能。bootstrap RMSE 增益 95% CI 整体为正，"
+            "日影南北偏移为太阳风速度预测提供超越对照组的稳定前置信息。"
+        )
+    elif evidence_classification == EVIDENCE_STABLE_DEGRADATION:
+        answer = "暂不能。本轮检测到稳定负向 RMSE 增量，前置探针假设当前未获得支持。"
+    elif evidence_classification in {EVIDENCE_INCONCLUSIVE, EVIDENCE_NO_STABLE_GAIN}:
+        answer = (
+            f"尚不能明确判断：点估计为 {observed_delta:+.4f}，"
+            f"但{EVIDENCE_CLASSIFICATION_LABELS.get(evidence_classification, '稳健性证据不足')}，"
+            "需补充或收敛 bootstrap 证据后再作方向性结论。"
+        )
+    elif evidence_classification in {EVIDENCE_INVALID, EVIDENCE_NOT_EXECUTED}:
+        answer = "本轮实验无效或未完成，暂不对主科学问题做支持度结论。"
+    elif observed_delta >= _CONCLUSION_THRESHOLD:
         answer = (
             "能。观测到可比较的正向预测技能增量，日影南北偏移为太阳风速度预测提供超越对照组的前置信息。"
         )
@@ -406,7 +509,14 @@ def _build_three_layer_conclusion(
         answer = "尚不能明确判断。观测增量接近零，需要结合路径轴与窗口轴证据继续收敛。"
 
     path_question = "该增量信息通过什么物理路径传递？"
-    if design.probe_axis == "physical_path":
+    if evidence_classification in {
+        EVIDENCE_INCONCLUSIVE,
+        EVIDENCE_NO_STABLE_GAIN,
+        EVIDENCE_INVALID,
+        EVIDENCE_NOT_EXECUTED,
+    }:
+        path_answer = "本轮主指标缺乏稳定方向证据，暂不对路径归属做结论。"
+    elif design.probe_axis == "physical_path":
         if observed_delta <= _CONCLUSION_THRESHOLD:
             path_answer = "主要通过与 IMF By 共享的物理路径传递；控制 By 后加入日影无额外增益。"
         else:
@@ -442,7 +552,18 @@ def _build_three_layer_conclusion(
             baseline_pearson_r=baseline_pearson_r,
             treatment_pearson_r=treatment_pearson_r,
             skill_delta=skill_delta,
-            decisive=abs(observed_delta) >= _DECISIVE_THRESHOLD,
+            experiment_type=result.experiment_type,
+            runs=list(result.runs),
+            contrasts=list(result.contrasts),
+            diagnostics=list(result.diagnostics),
+            decisive=(
+                evidence_classification
+                in {
+                    EVIDENCE_STABLE_IMPROVEMENT,
+                    EVIDENCE_STABLE_DEGRADATION,
+                }
+                and abs(observed_delta) >= _DECISIVE_THRESHOLD
+            ),
         ),
         hypothesis_layer=hypothesis_rows,
         scientific_layer=ConclusionScientificLayer(
@@ -459,6 +580,9 @@ def _build_three_layer_conclusion(
             treatment_pearson_r=treatment_pearson_r,
             skill_delta=skill_delta,
             observed_delta=observed_delta,
+            rmse_ci=metric_ci,
+            evidence_classification=evidence_classification,
+            evidence_labels=evidence_labels,
         ),
         tracking_layer=ConclusionTrackingLayer(
             audit_items=[
@@ -487,13 +611,27 @@ def _build_default_data_layer(
     treatment_pearson_r: float | None,
     skill_delta: float | None,
     observed_delta: float,
+    rmse_ci: list[float] | None = None,
+    evidence_classification: str | None = None,
+    evidence_labels: list[str] | None = None,
 ) -> ConclusionDataLayer:
     if baseline_rmse is not None and treatment_rmse is not None:
         rmse_text = (
             f"RMSE 由 {baseline_rmse:.4f} 变化至 {treatment_rmse:.4f}，"
             f"ΔRMSE={baseline_rmse - treatment_rmse:+.4f}。"
-            "该变化反映整体误差水平，需结合数据覆盖与缺失对齐判断是否源自特征信息。"
         )
+        if rmse_ci:
+            rmse_text += (
+                f"bootstrap RMSE 增益 95% CI=[{rmse_ci[0]:+.4f}, {rmse_ci[1]:+.4f}]，"
+                "该区间决定是否认定稳定增益。"
+            )
+        else:
+            rmse_text += "未取得 bootstrap CI，点估计不能单独确认稳定性。"
+        if evidence_classification:
+            rmse_text += (
+                f"证据分类：{EVIDENCE_CLASSIFICATION_LABELS.get(evidence_classification, evidence_classification)}。"
+            )
+        rmse_text += "该变化反映整体误差水平，需结合数据覆盖与缺失对齐判断是否源自特征信息。"
     else:
         rmse_text = "本轮未取得成对 RMSE，无法做增量归因。"
     if baseline_pearson_r is not None and treatment_pearson_r is not None:
@@ -542,21 +680,48 @@ def _get_run(result: ExperimentResult, run_name: str):
     return None
 
 
+def _rmse_ci_from_result(result: ExperimentResult) -> list[float] | None:
+    bootstrap = result.robustness.bootstrap if result.robustness is not None else None
+    if bootstrap is not None and bootstrap.rmse_ci and len(bootstrap.rmse_ci) >= 2:
+        return bootstrap.rmse_ci[:2]
+    for contrast in result.contrasts:
+        if contrast.bootstrap_ci is not None and contrast.bootstrap_ci.rmse_ci:
+            ci = contrast.bootstrap_ci.rmse_ci
+            if len(ci) >= 2:
+                return ci[:2]
+    return None
+
+
 def _assessment_reason(
     hypothesis_id: str,
     prediction: HypothesisPrediction | None,
     observed_delta: float,
     direction_matched: bool | str,
     magnitude_matched: bool | str,
+    evidence_classification: str | None = None,
+    metric_ci: list[float] | None = None,
 ) -> str:
     display_label = _display_hypothesis_label(hypothesis_id)
+    classification_text = EVIDENCE_CLASSIFICATION_LABELS.get(
+        evidence_classification,
+        "未取得明确证据分类",
+    )
+    ci_text = (
+        f"bootstrap RMSE 增益 95% CI=[{metric_ci[0]:+.4f}, {metric_ci[1]:+.4f}]"
+        if metric_ci and len(metric_ci) >= 2
+        else "未取得 bootstrap CI"
+    )
     if prediction is None:
-        return f"{display_label} 缺少结构化预测范围，当前仅依据实验增量信号做最小判断。"
+        return (
+            f"{display_label} 缺少结构化预测范围；{ci_text}，"
+            f"证据分类为{classification_text}，支持度暂不调整。"
+        )
     return (
         f"{display_label} 预期效应为 {prediction.expected_effect}，"
         f"观测到的增量为 {observed_delta:.4f}；"
         f"方向匹配情况为{_matched_label(direction_matched)}，"
-        f"幅度匹配情况为{_matched_label(magnitude_matched)}。"
+        f"幅度匹配情况为{_matched_label(magnitude_matched)}；"
+        f"{ci_text}，证据分类为{classification_text}。"
     )
 
 
@@ -675,15 +840,15 @@ def _posterior_information_gain_audit(
     result: ExperimentResult | None,
     prior_supports: dict[str, float] | None,
 ) -> dict[str, object]:
-    """KL(P_posterior || P_prior) audit after an experiment has real results."""
+    """Experiment-information audit after an experiment has real results.
+
+    This is an informational audit only; it does not drive support updates.
+    The main support update path uses RMSE point estimates plus bootstrap CI,
+    while this audit follows the metric declared in the hypothesis prediction.
+    """
     empty: dict[str, object] = {"kl": None, "prior": None, "posterior": None}
     if protocol is None or result is None or not protocol.hypothesis_predictions:
         return dict(empty)
-    observed_delta = observed_delta_from_comparison(
-        skill_delta=result.comparison.skill,
-        pearson_delta=result.comparison.pearson_r,
-        rmse_delta=result.comparison.rmse,
-    )
     ranged = [
         (hypothesis_id, prediction)
         for hypothesis_id, prediction in protocol.hypothesis_predictions.items()
@@ -693,6 +858,11 @@ def _posterior_information_gain_audit(
     ]
     if len(ranged) < 2:
         return dict(empty)
+    audit_metric = ranged[0][1].metric or "skill"
+    observed_delta = _audit_delta_from_comparison(
+        result.comparison,
+        audit_metric,
+    )
     if prior_supports:
         raw_priors = [prior_supports.get(hypothesis_id, 0.5) for hypothesis_id, _ in ranged]
     else:
@@ -722,6 +892,22 @@ def _posterior_information_gain_audit(
         "prior": dict(zip((hypothesis_id for hypothesis_id, _ in ranged), priors)),
         "posterior": dict(zip((hypothesis_id for hypothesis_id, _ in ranged), posteriors)),
     }
+
+
+def _audit_delta_from_comparison(
+    comparison,
+    metric: str | None,
+) -> float:
+    normalized = (metric or "").lower().replace("-", "_").replace(" ", "_")
+    if normalized in {"skill", "sst"}:
+        return comparison.skill if comparison.skill is not None else 0.0
+    if normalized in {"pearson_r", "pearson", "r"}:
+        return (
+            comparison.pearson_r
+            if comparison.pearson_r is not None
+            else 0.0
+        )
+    return comparison.rmse if comparison.rmse is not None else 0.0
 
 
 def _normal_density_value(x: float, mean: float, sigma: float) -> float:

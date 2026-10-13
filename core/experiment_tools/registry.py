@@ -346,3 +346,18 @@ def registered_tool_summaries() -> list[dict[str, Any]]:
     """Return the full tool catalog so planners can see selectable and refused types."""
 
     return [tool.to_summary() for tool in EXPERIMENT_TOOL_INDEX.values()]
+
+
+def candidate_selectable_types() -> tuple[str, ...]:
+    """Return registered types that may be a new candidate experiment entry.
+
+    robustness_diagnostic stays available to the executor and evaluator, but it
+    is intentionally excluded here: diagnostics are appended programmatically to
+    already-approved predictions instead of being proposed as a fresh design.
+    """
+
+    return tuple(
+        tool.experiment_type
+        for tool in EXPERIMENT_TOOL_INDEX.values()
+        if tool.available and tool.experiment_type != "robustness_diagnostic"
+    )

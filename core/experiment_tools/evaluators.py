@@ -60,14 +60,20 @@ def _build_pending_scientific_evaluation(
     main_question: str | None,
 ) -> EvaluationResult:
     experiment_type = result.experiment_type
-    run_metrics = result.runs[0].metrics if result.runs else None
+    family_labels = sorted(
+        {
+            str(run.model_family or "未知模型")
+            for run in result.runs
+        }
+    )
     metrics = PerformanceMetrics(
         experiment_id=result.experiment_id,
         round_id=result.round_id,
-        baseline_rmse=run_metrics.rmse if run_metrics else None,
-        baseline_mae=run_metrics.mae if run_metrics else None,
-        baseline_pearson_r=run_metrics.pearson_r if run_metrics else None,
+        experiment_type=experiment_type,
         delta=result.comparison,
+        runs=list(result.runs),
+        contrasts=list(result.contrasts),
+        diagnostics=list(result.diagnostics),
     )
     robustness = result.robustness or RobustnessReport(
         overall={"stable": False, "concern": "该实验类型尚未配置自动稳健性汇总。"}
@@ -76,7 +82,9 @@ def _build_pending_scientific_evaluation(
         new_evidence_for=[
             EvidenceClaim(
                 claim=(
-                    f"{experiment_type} 已保存结构化 run/contrast/diagnostic 结果；"
+                    f"{experiment_type} 已保存结构化结果："
+                    f"{len(result.runs)} 个 run（模型：{'/'.join(family_labels) or '未配置'}）、"
+                    f"{len(result.contrasts)} 个 contrast、{len(result.diagnostics)} 个 diagnostic；"
                     "该类型尚未适配自动支持度更新，标记为待科学评价。"
                 ),
                 strength="medium",
@@ -90,9 +98,14 @@ def _build_pending_scientific_evaluation(
         experiment_layer=ConclusionExperimentLayer(
             experiment_id=result.experiment_id,
             design_summary=(
-                f"实验类型={experiment_type}；runs={len(result.runs)}；"
+                f"实验类型={experiment_type}；runs={len(result.runs)}"
+                f"（模型：{'/'.join(family_labels) or '未配置'}）；"
                 f"contrasts={len(result.contrasts)}；diagnostics={len(result.diagnostics)}。"
             ),
+            experiment_type=experiment_type,
+            runs=list(result.runs),
+            contrasts=list(result.contrasts),
+            diagnostics=list(result.diagnostics),
         ),
         scientific_layer=ConclusionScientificLayer(
             main_question=main_question

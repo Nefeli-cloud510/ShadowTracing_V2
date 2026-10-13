@@ -80,6 +80,7 @@ uncertainty_id；你只能在给定候选计划范围内聚焦、解释与细化
                 candidate_plan=candidate_plan,
                 baseline_output=baseline_output,
             ),
+            role="中央进程控制者llm",
         )
         return self._compose_output(
             planner_input=planner_input,

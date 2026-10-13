@@ -39,7 +39,7 @@ class FileConfig(BaseModel):
     time_column: str = "dataset_id"
     target_column: str
     feature_columns: list[str]
-    sparse_sources: list[str] = Field(default_factory=list, description="需要缺失记录剔除审计的源名称")
+    sparse_sources: list[str] = Field(default_factory=list, description="需要缺失记录审计的源名称")
 
     def model_post_init(self, __context):
         if not self.omni_file_path.exists():
@@ -70,6 +70,14 @@ class ElasticNetConfig(BaseModel):
     alpha_grid: list[float] = Field(
         default_factory=lambda: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
     )
+    l1_ratio_grid: list[float] = Field(
+        default_factory=lambda: [0.1, 0.3, 0.5, 0.7, 0.9]
+    )
+    param_search_mode: Literal["auto", "fixed"] = Field(
+        default="auto",
+        description="auto=训练内网格选参；fixed=固定使用 alpha/l1_ratio 作为对照",
+    )
+    max_param_search_combinations: int = Field(default=30, ge=1, le=200)
     fit_intercept: bool = True
     ridge_solver: str = "svd"
 
@@ -286,7 +294,7 @@ def load_and_merge_data(cfg: ExperimentConfig) -> MergedLoadResult:
                 observed_days=observed_days,
                 missing_days=missing_days,
                 coverage_ratio=round(coverage_ratio, 6),
-                note="缺失记录将按行剔除" if missing_days else None,
+                note="缺失记录保留至日历样本层判定，不提前删除整行" if missing_days else None,
             )
         )
 
@@ -307,7 +315,7 @@ def load_and_merge_data(cfg: ExperimentConfig) -> MergedLoadResult:
             df_merge,
             normalized_frames[source_index[label]],
             on=file_cfg.time_column,
-            how="inner",
+            how="outer",
         )
 
     missing_features = [col for col in file_cfg.feature_columns if col not in df_merge.columns]
@@ -324,7 +332,6 @@ def load_and_merge_data(cfg: ExperimentConfig) -> MergedLoadResult:
     df_merge = (
         df_merge
         .sort_values(file_cfg.time_column)
-        .dropna(subset=selected_columns)
         .reset_index(drop=True)
     )
 
@@ -332,7 +339,7 @@ def load_and_merge_data(cfg: ExperimentConfig) -> MergedLoadResult:
     y = df_merge[file_cfg.target_column].astype(float).copy()
     time_raw = df_merge[file_cfg.time_column].copy()
     print(
-        f"数据合并完成，有效样本数: {len(df_merge)}；"
+        f"数据合并完成，日历行数: {len(df_merge)}；"
         f"缺失记录审计源: {active_sparse_sources or '无'}"
     )
     return MergedLoadResult(
@@ -651,6 +658,30 @@ DEFAULT_MODEL_FAMILY: Literal["ridge", "elasticnet"] = "ridge"
 MODEL_DISPLAY_NAMES = {"ridge": "Ridge", "elasticnet": "ElasticNet"}
 
 
+@dataclass
+class ParamSearchInfo:
+    """结构化训练内选参记录，供 cv_results 与诊断审计使用。"""
+
+    model_family: str
+    search_mode: str
+    selected_alpha: float
+    selected_l1_ratio: float | None
+    converged: bool
+    grid_size: int
+    rows: list[dict] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "model_family": self.model_family,
+            "search_mode": self.search_mode,
+            "selected_alpha": self.selected_alpha,
+            "selected_l1_ratio": self.selected_l1_ratio,
+            "converged": self.converged,
+            "grid_size": self.grid_size,
+            "n_rows": len(self.rows),
+        }
+
+
 def resolve_model_family(cfg: ElasticNetConfig) -> Literal["ridge", "elasticnet"]:
     family = getattr(cfg, "model_family", None) or DEFAULT_MODEL_FAMILY
     normalized = str(family).strip().lower()
@@ -661,9 +692,14 @@ def resolve_model_family(cfg: ElasticNetConfig) -> Literal["ridge", "elasticnet"
     return normalized
 
 
-def make_model(cfg: ElasticNetConfig, alpha_override: float | None = None) -> BaseEstimator:
+def make_model(
+    cfg: ElasticNetConfig,
+    alpha_override: float | None = None,
+    l1_ratio_override: float | None = None,
+) -> BaseEstimator:
     family = resolve_model_family(cfg)
     alpha = cfg.alpha if alpha_override is None else alpha_override
+    l1_ratio = cfg.l1_ratio if l1_ratio_override is None else l1_ratio_override
     if family == "ridge":
         return Ridge(
             alpha=alpha,
@@ -673,7 +709,7 @@ def make_model(cfg: ElasticNetConfig, alpha_override: float | None = None) -> Ba
         )
     return ElasticNet(
         alpha=alpha,
-        l1_ratio=cfg.l1_ratio,
+        l1_ratio=l1_ratio,
         random_state=cfg.random_state,
         max_iter=10000,
         fit_intercept=cfg.fit_intercept,
@@ -691,30 +727,97 @@ def select_best_alpha(
     cfg: ElasticNetConfig,
     cv_folds: list[tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> float:
-    """Ridge 在冻结的日历折上选 alpha；scaler 在折内 Pipeline 中训练。"""
+    """向后兼容包装：返回训练内选出的 alpha。"""
 
-    if resolve_model_family(cfg) != "ridge":
-        return float(cfg.alpha)
-    grid = [
+    return select_best_params(Xtr, ytr, cfg, cv_folds=cv_folds).selected_alpha
+
+
+def select_best_params(
+    Xtr: pd.DataFrame,
+    ytr: np.ndarray,
+    cfg: ElasticNetConfig,
+    cv_folds: list[tuple[np.ndarray, np.ndarray]] | None = None,
+) -> ParamSearchInfo:
+    """在冻结的日历折上为 Ridge/ElasticNet 做对等的训练内选参。
+
+    scaler 始终位于 Pipeline 内部，每折只在训练部分拟合。ElasticNet 与原
+    Ridge 使用完全相同的折集合与评分指标，避免“模型族差异”混入“选参策略
+    差异”。``param_search_mode="fixed"`` 时不做搜索，固定参数直接训练，
+    用于单独的参数对照敏感性实验。
+    """
+
+    family = resolve_model_family(cfg)
+    alpha_grid = [
         float(value)
         for value in getattr(cfg, "alpha_grid", [])
         if float(value) > 0
     ]
-    if len(grid) < 2 or len(Xtr) < 4:
-        return float(cfg.alpha)
+    if family == "ridge":
+        l1_ratios: list[float] = []
+    else:
+        l1_ratios = [
+            float(value)
+            for value in getattr(cfg, "l1_ratio_grid", [])
+            if 0.0 < float(value) < 1.0
+        ]
+
+    fixed_alpha = float(cfg.alpha)
+    fixed_l1_ratio = (
+        (float(cfg.l1_ratio) if 0.0 < float(cfg.l1_ratio) < 1.0 else 0.5)
+        if family == "elasticnet"
+        else None
+    )
+    search_mode = str(getattr(cfg, "param_search_mode", "auto") or "auto").lower()
+    can_search = (
+        search_mode != "fixed"
+        and len(alpha_grid) >= 2
+        and len(Xtr) >= 4
+        and (family == "ridge" or len(l1_ratios) >= 1)
+    )
+    if cv_folds is not None and not cv_folds:
+        can_search = False
+    if not can_search:
+        return ParamSearchInfo(
+            model_family=family,
+            search_mode="fixed",
+            selected_alpha=fixed_alpha,
+            selected_l1_ratio=fixed_l1_ratio,
+            converged=True,
+            grid_size=1,
+        )
+
+    param_grid: dict[str, list[float]] = {"model__alpha": alpha_grid}
+    if family == "elasticnet":
+        param_grid["model__l1_ratio"] = l1_ratios
+    combination_count = 1
+    for values in param_grid.values():
+        combination_count *= len(values)
+    max_combinations = int(getattr(cfg, "max_param_search_combinations", 30) or 30)
+    effective_alpha_grid = list(alpha_grid)
+    if combination_count > max_combinations:
+        limit = max(max_combinations // max(len(l1_ratios), 1), 1)
+        effective_alpha_grid = alpha_grid[:limit]
+        param_grid["model__alpha"] = effective_alpha_grid
+
     if cv_folds is not None:
-        if not cv_folds:
-            return float(cfg.alpha)
         cv = _IndexFoldCV(cv_folds)
     else:
         n_splits = min(2, len(Xtr) // 2)
         if n_splits < 2:
-            return float(cfg.alpha)
+            return ParamSearchInfo(
+                model_family=family,
+                search_mode="fixed",
+                selected_alpha=fixed_alpha,
+                selected_l1_ratio=fixed_l1_ratio,
+                converged=True,
+                grid_size=1,
+            )
         cv = TimeSeriesSplit(n_splits=n_splits)
+
     model = make_model(cfg)
     search = GridSearchCV(
         Pipeline([("scaler", StandardScaler()), ("model", model)]),
-        {"model__alpha": grid},
+        param_grid,
         cv=cv,
         scoring="neg_mean_squared_error",
         refit=True,
@@ -722,7 +825,123 @@ def select_best_alpha(
         n_jobs=1,
     )
     search.fit(Xtr, ytr)
-    return float(search.best_params_["model__alpha"])
+    selected_alpha = float(search.best_params_["model__alpha"])
+    selected_l1_ratio = (
+        float(search.best_params_["model__l1_ratio"])
+        if family == "elasticnet"
+        else None
+    )
+    estimator = search.best_estimator_.named_steps["model"]
+    converged = True
+    if hasattr(estimator, "n_iter_") and hasattr(estimator, "max_iter"):
+        converged = int(getattr(estimator, "n_iter_") or 0) < int(
+            getattr(estimator, "max_iter") or 0
+        )
+    rows = _grid_rows_from_search(
+        search,
+        family=family,
+        alpha_grid=effective_alpha_grid,
+        l1_ratios=l1_ratios,
+    )
+    return ParamSearchInfo(
+        model_family=family,
+        search_mode="auto",
+        selected_alpha=selected_alpha,
+        selected_l1_ratio=selected_l1_ratio,
+        converged=converged,
+        grid_size=len(rows),
+        rows=rows,
+    )
+
+
+def _grid_rows_from_search(
+    search: GridSearchCV,
+    *,
+    family: str,
+    alpha_grid: list[float],
+    l1_ratios: list[float],
+) -> list[dict]:
+    """把 GridSearchCV 的 cv_results_ 展开为按原始网格序排列的逐行记录。
+
+    sklearn 的 cv_results_ 按 rank 排序；这里按参数网格索引恢复枚举顺序，
+    保证组合顺序可复现、可审计。
+    """
+    cv_results = getattr(search, "cv_results_", None)
+    if cv_results is None:
+        return []
+    alphas_raw = np.asarray(
+        [float(value) for value in cv_results["param_model__alpha"]]
+    )
+    l1_ratios_raw = (
+        np.asarray(
+            [float(value) for value in cv_results["param_model__l1_ratio"]]
+        )
+        if family == "elasticnet"
+        else None
+    )
+    alpha_to_index = {
+        float(value): index for index, value in enumerate(alpha_grid)
+    }
+    l1_to_index = (
+        {float(value): index for index, value in enumerate(l1_ratios)}
+        if l1_ratios_raw is not None
+        else None
+    )
+    order = sorted(
+        range(len(alphas_raw)),
+        key=lambda index: (
+            alpha_to_index.get(float(alphas_raw[index]), index),
+            (
+                l1_to_index.get(float(l1_ratios_raw[index]), index)
+                if l1_to_index is not None
+                else 0
+            ),
+        ),
+    )
+    alphas = alphas_raw[order]
+    l1_ratios = l1_ratios_raw[order] if l1_ratios_raw is not None else None
+    ranks = np.asarray(cv_results["rank_test_score"])[order]
+    mean_neg_mse = np.asarray(cv_results["mean_test_score"], dtype=float)[order]
+    std_scores = np.asarray(cv_results["std_test_score"], dtype=float)[order]
+    split_scores = [
+        np.asarray(cv_results[f"split{split}_test_score"], dtype=float)[order]
+        for split in range(search.n_splits_)
+    ]
+    rows: list[dict] = []
+    for index in range(len(order)):
+        row: dict = {
+            "rank": int(ranks[index]),
+            "param_alpha": float(alphas[index]),
+            "param_l1_ratio": (
+                None if l1_ratios is None else float(l1_ratios[index])
+            ),
+            "mean_test_neg_mse": float(mean_neg_mse[index]),
+            "mean_test_rmse": float(
+                np.sqrt(max(-float(mean_neg_mse[index]), 0.0))
+            ),
+            "std_test_score": float(std_scores[index]),
+        }
+        for split, scores in enumerate(split_scores):
+            row[f"split{split}_test_neg_mse"] = float(scores[index])
+        rows.append(row)
+    return rows
+
+
+def train_elasticnet_model_with_search(
+    Xtr: pd.DataFrame,
+    ytr: np.ndarray,
+    enet_cfg: ElasticNetConfig,
+    cv_folds: list[tuple[np.ndarray, np.ndarray]] | None = None,
+) -> tuple[BaseEstimator, ParamSearchInfo]:
+    search = select_best_params(Xtr, ytr, enet_cfg, cv_folds=cv_folds)
+    model = make_model(
+        enet_cfg,
+        alpha_override=search.selected_alpha,
+        l1_ratio_override=search.selected_l1_ratio,
+    )
+    pipeline = Pipeline([("scaler", StandardScaler()), ("model", model)])
+    pipeline.fit(Xtr, ytr)
+    return pipeline, search
 
 
 def train_elasticnet_model(
@@ -731,11 +950,13 @@ def train_elasticnet_model(
     enet_cfg: ElasticNetConfig,
     cv_folds: list[tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> BaseEstimator:
-    alpha = select_best_alpha(Xtr, ytr, enet_cfg, cv_folds=cv_folds)
-    model = make_model(enet_cfg, alpha_override=alpha)
-    pipeline = Pipeline([("scaler", StandardScaler()), ("model", model)])
-    pipeline.fit(Xtr, ytr)
-    return pipeline
+    model, _ = train_elasticnet_model_with_search(
+        Xtr,
+        ytr,
+        enet_cfg,
+        cv_folds=cv_folds,
+    )
+    return model
 
 
 # 旧入口的兼容别名；新代码建议使用 train_elasticnet_model。

@@ -1,3 +1,17 @@
+"""Closed-loop integration tests for the stubbed-agent pipeline.
+
+This module intentionally does NOT claim to be a real LLM test. It drives
+HumanControlService with deterministic stub agents, so it verifies control
+flow, state transitions, protocol execution and trace structure, not model
+quality. The three test layers live in:
+
+- Deterministic execution: tests/test_calendar_samples.py,
+  tests/test_unified_execution.py, tests/test_experiment_dispatcher.py,
+  tests/test_robustness_diagnostics.py, tests/test_evaluation_plan.py
+- Stubbed agent integration: this file
+- Explicitly enabled real API: tests/test_real_api_optional.py
+"""
+
 import unittest
 
 from core.central_controller_llm import CentralControllerLLM
@@ -20,7 +34,7 @@ from tests.test_llm_planner_integration import (
 from tests.test_system_audit_closure import SystemAuditClosureTest
 
 
-class FullLLMClosedLoopTest(SystemAuditClosureTest):
+class StubbedAgentIntegrationTest(SystemAuditClosureTest):
     def _build_control(self) -> HumanControlService:
         return HumanControlService(
             self.repository,
@@ -40,7 +54,7 @@ class FullLLMClosedLoopTest(SystemAuditClosureTest):
             experiment_writer=StubCandidateExperimentWriter(),
         )
 
-    def test_full_llm_mode_two_round_closure(self) -> None:
+    def test_two_round_closure_with_stubbed_agents(self) -> None:
         self.assertEqual(self._build_control().planner_mode, "llm")
         payload = self._run_two_rounds()
 
@@ -65,9 +79,14 @@ class FullLLMClosedLoopTest(SystemAuditClosureTest):
         self.assertTrue(
             any("questioner_gap:" in note for note in plan_after_round1["planner_input"].planner_guidance)
         )
-        self.assertTrue(
-            any("Np" in trace.summary for trace in plan_after_round1["planner_input"].recent_reasoning_traces)
-        )
+        traces = plan_after_round1["planner_input"].recent_reasoning_traces
+        referenced_variables = [
+            variable
+            for trace in traces
+            for variable in trace.referenced_variables
+        ]
+        self.assertIn("Np", referenced_variables)
+        self.assertTrue(any("Solar wind density" in trace.summary for trace in traces))
 
         self.assertTrue(
             any(note == "planner_refinement:实验规划者llm" for note in payload["round1"]["protocol"].notes)

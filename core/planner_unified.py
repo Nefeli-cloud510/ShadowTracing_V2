@@ -446,6 +446,7 @@ def _build_recent_reasoning_traces(
                         summary=trace.summary,
                         related_hypotheses=trace.related_hypotheses,
                         related_uncertainties=trace.related_uncertainties,
+                        referenced_variables=trace.referenced_variables,
                         support_delta=trace.support_delta,
                         priority_delta=trace.priority_delta,
                     )
@@ -462,6 +463,7 @@ def _build_recent_reasoning_traces(
                 summary=trace.get("summary", "review reasoning trace"),
                 related_hypotheses=trace.get("related_hypotheses", []),
                 related_uncertainties=trace.get("related_uncertainties", []),
+                referenced_variables=trace.get("referenced_variables") or [],
                 support_delta=trace.get("support_delta"),
                 priority_delta=trace.get("priority_delta"),
             )

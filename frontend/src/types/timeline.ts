@@ -46,21 +46,50 @@ export interface ExperimentPreview {
   id: string
   targetHypothesis: string
   utility: number
-  informationGain: number
-  performanceGain: number
+  informationGain?: number
+  performanceGain?: number
   status: 'recommended' | 'candidate' | 'approved' | 'completed'
   scientificQuestion?: string
 }
 
 export interface EvaluationPreview {
   experimentId?: string
+  experimentType?: string
   baselinePearsonR?: number
   treatmentPearsonR?: number
-  deltaPearsonR: number
+  deltaPearsonR?: number
   deltaRmse?: number
-  pgActual: number
+  pgActual?: number
   verdict: 'supports' | 'weakens' | 'mixed'
   stable?: boolean
+  runs?: ExperimentRunViewModel[]
+  contrasts?: ExperimentContrastViewModel[]
+  diagnostics?: unknown[]
+}
+
+export interface ExperimentRunViewModel {
+  runId: string
+  name?: string
+  modelFamily?: string
+  rmse?: number
+  mae?: number
+  pearsonR?: number
+  skill?: number
+  trainingMode?: string
+  featureColumns?: string[]
+  parameters?: Record<string, unknown>
+}
+
+export interface ExperimentContrastViewModel {
+  contrastId: string
+  name?: string
+  kind?: string
+  runIds?: string[]
+  deltaRmse?: number
+  deltaPearsonR?: number
+  rmseCi?: number[] | null
+  pearsonCi?: number[] | null
+  note?: string
 }
 
 export interface DataCoverageViewModel {
@@ -175,12 +204,16 @@ export interface ExperimentEvaluationViewModel {
     protocolNotes?: string[]
   }>
   metricComparison?: {
+    experimentType?: string
     baselineRmse?: number
     treatmentRmse?: number
     baselinePearsonR?: number
     treatmentPearsonR?: number
     deltaPearsonR?: number
     deltaRmse?: number
+    runs?: ExperimentRunViewModel[]
+    contrasts?: ExperimentContrastViewModel[]
+    diagnostics?: unknown[]
   }
   dataCoverage: DataCoverageViewModel[]
   visualizationPaths: string[]
@@ -188,7 +221,9 @@ export interface ExperimentEvaluationViewModel {
     path: string
     label: string
     previewUrl: string
-    variant: 'baseline' | 'treatment' | 'artifact'
+    variant: 'baseline' | 'treatment' | 'artifact' | 'run'
+    runId?: string
+    runLabel?: string
   }>
 }
 
@@ -284,12 +319,15 @@ export interface RoundReportViewModel {
   sourceUpdatedAt?: string
   threeLayerConclusion?: ThreeLayerConclusionViewModel
   summary: {
+    experimentType?: string
     baselinePearsonR?: number
     treatmentPearsonR?: number
     deltaPearsonR?: number
     baselineRmse?: number
     treatmentRmse?: number
     deltaRmse?: number
+    runs?: ExperimentRunViewModel[]
+    contrasts?: ExperimentContrastViewModel[]
   }
   dataCoverage: DataCoverageViewModel[]
   scientificConclusions: string[]
@@ -340,6 +378,10 @@ export interface ThreeLayerConclusionExperimentLayer {
   treatmentPearsonR?: number
   skillDelta?: number
   decisive: boolean
+  experimentType?: string
+  runs?: ExperimentRunViewModel[]
+  contrasts?: ExperimentContrastViewModel[]
+  diagnostics?: unknown[]
 }
 
 export interface ThreeLayerConclusionHypothesisRow {

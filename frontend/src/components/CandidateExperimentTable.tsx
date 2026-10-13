@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { experimentTypeLabel } from './ExperimentMetrics'
 
 type NumericValue = number | string | { value?: number | string } | undefined
 
@@ -157,11 +158,7 @@ export function CandidateExperimentTable({
       {candidates.map((candidate, index) => {
         const design = candidate?.design ?? {}
         const experimentType = candidate?.experiment_type ?? candidate?.type
-        const typeLabel = experimentType === 'model_sensitivity'
-          ? '模型敏感性实验'
-          : experimentType === 'baseline_benchmark'
-            ? '基准对照实验'
-            : '区分性对照实验'
+        const typeLabel = experimentTypeLabel(experimentType)
         const target = displayText(design.display_target ?? design.target) || design.display_target || '待配置'
         const control = design.display_control?.length
           ? toDisplayList(design.display_control, displayText)
@@ -216,7 +213,7 @@ export function CandidateExperimentTable({
               </div>
               <div className="candidate-table__metrics">
                 <span className="candidate-table__metric candidate-table__metric--utility">U(E) {toNumber(candidate.utility_score).toFixed(3)}</span>
-                <span className="candidate-table__metric">IG {toNumber(candidate.estimated_information_gain).toFixed(3)}</span>
+                <span className="candidate-table__metric">预期区分度 {toNumber(candidate.estimated_information_gain).toFixed(3)}</span>
                 <span className="candidate-table__metric">PG {toNumber(candidate.estimated_performance_gain).toFixed(3)}</span>
                 <span className="candidate-table__metric">Risk {toNumber(candidate.estimated_risk).toFixed(3)}</span>
                 <span className="candidate-table__metric">Cost {toNumber(candidate.estimated_cost).toFixed(3)}</span>

@@ -357,7 +357,7 @@ class SystemAuditClosureTest(unittest.TestCase):
         active_ids = set(tree.active_hypotheses)
         self.assertTrue(active_ids)
         self.assertTrue(active_ids.issubset(set(node_index)))
-        self.assertEqual(tree.latest_update.event, "scientific_questioning_completed")
+        self.assertEqual(tree.latest_update.event, "planner_output_applied")
         self.assertEqual(tree.latest_update.round, round2_protocol.round_id + 1)
 
         record_index = uncertainties.record_index()

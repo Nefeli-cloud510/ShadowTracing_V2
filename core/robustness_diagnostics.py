@@ -49,12 +49,24 @@ def weighted_pearson(
 
 
 def _block_ids(issue_dates: pd.Series, block_size: int) -> np.ndarray:
+    """Year-anchored calendar block ids, compacted to contiguous integers.
+
+    Blocks restart at January 1 of each year; the same day-of-year in
+    different years therefore never shares an id and cannot be merged by
+    the bootstrap bincount.
+    """
+
     dates = pd.to_datetime(issue_dates).dt.normalize()
     years = dates.dt.year
+    min_year = int(years.min())
     anchors = pd.to_datetime(
-        pd.Series(years).apply(lambda year: f"{int(year)}-01-01")
+        pd.Series([f"{int(year)}-01-01" for year in years])
     )
-    return ((dates - anchors).dt.days // int(block_size)).to_numpy(dtype=int)
+    day_offsets = (dates - anchors).dt.days // int(block_size)
+    raw = (years - min_year) * 366 + day_offsets
+    raw = raw.to_numpy(dtype=np.int64)
+    unique = np.unique(raw)
+    return np.searchsorted(unique, raw).astype(dtype=int)
 
 
 def paired_calendar_block_bootstrap(
@@ -65,6 +77,7 @@ def paired_calendar_block_bootstrap(
     n_draws: int = 10000,
     seed: int = 20261008,
     ci_level: float = 95.0,
+    verify_pearson: bool = False,
 ) -> dict[str, Any]:
     """Paired calendar-block bootstrap for the common-sample test set.
 
@@ -107,19 +120,50 @@ def paired_calendar_block_bootstrap(
     treat_mae = np.sum(weights * np.abs(y_true - yp_treat), axis=1) / row_sums[:, 0]
 
     w_total = row_sums[:, 0]
-    base_mean = np.sum(weights * y_true, axis=1) / w_total
-    treat_mean = np.sum(weights * y_true, axis=1) / w_total
-    base_r_num = np.sum(weights * (y_true - base_mean[:, None]) * (yp_base - base_mean[:, None]), axis=1)
-    treat_r_num = np.sum(weights * (y_true - treat_mean[:, None]) * (yp_treat - treat_mean[:, None]), axis=1)
-    base_var_x = np.sum(weights * (y_true - base_mean[:, None]) ** 2, axis=1) / w_total
+    true_mean = np.sum(weights * y_true, axis=1) / w_total
+    base_mean = np.sum(weights * yp_base, axis=1) / w_total
+    treat_mean = np.sum(weights * yp_treat, axis=1) / w_total
+    base_r_num = np.sum(
+        weights * (y_true - true_mean[:, None]) * (yp_base - base_mean[:, None]),
+        axis=1,
+    )
+    treat_r_num = np.sum(
+        weights * (y_true - true_mean[:, None]) * (yp_treat - treat_mean[:, None]),
+        axis=1,
+    )
+    base_var_x = np.sum(weights * (y_true - true_mean[:, None]) ** 2, axis=1) / w_total
     base_var_y = np.sum(weights * (yp_base - base_mean[:, None]) ** 2, axis=1) / w_total
-    treat_var_x = np.sum(weights * (y_true - treat_mean[:, None]) ** 2, axis=1) / w_total
+    treat_var_x = np.sum(weights * (y_true - true_mean[:, None]) ** 2, axis=1) / w_total
     treat_var_y = np.sum(weights * (yp_treat - treat_mean[:, None]) ** 2, axis=1) / w_total
     with np.errstate(invalid="ignore", divide="ignore"):
         base_r = base_r_num / w_total / np.sqrt(base_var_x * base_var_y)
         treat_r = treat_r_num / w_total / np.sqrt(treat_var_x * treat_var_y)
     base_r = np.where(np.isfinite(base_r), base_r, np.nan)
     treat_r = np.where(np.isfinite(treat_r), treat_r, np.nan)
+    n_valid_pearson_draws = int(
+        np.count_nonzero(np.isfinite(base_r) & np.isfinite(treat_r))
+    )
+
+    if verify_pearson:
+        probe = min(25, n_draws)
+        for draw_index in range(probe):
+            row_weights = weights[draw_index]
+            expected_base = weighted_pearson(y_true, yp_base, row_weights)
+            expected_treat = weighted_pearson(y_true, yp_treat, row_weights)
+            if not np.isclose(
+                base_r[draw_index], expected_base, atol=1e-9, equal_nan=True
+            ):
+                raise AssertionError(
+                    f"第 {draw_index} 次 baseline 向量化 Pearson 与加权实现不一致："
+                    f"{base_r[draw_index]} vs {expected_base}"
+                )
+            if not np.isclose(
+                treat_r[draw_index], expected_treat, atol=1e-9, equal_nan=True
+            ):
+                raise AssertionError(
+                    f"第 {draw_index} 次 treatment 向量化 Pearson 与加权实现不一致："
+                    f"{treat_r[draw_index]} vs {expected_treat}"
+                )
 
     gain_rmse = base_rmse - treat_rmse
     gain_mae = base_mae - treat_mae
@@ -143,6 +187,7 @@ def paired_calendar_block_bootstrap(
         "ci_level": float(ci_level),
         "n_test_samples": int(len(baseline)),
         "n_nonempty_blocks": int(len(nonempty)),
+        "n_valid_pearson_draws": n_valid_pearson_draws,
         "point_gain_rmse": weighted_rmse(y_true, yp_base, np.ones_like(y_true))
         - weighted_rmse(y_true, yp_treat, np.ones_like(y_true)),
         "point_gain_mae": weighted_mae(y_true, yp_base, np.ones_like(y_true))
@@ -200,10 +245,11 @@ def summary_to_robustness_report(summary: dict[str, Any] | None) -> RobustnessRe
         if stable_rmse
         else f"配对 bootstrap 的 {ci_text} 跨越零，主增益方向尚不稳定。"
     )
+    block_text = f"{summary.get('block_size', 7)} 天块"
     recommendation = (
-        f"配对块 bootstrap（{summary.get('n_iterations', 0)} 次、7 天块）"
-        f"{'支持主增益方向' if stable_rmse else '不支持稳定增益方向'}，"
-        "建议直接以该 CI 辅助假设支持度更新。"
+        f"配对块 bootstrap（{summary.get('n_iterations', 0)} 次、{block_text}）"
+        f"{'支持主增益方向' if stable_rmse else '不支持稳定增益方向'}；"
+        "未运行分时段检验，不据此作分时段稳定性结论。"
     )
     return RobustnessReport(
         bootstrap=BootstrapReport(
@@ -219,7 +265,7 @@ def summary_to_robustness_report(summary: dict[str, Any] | None) -> RobustnessRe
             point_gain_mae=summary.get("point_gain_mae"),
             point_gain_pearson_r=summary.get("point_gain_pearson_r"),
         ),
-        time_slice=TimeSliceReport(stable=stable_rmse),
+        time_slice=TimeSliceReport(stable=False),
         overall=RobustnessOverall(stable=stable_rmse, concern=concern),
         recommendation=recommendation,
     )

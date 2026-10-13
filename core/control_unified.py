@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from core.calendar_samples import is_blind_sealed
 from core.central_controller_llm import CentralControllerLLM
 from core.decision_unified import DIFFERENTIATING_EXPERIMENT_ERROR
 from core.decision_unified import DecisionLayerService
@@ -843,6 +844,11 @@ class HumanControlService:
                 round_id=planner_input.source_round_id,
                 stage="scientific_questioner",
                 prefix="SQ",
+                referenced_variables=[
+                    feature
+                    for item in questioner_output.proposed_uncertainties
+                    for feature in item.features
+                ],
             )
         )
         planner_input.recent_reasoning_traces = planner_input.recent_reasoning_traces[-10:]
@@ -1877,6 +1883,15 @@ class HumanControlService:
         auto_continue: bool | None = None,
         data_dictionary: DataDictionary | None = None,
     ) -> dict[str, Any]:
+        if (
+            decision != "stop"
+            and is_blind_sealed(self.project_root)
+        ):
+            raise ValueError(
+                "final_test_blind 已封存：最终测试段的评估结果不得驱动下一轮设计，"
+                "请使用 stop 结束工作流并仅把盲测结果作为交付报告。"
+            )
+
         decision_type_map = {
             "continue": "continue_next_round",
             "adjust": "round_adjusted",
@@ -2221,6 +2236,11 @@ class HumanControlService:
         human_feedback: str | None,
         data_dictionary: DataDictionary | None,
     ) -> dict[str, Any]:
+        if is_blind_sealed(self.project_root):
+            raise ValueError(
+                "final_test_blind 已封存：最终测试结果不得进入下一轮假设扩展、"
+                "不确定性挖掘或候选实验规划。"
+            )
         if data_dictionary is None:
             return {
                 "planning_status": "awaiting_data_dictionary",
@@ -2472,7 +2492,19 @@ class HumanControlService:
         }
         return mapping[decision]
 
+    def _persist_llm_gateway_stats(self) -> None:
+        snapshot = {
+            "captured_at": datetime.now().isoformat(),
+            **LLMGateway.statistics_summary(),
+        }
+        stats_path = self.config_dir / "llm_gateway_stats.json"
+        stats_path.write_text(
+            json.dumps(snapshot, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
     def _log_planner_input_prepared(self, planner_input: ReasoningPlannerInput) -> None:
+        self._persist_llm_gateway_stats()
         decision_log = self.repository.load_decision_log()
         decision_log.decisions.append(
             DecisionEntry(
@@ -2489,12 +2521,14 @@ class HumanControlService:
                     "source_experiment_id": planner_input.source_experiment_id,
                     "human_feedback": planner_input.human_feedback,
                     "planner_guidance": planner_input.planner_guidance[:8],
+                    "llm_gateway_stats": LLMGateway.statistics_summary(),
                 },
             )
         )
         self.repository.save_decision_log(decision_log)
 
     def _log_planner_output_generated(self, planner_output: ReasoningPlannerOutput) -> None:
+        self._persist_llm_gateway_stats()
         decision_log = self.repository.load_decision_log()
         decision_log.decisions.append(
             DecisionEntry(
@@ -2511,6 +2545,7 @@ class HumanControlService:
                     "planner_mode": planner_output.planner_mode,
                     "candidate_supplements": len(planner_output.candidate_supplements),
                     "protocol_refinements": len(planner_output.protocol_refinements),
+                    "llm_gateway_stats": LLMGateway.statistics_summary(),
                 },
             )
         )
@@ -2523,6 +2558,7 @@ class HumanControlService:
         experiment_id: str,
         interpretation_enhancements: list,
     ) -> None:
+        self._persist_llm_gateway_stats()
         if not interpretation_enhancements:
             return
         decision_log = self.repository.load_decision_log()
@@ -2540,6 +2576,7 @@ class HumanControlService:
                     "experiment_id": experiment_id,
                     "enhancement_count": len(interpretation_enhancements),
                     "enhancement_ids": [item.enhancement_id for item in interpretation_enhancements],
+                    "llm_gateway_stats": LLMGateway.statistics_summary(),
                 },
             )
         )
@@ -2806,6 +2843,7 @@ class HumanControlService:
                 round_id=planner_input.source_round_id,
                 stage="hypothesis_proposer",
                 prefix="HP",
+                referenced_variables=focus_features_raw,
             )
         )
         planner_input.recent_reasoning_traces = planner_input.recent_reasoning_traces[-10:]
@@ -2849,6 +2887,11 @@ class HumanControlService:
                 round_id=planner_input.source_round_id,
                 stage="scientific_questioner",
                 prefix="SQ",
+                referenced_variables=[
+                    feature
+                    for item in questioner_output.proposed_uncertainties
+                    for feature in item.features
+                ],
             )
         )
         uncertainties = self._merge_questioner_uncertainties(
@@ -2963,14 +3006,17 @@ class HumanControlService:
         round_id: int,
         stage: str,
         prefix: str,
+        referenced_variables: list[str] | None = None,
     ) -> list[PlannerReasoningTraceItem]:
         traces: list[PlannerReasoningTraceItem] = []
+        variable_refs = list(dict.fromkeys(referenced_variables or []))
         for index, note in enumerate(notes[:3], start=1):
             traces.append(
                 PlannerReasoningTraceItem(
                     trace_id=f"{prefix}{round_id:02d}{index:02d}",
                     stage=stage,
                     summary=note,
+                    referenced_variables=variable_refs,
                 )
             )
         return traces

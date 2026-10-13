@@ -51,9 +51,6 @@ HOST = "127.0.0.1"
 PORT = 8765
 LIVE_ROOT = REPO_ROOT / "runtime" / "live_session" / "current"
 STATE_DIR = LIVE_ROOT / "state"
-STATUS_PATH = LIVE_ROOT / "session_status.json"
-UPLOAD_MANIFEST_PATH = STATE_DIR / "upload_manifest.json"
-MODEL_USAGE_PATH = STATE_DIR / "model_usage.json"
 STAGED_DATA_DIR = REPO_ROOT / "runtime" / "live_session" / "staged"
 STAGED_MANIFEST_PATH = STAGED_DATA_DIR / "staged_manifest.json"
 
@@ -794,18 +791,20 @@ def ingest_knowledge_files(knowledge_dir: Path, text_dir: Path, files: list[dict
     return manifest
 
 
-def write_upload_manifest(records: list[dict[str, Any]]) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    UPLOAD_MANIFEST_PATH.write_text(
+def write_upload_manifest(records: list[dict[str, Any]], state_dir: Path | None = None) -> None:
+    state_dir = state_dir or STATE_DIR
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "upload_manifest.json").write_text(
         json.dumps({"records": records}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
 
-def write_model_usage_manifest(session_model: str) -> None:
+def write_model_usage_manifest(session_model: str, state_dir: Path | None = None) -> None:
     role_models = get_llm_role_models()
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    MODEL_USAGE_PATH.write_text(
+    state_dir = state_dir or STATE_DIR
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "model_usage.json").write_text(
         json.dumps(
             {
                 "session_model": session_model,
@@ -883,6 +882,7 @@ def write_staged_manifest(files: list[dict[str, Any]]) -> None:
 
 
 def initialize_live_workspace(
+    live_root: Path | None = None,
     *,
     question: str,
     knowledge_files: list[dict[str, Any]],
@@ -891,21 +891,22 @@ def initialize_live_workspace(
     variable_overrides: dict[str, Any] | None = None,
     data_dictionary_config: dict[str, Any] | None = None,
 ) -> tuple[Path, UnifiedStateRepository, ScientificTask, DataDictionary]:
-    if LIVE_ROOT.exists():
-        shutil.rmtree(LIVE_ROOT)
-    LIVE_ROOT.mkdir(parents=True, exist_ok=True)
+    live_root = live_root or LIVE_ROOT
+    if live_root.exists():
+        shutil.rmtree(live_root)
+    live_root.mkdir(parents=True, exist_ok=True)
 
     resolved_data_files = data_files if data_files else read_staged_file_payloads()
     if not resolved_data_files:
         raise ValueError("至少需要上传一个数据文件。")
-    raw_data_paths = persist_data_files(LIVE_ROOT / "data" / "raw", resolved_data_files)
+    raw_data_paths = persist_data_files(live_root / "data" / "raw", resolved_data_files)
     upload_manifest = ingest_knowledge_files(
-        LIVE_ROOT / "uploads" / "knowledge",
-        LIVE_ROOT / "outputs" / "pdf_texts",
+        live_root / "uploads" / "knowledge",
+        live_root / "outputs" / "pdf_texts",
         knowledge_files,
     )
 
-    repo = UnifiedStateRepository(LIVE_ROOT)
+    repo = UnifiedStateRepository(live_root)
     task, dictionary = build_dictionary_and_task(
         question=question,
         raw_data_paths=raw_data_paths,
@@ -913,18 +914,21 @@ def initialize_live_workspace(
         data_dictionary_config=data_dictionary_config,
     )
     repo.initialize_state_skeleton(task, data_dictionary=dictionary, overwrite=True)
-    write_upload_manifest(upload_manifest)
-    write_model_usage_manifest(model)
-    return LIVE_ROOT, repo, task, dictionary
+    write_upload_manifest(upload_manifest, live_root / "state")
+    write_model_usage_manifest(model, live_root / "state")
+    return live_root, repo, task, dictionary
 
 
 class LiveSessionManager:
-    def __init__(self) -> None:
+    def __init__(self, live_root: Path | None = None) -> None:
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
         self._recovery_lock = threading.Lock()
         self._recovery_in_progress = False
         self._generation = 0
+        self.live_root = live_root or LIVE_ROOT
+        self.state_dir = self.live_root / "state"
+        self.status_path = self.live_root / "session_status.json"
         self._status: dict[str, Any] = {
             "status": "idle",
             "stage": "waiting_input",
@@ -932,13 +936,13 @@ class LiveSessionManager:
             "question": "",
             "model": get_default_llm_model(),
             "maxRounds": 2,
-            "runRoot": str(LIVE_ROOT),
+            "runRoot": str(self.live_root),
             "currentRound": 0,
             "updatedAt": datetime.now().isoformat(),
         }
-        if STATUS_PATH.exists():
+        if self.status_path.exists():
             try:
-                persisted = json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+                persisted = json.loads(self.status_path.read_text(encoding="utf-8"))
                 if isinstance(persisted, dict):
                     self._status.update(persisted)
             except Exception:
@@ -961,8 +965,11 @@ class LiveSessionManager:
             return dict(self._status)
 
     def _write_status(self) -> None:
-        LIVE_ROOT.mkdir(parents=True, exist_ok=True)
-        STATUS_PATH.write_text(json.dumps(self._status, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.live_root.mkdir(parents=True, exist_ok=True)
+        self.status_path.write_text(
+            json.dumps(self._status, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     def _current_generation(self) -> int:
         with self._lock:
@@ -976,10 +983,10 @@ class LiveSessionManager:
         if not self._is_generation_current(generation):
             raise StaleSessionError("session generation is stale")
 
-    def _cleanup_if_stale(self, generation: int) -> None:
+    def _cleanup_if_stale(self, generation: int, session_root: Path | None = None) -> None:
         if self._is_generation_current(generation):
             return
-        shutil.rmtree(LIVE_ROOT, ignore_errors=True)
+        shutil.rmtree(session_root or self.live_root, ignore_errors=True)
 
     def _update(self, *, _generation: int | None = None, **changes: Any) -> None:
         with self._lock:
@@ -993,7 +1000,7 @@ class LiveSessionManager:
         if self._worker is not None and self._worker.is_alive():
             return
         try:
-            repo = UnifiedStateRepository(LIVE_ROOT)
+            repo = UnifiedStateRepository(self.live_root)
             process_state = repo.load_process_state()
             task = repo.load_task()
             candidate_set = repo.load_candidate_experiments()
@@ -1011,7 +1018,7 @@ class LiveSessionManager:
             "question": question,
             "model": model,
             "maxRounds": max_rounds,
-            "runRoot": str(LIVE_ROOT),
+            "runRoot": str(self.live_root),
             "currentRound": current_round,
         }
 
@@ -1134,8 +1141,13 @@ class LiveSessionManager:
 
     def reset(self, *, preserve_staged_data: bool = False) -> dict[str, Any]:
         with self._lock:
+            old_worker = self._worker
+            old_root = self.live_root
             self._generation += 1
             self._worker = None
+            self.live_root = self._allocate_session_root()
+            self.state_dir = self.live_root / "state"
+            self.status_path = self.live_root / "session_status.json"
             self._status = {
                 "status": "idle",
                 "stage": "waiting_input",
@@ -1144,15 +1156,26 @@ class LiveSessionManager:
                 "question": "",
                 "model": get_default_llm_model(),
                 "maxRounds": 2,
-                "runRoot": str(LIVE_ROOT),
+                "runRoot": str(self.live_root),
                 "currentRound": 0,
                 "updatedAt": datetime.now().isoformat(),
             }
-        shutil.rmtree(LIVE_ROOT, ignore_errors=True)
+        if old_worker is None or not old_worker.is_alive():
+            shutil.rmtree(old_root, ignore_errors=True)
         if not preserve_staged_data:
             shutil.rmtree(STAGED_DATA_DIR, ignore_errors=True)
         self._write_status()
         return dict(self._status)
+
+    def _allocate_session_root(self) -> Path:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        sessions_dir = self.live_root.parent / "sessions"
+        candidate = sessions_dir / f"session_{stamp}"
+        index = 0
+        while candidate.exists():
+            index += 1
+            candidate = sessions_dir / f"session_{stamp}_{index}"
+        return candidate
 
     def _assert_not_busy(self) -> None:
         if self._worker is not None and self._worker.is_alive():
@@ -1169,21 +1192,32 @@ class LiveSessionManager:
             self._recovery_in_progress = False
 
     def _start_worker(self, target, **kwargs: Any) -> dict[str, Any]:
-        self._update(workerError=None)
-        generation = self._current_generation()
-        self._worker = threading.Thread(
-            target=self._run_worker,
-            kwargs={"target": target, "_generation": generation, **kwargs},
-            daemon=True,
-        )
-        self._worker.start()
+        with self._lock:
+            self._assert_not_busy()
+            generation = self._generation
+            session_root = self.live_root
+            worker = threading.Thread(
+                target=self._run_worker,
+                kwargs={
+                    "target": target,
+                    "_generation": generation,
+                    "_session_root": session_root,
+                    **kwargs,
+                },
+                daemon=True,
+            )
+            self._worker = worker
+            self._status["workerError"] = None
+            self._status["updatedAt"] = datetime.now().isoformat()
+            self._write_status()
+        worker.start()
         return self.snapshot()
 
-    def _run_worker(self, *, target, _generation: int, **kwargs: Any) -> None:
+    def _run_worker(self, *, target, _generation: int, _session_root: Path, **kwargs: Any) -> None:
         try:
-            target(_generation=_generation, **kwargs)
+            target(_generation=_generation, _session_root=_session_root, **kwargs)
         finally:
-            self._cleanup_if_stale(_generation)
+            self._cleanup_if_stale(_generation, _session_root)
 
     def _current_model(self) -> str:
         return str(self._status.get("model") or get_default_llm_model())
@@ -1192,17 +1226,17 @@ class LiveSessionManager:
         if self._worker is not None and self._worker.is_alive():
             return False
         try:
-            repo = UnifiedStateRepository(LIVE_ROOT)
+            repo = UnifiedStateRepository(self.live_root)
             process_state = repo.load_process_state()
             if process_state.current_phase != "result_analysis":
                 return False
-            round_dir = LIVE_ROOT / "results" / f"round_{process_state.current_round:02d}"
+            round_dir = self.live_root / "results" / f"round_{process_state.current_round:02d}"
             return (round_dir / "protocol.json").exists() and (round_dir / "result_unified.json").exists()
         except Exception:
             return False
 
     def _current_round(self) -> int:
-        repo = UnifiedStateRepository(LIVE_ROOT)
+        repo = UnifiedStateRepository(self.live_root)
         process_state = repo.load_process_state()
         candidate_set = repo.load_candidate_experiments()
         return max(process_state.current_round, candidate_set.round or 0, 1)
@@ -1219,11 +1253,11 @@ class LiveSessionManager:
         )
         return self._start_worker(self._run_resume_analysis)
 
-    def _run_resume_analysis(self, *, _generation: int) -> None:
+    def _run_resume_analysis(self, *, _generation: int, _session_root: Path) -> None:
         try:
             self._abort_if_stale(_generation)
-            repo = UnifiedStateRepository(LIVE_ROOT)
-            control = self._build_control(repo)
+            repo = UnifiedStateRepository(_session_root)
+            control = self._build_control(repo, _session_root)
             execution = control.resume_evaluation_from_persisted_run()
             self._abort_if_stale(_generation)
             self._update(
@@ -1235,7 +1269,7 @@ class LiveSessionManager:
                 currentRound=execution["protocol"].round_id,
             )
         except StaleSessionError:
-            self._cleanup_if_stale(_generation)
+            self._cleanup_if_stale(_generation, _session_root)
         except Exception as exc:
             traceback.print_exc()
             self._update(
@@ -1263,7 +1297,7 @@ class LiveSessionManager:
         if mode not in {"extend", "retry", "manual"}:
             raise ValueError("mode 必须是 extend / retry / manual 之一。")
 
-        repo = UnifiedStateRepository(LIVE_ROOT)
+        repo = UnifiedStateRepository(self.live_root)
         uncertainties = repo.load_uncertainties()
         process_state = repo.load_process_state()
         current_round = max(int(uncertainties.current_round), int(process_state.current_round), 1)
@@ -1350,7 +1384,7 @@ class LiveSessionManager:
                         for note in [*(record.notes or "").split(";"), "deprecated_by_round_mismatch"]
                         if note
                     )
-            control = self._build_control(repo)
+            control = self._build_control(repo, self.live_root)
             planner_input = planner_input.model_copy(update={"next_round_id": mining_round})
             planner_input, uncertainties = control._augment_uncertainty_context_with_llm_services(
                 planner_input=planner_input,
@@ -1406,12 +1440,13 @@ class LiveSessionManager:
             ),
         }
 
-    def _rebuild_dictionary(self, repo: UnifiedStateRepository) -> DataDictionary:
+    def _rebuild_dictionary(self, repo: UnifiedStateRepository, live_root: Path | None = None) -> DataDictionary:
+        live_root = live_root or self.live_root
         try:
             return repo.load_data_dictionary()
         except Exception:
             pass
-        raw_paths = sorted((LIVE_ROOT / "data" / "raw").glob("*"))
+        raw_paths = sorted((live_root / "data" / "raw").glob("*"))
         if not raw_paths:
             raise RuntimeError("当前会话缺少原始数据文件，无法重建 DataDictionary。")
         task = repo.load_task()
@@ -1422,8 +1457,9 @@ class LiveSessionManager:
         )
         return dictionary
 
-    def _build_control(self, repo: UnifiedStateRepository):
-        gateway_bundle = build_real_llm_control(repo, LIVE_ROOT, model=self._current_model())
+    def _build_control(self, repo: UnifiedStateRepository, live_root: Path | None = None):
+        live_root = live_root or self.live_root
+        gateway_bundle = build_real_llm_control(repo, live_root, model=self._current_model())
         return gateway_bundle["control"]
 
     def start(
@@ -1470,6 +1506,7 @@ class LiveSessionManager:
         self,
         *,
         _generation: int,
+        _session_root: Path,
         question: str,
         knowledge_files: list[dict[str, Any]],
         data_files: list[dict[str, Any]],
@@ -1482,6 +1519,7 @@ class LiveSessionManager:
             self._abort_if_stale(_generation)
             load_project_env(REPO_ROOT)
             run_root, repo, _, dictionary = initialize_live_workspace(
+                live_root=_session_root,
                 question=question,
                 knowledge_files=knowledge_files,
                 data_files=data_files,
@@ -1519,9 +1557,9 @@ class LiveSessionManager:
                 currentRound=1,
             )
         except StaleSessionError:
-            self._cleanup_if_stale(_generation)
+            self._cleanup_if_stale(_generation, _session_root)
         except Exception as exc:
-            failure_path = LIVE_ROOT / "failure_report.json"
+            failure_path = _session_root / "failure_report.json"
             failure_path.parent.mkdir(parents=True, exist_ok=True)
             failure_path.write_text(
                 json.dumps(
@@ -1566,14 +1604,15 @@ class LiveSessionManager:
         self,
         *,
         _generation: int,
+        _session_root: Path,
         candidate_id: str | None,
         human_notes: str | None,
         model_parameters: dict[str, Any],
     ) -> None:
         try:
             self._abort_if_stale(_generation)
-            repo = UnifiedStateRepository(LIVE_ROOT)
-            control = self._build_control(repo)
+            repo = UnifiedStateRepository(_session_root)
+            control = self._build_control(repo, _session_root)
             execution = control.approve_and_execute_candidate(
                 candidate_id=candidate_id,
                 human_notes=human_notes,
@@ -1593,7 +1632,7 @@ class LiveSessionManager:
                 currentRound=execution["protocol"].round_id,
             )
         except StaleSessionError:
-            self._cleanup_if_stale(_generation)
+            self._cleanup_if_stale(_generation, _session_root)
         except Exception as exc:
             self._update(
                 _generation=_generation,
@@ -1611,8 +1650,8 @@ class LiveSessionManager:
         """Freeze the reviewed hypothesis tree, then wait for scientific questioning."""
         self._assert_not_busy()
         try:
-            repo = UnifiedStateRepository(LIVE_ROOT)
-            control = self._build_control(repo)
+            repo = UnifiedStateRepository(self.live_root)
+            control = self._build_control(repo, self.live_root)
             result = control.confirm_hypothesis_tree(human_notes=human_notes, nodes=nodes)
             self._update(
                 status=result.get("status", "awaiting_scientific_questioning"),
@@ -1645,7 +1684,7 @@ class LiveSessionManager:
     def rerun_scientific_questioning(self) -> dict[str, Any]:
         """Re-run LLM scientific questioning after a completed questioning round."""
         self._assert_not_busy()
-        repo = UnifiedStateRepository(LIVE_ROOT)
+        repo = UnifiedStateRepository(self.live_root)
         process_state = repo.load_process_state()
         if process_state.current_stage not in {
             "awaiting_scientific_questioning",
@@ -1665,11 +1704,11 @@ class LiveSessionManager:
     def undo_scientific_questioning(self) -> dict[str, Any]:
         """Restore the pre-questioning tree after the newest advisory pass."""
         self._assert_not_busy()
-        repo = UnifiedStateRepository(LIVE_ROOT)
+        repo = UnifiedStateRepository(self.live_root)
         process_state = repo.load_process_state()
         if process_state.current_stage != "awaiting_uncertainty_identification":
             raise ValueError("当前阶段不是科学质询完成后，无法撤销本轮质询结果。")
-        control = self._build_control(repo)
+        control = self._build_control(repo, self.live_root)
         result = control.undo_scientific_questioning()
         self._update(
             status="awaiting_scientific_questioning",
@@ -1679,11 +1718,11 @@ class LiveSessionManager:
         )
         return dict(self._status)
 
-    def _run_scientific_questioning(self, *, _generation: int) -> None:
+    def _run_scientific_questioning(self, *, _generation: int, _session_root: Path) -> None:
         try:
             self._abort_if_stale(_generation)
-            repo = UnifiedStateRepository(LIVE_ROOT)
-            control = self._build_control(repo)
+            repo = UnifiedStateRepository(_session_root)
+            control = self._build_control(repo, _session_root)
             process_state = repo.load_process_state()
             if process_state.current_stage == "failed" and self._status.get("workerError"):
                 process_state.current_stage = "awaiting_scientific_questioning"
@@ -1703,7 +1742,7 @@ class LiveSessionManager:
                 message=result.get("message", "科学质询完成，等待进入不确定性识别。"),
             )
         except StaleSessionError:
-            self._cleanup_if_stale(_generation)
+            self._cleanup_if_stale(_generation, _session_root)
         except Exception as exc:
             self._update(
                 _generation=_generation,
@@ -1729,7 +1768,7 @@ class LiveSessionManager:
     def regenerate_candidate_plan(self) -> dict[str, Any]:
         """Re-run LLM candidate prose on the current frozen planning context."""
         self._assert_not_busy()
-        repo = UnifiedStateRepository(LIVE_ROOT)
+        repo = UnifiedStateRepository(self.live_root)
         process_state = repo.load_process_state()
         if process_state.current_stage != "awaiting_human_approval":
             raise ValueError("当前阶段不支持重新生成候选实验；仅在候选实验等待审批时可用。")
@@ -1747,10 +1786,10 @@ class LiveSessionManager:
             self._run_candidate_plan_rebuild,
         )
 
-    def _run_candidate_plan_rebuild(self, *, _generation: int) -> None:
+    def _run_candidate_plan_rebuild(self, *, _generation: int, _session_root: Path) -> None:
         try:
             self._abort_if_stale(_generation)
-            repo = UnifiedStateRepository(LIVE_ROOT)
+            repo = UnifiedStateRepository(_session_root)
             task = repo.load_task()
             data_dictionary = repo.load_data_dictionary()
             planner_input = repo.load_planner_input()
@@ -1762,7 +1801,7 @@ class LiveSessionManager:
                 int(candidate_set.round or 0),
                 1,
             )
-            control = self._build_control(repo)
+            control = self._build_control(repo, _session_root)
             control.rebuild_candidate_plan(
                 task=task,
                 data_dictionary=data_dictionary,
@@ -1779,7 +1818,7 @@ class LiveSessionManager:
                 currentRound=target_round,
             )
         except StaleSessionError:
-            self._cleanup_if_stale(_generation)
+            self._cleanup_if_stale(_generation, _session_root)
         except Exception as exc:
             self._update(
                 _generation=_generation,
@@ -1788,14 +1827,14 @@ class LiveSessionManager:
                 message=f"候选实验重新生成失败：{exc}",
             )
 
-    def _run_uncertainty_identification(self, *, _generation: int) -> None:
+    def _run_uncertainty_identification(self, *, _generation: int, _session_root: Path) -> None:
         try:
             self._abort_if_stale(_generation)
-            repo = UnifiedStateRepository(LIVE_ROOT)
-            control = self._build_control(repo)
+            repo = UnifiedStateRepository(_session_root)
+            control = self._build_control(repo, _session_root)
             control.start_uncertainty_identification()
             self._abort_if_stale(_generation)
-            repo = UnifiedStateRepository(LIVE_ROOT)
+            repo = UnifiedStateRepository(_session_root)
             process_state = repo.load_process_state()
             candidate_set = repo.load_candidate_experiments()
             next_round = max(candidate_set.round or 0, process_state.current_round or 0, 1)
@@ -1808,7 +1847,7 @@ class LiveSessionManager:
                 currentRound=next_round,
             )
         except StaleSessionError:
-            self._cleanup_if_stale(_generation)
+            self._cleanup_if_stale(_generation, _session_root)
         except Exception as exc:
             self._update(
                 _generation=_generation,
@@ -1819,8 +1858,8 @@ class LiveSessionManager:
 
     def reject_candidate(self, *, candidate_id: str | None, reason: str) -> dict[str, Any]:
         self._assert_not_busy()
-        repo = UnifiedStateRepository(LIVE_ROOT)
-        control = self._build_control(repo)
+        repo = UnifiedStateRepository(self.live_root)
+        control = self._build_control(repo, self.live_root)
         result = control.reject_candidate(candidate_id=candidate_id, reason=reason)
         self._update(
             status="awaiting_approval",
@@ -1832,9 +1871,9 @@ class LiveSessionManager:
 
     def pause_current_stage(self, *, reason: str) -> dict[str, Any]:
         self._assert_not_busy()
-        repo = UnifiedStateRepository(LIVE_ROOT)
+        repo = UnifiedStateRepository(self.live_root)
         process_state = repo.load_process_state()
-        control = self._build_control(repo)
+        control = self._build_control(repo, self.live_root)
         control.request_stop(phase=process_state.current_phase or "experiment_planning", reason=reason, pause=True)
         self._update(
             status="paused",
@@ -1846,11 +1885,11 @@ class LiveSessionManager:
 
     def record_round_decision(self, *, decision: str, human_feedback: str | None) -> dict[str, Any]:
         self._assert_not_busy()
-        repo = UnifiedStateRepository(LIVE_ROOT)
+        repo = UnifiedStateRepository(self.live_root)
         current_round = self._current_round()
         if decision == "stop":
-            control = self._build_control(repo)
-            dictionary = self._rebuild_dictionary(repo)
+            control = self._build_control(repo, self.live_root)
+            dictionary = self._rebuild_dictionary(repo, self.live_root)
             control.record_round_decision(
                 round_id=current_round,
                 decision="stop",
@@ -1879,12 +1918,12 @@ class LiveSessionManager:
             human_feedback=human_feedback,
         )
 
-    def _run_round_decision(self, *, _generation: int, round_id: int, decision: str, human_feedback: str | None) -> None:
+    def _run_round_decision(self, *, _generation: int, _session_root: Path, round_id: int, decision: str, human_feedback: str | None) -> None:
         try:
             self._abort_if_stale(_generation)
-            repo = UnifiedStateRepository(LIVE_ROOT)
-            dictionary = self._rebuild_dictionary(repo)
-            control = self._build_control(repo)
+            repo = UnifiedStateRepository(_session_root)
+            dictionary = self._rebuild_dictionary(repo, _session_root)
+            control = self._build_control(repo, _session_root)
             control.record_round_decision(
                 round_id=round_id,
                 decision=decision,
@@ -1892,7 +1931,7 @@ class LiveSessionManager:
                 data_dictionary=dictionary,
             )
             self._abort_if_stale(_generation)
-            repo = UnifiedStateRepository(LIVE_ROOT)
+            repo = UnifiedStateRepository(_session_root)
             process_state = repo.load_process_state()
             next_round = max(process_state.current_round or 0, round_id + 1)
             self._update(
@@ -1904,9 +1943,9 @@ class LiveSessionManager:
                 currentRound=next_round,
             )
         except StaleSessionError:
-            self._cleanup_if_stale(_generation)
+            self._cleanup_if_stale(_generation, _session_root)
         except Exception as exc:
-            failure_path = LIVE_ROOT / "failure_report.json"
+            failure_path = _session_root / "failure_report.json"
             failure_path.parent.mkdir(parents=True, exist_ok=True)
             failure_path.write_text(
                 json.dumps(
@@ -1969,7 +2008,7 @@ class LiveWorkflowHandler(BaseHTTPRequestHandler):
             self._handle_staged_inspect()
             return
         if self.path == "/api/failure-report":
-            failure_path = LIVE_ROOT / "failure_report.json"
+            failure_path = SESSION_MANAGER.live_root / "failure_report.json"
             if failure_path.exists():
                 self._set_headers(status=HTTPStatus.OK, content_type="application/json; charset=utf-8")
                 self.wfile.write(failure_path.read_bytes())
@@ -2049,31 +2088,29 @@ class LiveWorkflowHandler(BaseHTTPRequestHandler):
 
     def _handle_report_export(self) -> None:
         try:
-            from scripts.report_exporter import (
-                build_all_rounds_report_html,
-                build_round_report_html,
-                render_report_pdf,
-                report_export_filename,
-            )
+            import scripts.report_exporter as report_exporter
+
+            report_exporter.LIVE_ROOT = SESSION_MANAGER.live_root
+            report_exporter.STATE_DIR = SESSION_MANAGER.state_dir
 
             params = parse_qs(urlparse(self.path).query)
             scope = (params.get("scope") or ["round"])[0].lower()
             round_number: int | None = None
             if scope == "all":
-                html_text = build_all_rounds_report_html()
+                html_text = report_exporter.build_all_rounds_report_html()
             elif scope == "round":
                 raw_round = (params.get("round") or [""])[0]
                 if not raw_round.isdigit():
                     self._write_json({"message": "缺少有效的轮次参数。"}, status=HTTPStatus.BAD_REQUEST)
                     return
                 round_number = int(raw_round)
-                html_text = build_round_report_html(round_number)
+                html_text = report_exporter.build_round_report_html(round_number)
             else:
                 self._write_json({"message": "scope 仅支持 round 或 all。"}, status=HTTPStatus.BAD_REQUEST)
                 return
 
-            stem = report_export_filename(scope, round_number or 1)
-            pdf_bytes, used_html_fallback = render_report_pdf(html_text, stem)
+            stem = report_exporter.report_export_filename(scope, round_number or 1)
+            pdf_bytes, used_html_fallback = report_exporter.render_report_pdf(html_text, stem)
             if pdf_bytes is not None:
                 self._set_headers(
                     status=HTTPStatus.OK,
@@ -2101,7 +2138,7 @@ class LiveWorkflowHandler(BaseHTTPRequestHandler):
         if not file_name:
             self._write_json({"message": "缺少状态文件名。"}, status=HTTPStatus.BAD_REQUEST)
             return
-        target_path = STATE_DIR / file_name
+        target_path = SESSION_MANAGER.state_dir / file_name
         if not target_path.exists():
             self._write_json({"message": "状态文件不存在。"}, status=HTTPStatus.NOT_FOUND)
             return
@@ -2115,7 +2152,10 @@ class LiveWorkflowHandler(BaseHTTPRequestHandler):
             self._write_json({"message": "缺少图像路径。"}, status=HTTPStatus.BAD_REQUEST)
             return
         try:
-            target_path = ensure_relative_to(LIVE_ROOT, LIVE_ROOT / relative_path)
+            target_path = ensure_relative_to(
+                SESSION_MANAGER.live_root,
+                SESSION_MANAGER.live_root / relative_path,
+            )
         except PermissionError as exc:
             self._write_json({"message": str(exc)}, status=HTTPStatus.FORBIDDEN)
             return
@@ -2380,7 +2420,7 @@ class LiveWorkflowHandler(BaseHTTPRequestHandler):
 def main() -> int:
     load_project_env(REPO_ROOT)
     try:
-        clean_repository_text(LIVE_ROOT)
+        clean_repository_text(SESSION_MANAGER.live_root)
         print("[live-server] display-text cleanup complete")
     except Exception as exc:
         print(f"[live-server] warning: display-text cleanup skipped: {exc}")

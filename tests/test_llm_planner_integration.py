@@ -44,6 +44,9 @@ class StubLLMGateway:
         payload_fixer=None,
         temperature=None,
         image_paths=None,
+        role=None,
+        use_cache=True,
+        deadline_seconds=None,
     ):
         return response_model.model_validate(
             {
@@ -75,6 +78,9 @@ class StubScientificInterpreterGateway:
         payload_fixer=None,
         temperature=None,
         image_paths=None,
+        role=None,
+        use_cache=True,
+        deadline_seconds=None,
     ):
         return response_model.model_validate(
             {

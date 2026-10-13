@@ -8,6 +8,8 @@ from core.decision_unified import (
     DecisionLayerService,
     UncertaintyPrioritizer,
     UtilityScorer,
+    _apply_model_sensitivity_design,
+    _candidate_experiment_type,
 )
 from core.state_repository import UnifiedStateRepository
 from core.unified_schema import (
@@ -84,6 +86,37 @@ def _freeze_tree(repository: UnifiedStateRepository) -> None:
         description="test fixture freezes the hypothesis tree",
     )
     repository.save_hypothesis_tree(tree)
+
+
+class CandidateTypeSemanticsTest(unittest.TestCase):
+    def _record(self, question: str, description: str = "semantic regression fixture") -> UncertaintyRecord:
+        return UncertaintyRecord(
+            uncertainty_id="U_SEM",
+            question=question,
+            description=description,
+            status="active",
+            priority="medium",
+            created_at_round=1,
+            created_by="tester",
+        )
+
+    def test_nonlinear_uncertainty_stays_incremental(self) -> None:
+        record = self._record("DeltaDec 与 Vsw 之间是否是非线性关系？")
+        self.assertEqual(_candidate_experiment_type(record), "incremental_prediction")
+
+    def test_model_family_question_still_maps_to_sensitivity(self) -> None:
+        record = self._record("Ridge 与 ElasticNet 的家族内增益是否一致？")
+        self.assertEqual(_candidate_experiment_type(record), "model_sensitivity")
+
+    def test_model_sensitivity_design_marks_linear_capability_boundary(self) -> None:
+        design = ExperimentDesign(target="Vsw", control=["By"], treatment=["By", "DeltaDec"])
+        _apply_model_sensitivity_design(design)
+        self.assertTrue(
+            any(
+                note.startswith("capability_boundary:model_sensitivity")
+                for note in design.notes
+            )
+        )
 
 
 class DecisionLayerTest(unittest.TestCase):

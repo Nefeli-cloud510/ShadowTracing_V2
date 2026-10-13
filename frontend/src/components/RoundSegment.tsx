@@ -104,11 +104,11 @@ export function RoundSegment({
                       <span className="branch-card__eyebrow">候选实验</span>
                       <span className="branch-card__title">{leadExperiment?.id ?? '待生成'}</span>
                       <span className="branch-card__text">
-                        目标假设 {leadExperiment?.targetHypothesis} · U(E) {leadExperiment?.utility.toFixed(2)}
+                        目标假设 {leadExperiment?.targetHypothesis} · U(E) {leadExperiment?.utility === undefined ? '--' : leadExperiment.utility.toFixed(2)}
                       </span>
                       <div className="branch-card__chips">
-                        <span className="branch-card__chip">IG {leadExperiment?.informationGain.toFixed(2)}</span>
-                        <span className="branch-card__chip">PG {leadExperiment?.performanceGain.toFixed(2)}</span>
+                        <span className="branch-card__chip">预期区分度 {leadExperiment?.informationGain?.toFixed(2) ?? '--'}</span>
+                        <span className="branch-card__chip">预期性能 {leadExperiment?.performanceGain?.toFixed(2) ?? '--'}</span>
                       </div>
                     </div>
                     <div className="branch-line" />
@@ -147,8 +147,8 @@ export function RoundSegment({
                             : '混合'}
                       </span>
                       <div className="branch-card__chips">
-                        <span className="branch-card__chip">delta r {round.evaluation.deltaPearsonR.toFixed(4)}</span>
-                        <span className="branch-card__chip">PG 实际 {round.evaluation.pgActual.toFixed(3)}</span>
+                        <span className="branch-card__chip">delta r {round.evaluation.deltaPearsonR === undefined ? '--' : round.evaluation.deltaPearsonR.toFixed(4)}</span>
+                        <span className="branch-card__chip">PG 实际 {round.evaluation.pgActual === undefined ? '--' : round.evaluation.pgActual.toFixed(3)}</span>
                       </div>
                     </div>
                     <div className="branch-line" />

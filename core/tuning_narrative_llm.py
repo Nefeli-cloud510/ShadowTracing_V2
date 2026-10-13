@@ -82,6 +82,7 @@ class TuningNarrativeService:
             response_model=TuningNarrativeResponse,
             fallback_factory=lambda: fallback,
             temperature=0.35,
+            role="模型调参叙事llm",
         )
         return {
             "narrative": response.narrative,

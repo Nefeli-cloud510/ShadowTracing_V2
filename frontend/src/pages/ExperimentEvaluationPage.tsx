@@ -1,5 +1,13 @@
 import { useState } from 'react'
 import { PageTabs } from '../components/PageTabs'
+import {
+  ContrastRows,
+  DiagnosticsList,
+  LegacyTwoArmGrid,
+  RunMetricsGrid,
+  experimentTypeLabel,
+  metricText,
+} from '../components/ExperimentMetrics'
 import { useTimelineBundle } from '../hooks/useTimelineBundle'
 
 export function ExperimentEvaluationPage() {
@@ -60,11 +68,11 @@ export function ExperimentEvaluationPage() {
                         <strong>{item.experiment_id ?? `candidate-${index + 1}`}</strong>
                         <p>{item.scientific_question ?? item.purpose ?? '暂无说明'}</p>
                         <div className="collection-card__meta">
-                          <span>IG: {Number(item.estimated_information_gain?.value ?? item.estimated_information_gain ?? 0).toFixed(3)}</span>
-                          <span>PG: {Number(item.estimated_performance_gain?.value ?? item.estimated_performance_gain ?? 0).toFixed(3)}</span>
-                          <span>Risk: {Number(item.estimated_risk?.value ?? item.estimated_risk ?? 0).toFixed(3)}</span>
-                          <span>Cost: {Number(item.estimated_cost?.value ?? item.estimated_cost ?? 0).toFixed(3)}</span>
-                          <span>U(E): {Number(item.utility_score?.value ?? item.utility_score ?? 0).toFixed(3)}</span>
+                          <span>预期区分度 {metricText(item.estimated_information_gain?.value ?? item.estimated_information_gain, 3)}</span>
+                          <span>预期性能 {metricText(item.estimated_performance_gain?.value ?? item.estimated_performance_gain, 3)}</span>
+                          <span>风险 {metricText(item.estimated_risk?.value ?? item.estimated_risk, 3)}</span>
+                          <span>成本 {metricText(item.estimated_cost?.value ?? item.estimated_cost, 3)}</span>
+                          <span>U(E) {metricText(item.utility_score?.value ?? item.utility_score, 3)}</span>
                         </div>
                       </article>
                     ))}
@@ -73,34 +81,30 @@ export function ExperimentEvaluationPage() {
 
                 <section className="detail-card">
                   <span className="detail-card__eyebrow">Latest Evaluation</span>
-                  <h2>最新评价</h2>
+                  <h2>最新评价{experiment.latestEvaluation?.experimentType
+                    ? ` · ${experimentTypeLabel(experiment.latestEvaluation.experimentType)}`
+                    : ''}</h2>
                   {experiment.latestEvaluation ? (
-                    <div className="metrics-grid metrics-grid--two">
-                      <div className="metric-box">
-                        <span className="metric-box__label">对照组 r</span>
-                        <span className="metric-box__value">{(experiment.latestEvaluation.baselinePearsonR ?? 0).toFixed(4)}</span>
-                      </div>
-                      <div className="metric-box">
-                        <span className="metric-box__label">实验组 r</span>
-                        <span className="metric-box__value">{(experiment.latestEvaluation.treatmentPearsonR ?? 0).toFixed(4)}</span>
-                      </div>
-                      <div className="metric-box metric-box--highlight">
-                        <span className="metric-box__label">Delta r</span>
-                        <span className="metric-box__value">{experiment.latestEvaluation.deltaPearsonR.toFixed(4)}</span>
-                      </div>
-                      <div className="metric-box">
-                        <span className="metric-box__label">PG actual</span>
-                        <span className="metric-box__value">{experiment.latestEvaluation.pgActual.toFixed(3)}</span>
-                      </div>
-                      <div className="metric-box">
-                        <span className="metric-box__label">Delta RMSE</span>
-                        <span className="metric-box__value">{(experiment.metricComparison?.deltaRmse ?? 0).toFixed(3)}</span>
-                      </div>
-                      <div className="metric-box">
-                        <span className="metric-box__label">稳定性</span>
-                        <span className="metric-box__value">{experiment.latestEvaluation.stable ? 'Stable' : 'Review'}</span>
-                      </div>
-                    </div>
+                    <>
+                      <RunMetricsGrid
+                        runs={experiment.latestEvaluation.runs ?? []}
+                        experimentType={experiment.latestEvaluation.experimentType}
+                      />
+                      <ContrastRows contrasts={experiment.latestEvaluation.contrasts ?? []} />
+                      <DiagnosticsList diagnostics={experiment.latestEvaluation.diagnostics} />
+                      {(experiment.latestEvaluation.runs?.length ?? 0) === 0
+                        ? (
+                            <LegacyTwoArmGrid
+                              baselinePearsonR={experiment.latestEvaluation.baselinePearsonR}
+                              treatmentPearsonR={experiment.latestEvaluation.treatmentPearsonR}
+                              baselineRmse={experiment.metricComparison?.baselineRmse}
+                              treatmentRmse={experiment.metricComparison?.treatmentRmse}
+                              deltaPearsonR={experiment.latestEvaluation.deltaPearsonR}
+                              deltaRmse={experiment.latestEvaluation.deltaRmse}
+                            />
+                          )
+                        : null}
+                    </>
                   ) : (
                     <div className="timeline-empty-state">暂无评价结果。</div>
                   )}
@@ -108,32 +112,26 @@ export function ExperimentEvaluationPage() {
 
                 <section className="detail-card">
                   <span className="detail-card__eyebrow">Metric Comparison</span>
-                  <h2>对照组 / 实验组对照</h2>
+                  <h2>指标对照</h2>
                   {experiment.metricComparison ? (
-                    <div className="comparison-list">
-                      <div className="comparison-row">
-                        <span className="comparison-row__label">Pearson r</span>
-                        <div className="comparison-row__bars">
-                          <div className="comparison-bar comparison-bar--baseline">
-                            <span>对照组 {(experiment.metricComparison.baselinePearsonR ?? 0).toFixed(4)}</span>
-                          </div>
-                          <div className="comparison-bar comparison-bar--treatment">
-                            <span>实验组 {(experiment.metricComparison.treatmentPearsonR ?? 0).toFixed(4)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="comparison-row">
-                        <span className="comparison-row__label">RMSE</span>
-                        <div className="comparison-row__bars">
-                          <div className="comparison-bar comparison-bar--baseline">
-                            <span>对照组 {(experiment.metricComparison.baselineRmse ?? 0).toFixed(3)}</span>
-                          </div>
-                          <div className="comparison-bar comparison-bar--treatment">
-                            <span>实验组 {(experiment.metricComparison.treatmentRmse ?? 0).toFixed(3)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <>
+                      <RunMetricsGrid
+                        runs={experiment.metricComparison.runs ?? []}
+                        experimentType={experiment.metricComparison.experimentType}
+                      />
+                      <ContrastRows contrasts={experiment.metricComparison.contrasts ?? []} />
+                      <DiagnosticsList diagnostics={experiment.metricComparison.diagnostics} />
+                      {(experiment.metricComparison.runs?.length ?? 0) === 0 ? (
+                        <LegacyTwoArmGrid
+                          baselinePearsonR={experiment.metricComparison.baselinePearsonR}
+                          treatmentPearsonR={experiment.metricComparison.treatmentPearsonR}
+                          baselineRmse={experiment.metricComparison.baselineRmse}
+                          treatmentRmse={experiment.metricComparison.treatmentRmse}
+                          deltaPearsonR={experiment.metricComparison.deltaPearsonR}
+                          deltaRmse={experiment.metricComparison.deltaRmse}
+                        />
+                      ) : null}
+                    </>
                   ) : (
                     <div className="timeline-empty-state">暂无最新对照指标。</div>
                   )}
@@ -177,7 +175,15 @@ export function ExperimentEvaluationPage() {
                             alt={item.label}
                             loading="lazy"
                           />
-                          <span>{item.variant === 'baseline' ? '对照组' : item.variant === 'treatment' ? '实验组' : 'Artifact'}</span>
+                          <span>
+                            {item.variant === 'baseline'
+                              ? '对照组'
+                              : item.variant === 'treatment'
+                                ? '实验组'
+                                : item.variant === 'run'
+                                  ? (item.runLabel ?? item.runId ?? '运行组')
+                                  : 'Artifact'}
+                          </span>
                         </div>
                         <strong>{item.label}</strong>
                         <p>{item.path}</p>

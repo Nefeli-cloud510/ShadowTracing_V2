@@ -1409,6 +1409,29 @@ select {
   border-color: rgba(37, 87, 143, 0.18);
 }
 
+.comparison-row__note {
+  font-size: 12px;
+  color: #6e767e;
+  padding: 0 4px;
+  line-height: 1.6;
+}
+
+.diagnostics-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(12, 42, 95, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.diagnostics-list__title {
+  color: #0f2142;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .visualization-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -1946,6 +1969,11 @@ select {
   border-color: #25578f;
 }
 
+.metric-box--note {
+  border-style: dashed;
+  background: rgba(37, 87, 143, 0.03);
+}
+
 .metric-box__label {
   font-size: 12px;
   color: #767974;
@@ -1957,6 +1985,12 @@ select {
   font-size: 24px;
   font-weight: 700;
   color: #0f2142;
+}
+
+.metric-box__sub {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #767974;
 }
 
 .controller-layout {
@@ -3122,6 +3156,12 @@ select {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
+}
+
+.three-layer-conclusion__dynamic-metrics {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
 }
 
 .three-layer-conclusion__metric {

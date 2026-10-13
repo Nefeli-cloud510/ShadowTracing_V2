@@ -2,6 +2,12 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { reportExportUrl, submitRoundDecision } from '../api/liveWorkflow'
 import { DataCoverageAudit } from '../components/DataCoverageAudit'
+import {
+  ContrastRows,
+  LegacyTwoArmGrid,
+  RunMetricsGrid,
+  summaryMetricText,
+} from '../components/ExperimentMetrics'
 import { ModelTuningCard } from '../components/ModelTuningCard'
 import { PageTabs } from '../components/PageTabs'
 import { ThreeLayerConclusionView } from '../components/ThreeLayerConclusionView'
@@ -43,6 +49,15 @@ export function RoundReportPage() {
     .find((item: any) => item.decision_type === 'round_review_requested')
   const nextRoundSuggestion = report?.threeLayerConclusion?.nextRoundSuggestion
   const overallSummary = report?.threeLayerConclusion?.overallSummary
+  const reportSummaryContrast = report?.summary?.contrasts?.[0]
+  const deltaRText =
+    reportSummaryContrast && reportSummaryContrast.deltaPearsonR != null
+    ? summaryMetricText(reportSummaryContrast.deltaPearsonR, 4)
+    : summaryMetricText(report?.summary?.deltaPearsonR, 4)
+  const deltaRmseText =
+    reportSummaryContrast && reportSummaryContrast.deltaRmse != null
+    ? summaryMetricText(reportSummaryContrast.deltaRmse, 3)
+    : summaryMetricText(report?.summary?.deltaRmse, 3)
   const closureChecklist = Array.isArray(latestRoundReview?.details?.closure_checklist)
     ? latestRoundReview.details.closure_checklist
     : []
@@ -140,11 +155,11 @@ export function RoundReportPage() {
                   </div>
                   <div className="status-chip">
                     <span>Delta r</span>
-                    <strong>{(report.summary.deltaPearsonR ?? 0).toFixed(4)}</strong>
+                    <strong>{deltaRText}</strong>
                   </div>
                   <div className="status-chip">
                     <span>Delta RMSE</span>
-                    <strong>{(report.summary.deltaRmse ?? 0).toFixed(3)}</strong>
+                    <strong>{deltaRmseText}</strong>
                   </div>
                   <a
                     className="detail-link detail-link--button"
@@ -176,23 +191,22 @@ export function RoundReportPage() {
                         : ''}
                     </p>
                   ) : null}
-                  <div className="metrics-grid metrics-grid--two">
-                    <div className="metric-box">
-                      <span className="metric-box__label">对照组 r</span>
-                      <span className="metric-box__value">{(report.summary.baselinePearsonR ?? 0).toFixed(4)}</span>
-                    </div>
-                    <div className="metric-box">
-                      <span className="metric-box__label">实验组 r</span>
-                      <span className="metric-box__value">{(report.summary.treatmentPearsonR ?? 0).toFixed(4)}</span>
-                    </div>
-                    <div className="metric-box metric-box--highlight">
-                      <span className="metric-box__label">Delta r</span>
-                      <span className="metric-box__value">{(report.summary.deltaPearsonR ?? 0).toFixed(4)}</span>
-                    </div>
-                    <div className="metric-box">
-                      <span className="metric-box__label">Delta RMSE</span>
-                      <span className="metric-box__value">{(report.summary.deltaRmse ?? 0).toFixed(3)}</span>
-                    </div>
+                  <div>
+                    <RunMetricsGrid
+                      runs={report.summary.runs ?? []}
+                      experimentType={report.summary.experimentType}
+                    />
+                    <ContrastRows contrasts={report.summary.contrasts ?? []} />
+                    {(report.summary.runs?.length ?? 0) === 0 ? (
+                      <LegacyTwoArmGrid
+                        baselinePearsonR={report.summary.baselinePearsonR}
+                        treatmentPearsonR={report.summary.treatmentPearsonR}
+                        baselineRmse={report.summary.baselineRmse}
+                        treatmentRmse={report.summary.treatmentRmse}
+                        deltaPearsonR={report.summary.deltaPearsonR}
+                        deltaRmse={report.summary.deltaRmse}
+                      />
+                    ) : null}
                   </div>
                 </section>
 

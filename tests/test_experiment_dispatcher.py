@@ -11,6 +11,7 @@ from core.experiment_tools.evaluators import evaluate_experiment_result
 from core.experiment_tools.registry import (
     ALL_EXPERIMENT_TYPES,
     EXPERIMENT_TOOL_INDEX,
+    candidate_selectable_types,
     get_tool,
 )
 from core.experiment_tools.validate_protocol import validate_experiment_protocol
@@ -149,6 +150,12 @@ class ExperimentDispatcherTest(unittest.TestCase):
             "conditional_effect",
         ]:
             self.assertFalse(get_tool(experiment_type).available)
+
+    def test_candidate_selectable_types_exclude_robustness_entry(self) -> None:
+        self.assertEqual(
+            set(candidate_selectable_types()),
+            {"incremental_prediction", "model_sensitivity", "baseline_benchmark"},
+        )
 
     def _task(self) -> ScientificTask:
         return ScientificTask(
@@ -666,6 +673,162 @@ class ExperimentDispatcherTest(unittest.TestCase):
         self.assertEqual(len(latest_metrics["runs"]), 4)
         self.assertNotIn("baseline", latest_metrics)
 
+    def test_incremental_rejects_fractional_horizon(self) -> None:
+        params = dict(
+            self._base_protocol(
+                "incremental_prediction",
+                "E_X",
+            ).model.parameters
+        )
+        params["forecast_horizon_days"] = 1.5
+        protocol = self._base_protocol(
+            "incremental_prediction",
+            "E_INC_HORIZON_FRACTION",
+            model=ModelSpec(name="ElasticNet", parameters=params),
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn("必须是正整数", "；".join(result.warnings))
+
+    def test_incremental_rejects_invalid_test_ratio(self) -> None:
+        params = dict(
+            self._base_protocol(
+                "incremental_prediction",
+                "E_X",
+            ).model.parameters
+        )
+        params["test_split_ratio"] = 2
+        protocol = self._base_protocol(
+            "incremental_prediction",
+            "E_INC_TEST_RATIO",
+            model=ModelSpec(name="ElasticNet", parameters=params),
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn("(0, 1)", "；".join(result.warnings))
+
+    def test_incremental_rejects_asymmetric_fixed_alpha(self) -> None:
+        protocol = self._base_protocol(
+            "incremental_prediction",
+            "E_INC_ASYMMETRIC_ALPHA",
+            runs_spec=[
+                RunSpec(
+                    run_id="baseline",
+                    label="对照组",
+                    feature_columns=["By", "Bz"],
+                    model_family="elasticnet",
+                    parameters={"alpha": 1000.0},
+                ),
+                RunSpec(
+                    run_id="treatment",
+                    label="实验组",
+                    feature_columns=["By", "Bz", "DeltaDec"],
+                    model_family="elasticnet",
+                    parameters={"alpha": 0.001},
+                ),
+            ],
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn("同一预处理/选参规则", "；".join(result.warnings))
+
+    def test_conflicting_duplicate_time_parameters_rejected(self) -> None:
+        params = dict(
+            self._base_protocol(
+                "incremental_prediction",
+                "E_X",
+            ).model.parameters
+        )
+        params["forecast_horizon_days"] = 3
+        protocol = self._base_protocol(
+            "incremental_prediction",
+            "E_INC_TIME_CONFLICT",
+            features=ExperimentDesign(
+                target="Vsw",
+                control=["By", "Bz"],
+                treatment=["By", "Bz", "DeltaDec"],
+                forecast_horizon_days=1,
+            ),
+            model=ModelSpec(name="ElasticNet", parameters=params),
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn("重复时间参数", "；".join(result.warnings))
+
+    def test_compiled_plan_horizon_matches_prediction_csv(self) -> None:
+        protocol = self._base_protocol(
+            "incremental_prediction",
+            "E_INC_HORIZON_03",
+            model=ModelSpec(
+                name="ElasticNet",
+                parameters={
+                    "window_size": 3,
+                    "use_lag_feature": True,
+                    "max_lag_day": 1,
+                    "alpha": 0.1,
+                    "l1_ratio": 0.5,
+                    "random_state": 7,
+                    "test_split_ratio": 0.25,
+                    "forecast_horizon_days": 3,
+                    "past_lag_days": 3,
+                },
+            ),
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "completed")
+        prediction_csv = (
+            self.root
+            / "results"
+            / "round_01"
+            / "E_INC_HORIZON_03"
+            / "predictions"
+            / "E_INC_HORIZON_03_baseline.csv"
+        )
+        frame = pd.read_csv(prediction_csv)
+        self.assertGreater(len(frame), 0)
+        issue_date = pd.to_datetime(frame["issue_date"])
+        target_date = pd.to_datetime(frame["target_date"])
+        self.assertTrue(((target_date - issue_date).dt.days == 3).all())
+
+    def test_executor_uses_plan_horizon_not_legacy_features_field(self) -> None:
+        protocol = self._base_protocol(
+            "incremental_prediction",
+            "E_PLAN_AUTH",
+            features=ExperimentDesign(
+                target="Vsw",
+                control=["By", "Bz"],
+                treatment=["By", "Bz", "DeltaDec"],
+                forecast_horizon_days=1,
+            ),
+        )
+        validation = validate_experiment_protocol(protocol)
+        self.assertTrue(validation.valid, "；".join(validation.reasons))
+        plan = validation.compiled_plan
+        # 模拟评审场景：编译层已把提前量解析为 3 天，但协议旧字段仍残留 1。
+        plan.time_parameters["forecast_horizon_days"] = 3
+        plan.model_parameters["forecast_horizon_days"] = 3
+
+        self._harness().run_compiled(protocol, plan)
+
+        prediction_csv = (
+            self.root
+            / "results"
+            / "round_01"
+            / "E_PLAN_AUTH"
+            / "predictions"
+            / "E_PLAN_AUTH_baseline.csv"
+        )
+        frame = pd.read_csv(prediction_csv)
+        self.assertGreater(len(frame), 0)
+        issue_date = pd.to_datetime(frame["issue_date"])
+        target_date = pd.to_datetime(frame["target_date"])
+        self.assertTrue(((target_date - issue_date).dt.days == 3).all())
+
     def test_robustness_diagnostic_reuses_predictions_without_retrain(self) -> None:
         dates = pd.date_range("2021-02-01", periods=28, freq="D")
         frame = pd.DataFrame(
@@ -711,7 +874,10 @@ class ExperimentDispatcherTest(unittest.TestCase):
         self.assertTrue(
             all(run.training_mode == "reused" for run in result.runs)
         )
-        self.assertGreaterEqual(len(result.diagnostics), 3)
+        self.assertEqual(
+            [item.diagnostic_id for item in result.diagnostics],
+            ["paired_calendar_bootstrap"],
+        )
         self.assertIn(
             "未重新训练模型",
             "; ".join(result.warnings),
@@ -723,6 +889,150 @@ class ExperimentDispatcherTest(unittest.TestCase):
         )
         self.assertEqual(bootstrap.structured["status"], "completed")
         self.assertEqual(bootstrap.structured["n_iterations"], 4000)
+
+    def test_robustness_diagnostic_honors_diagnostics_spec(self) -> None:
+        dates = pd.date_range("2021-02-01", periods=28, freq="D")
+        frame = pd.DataFrame(
+            {
+                "sample_id": [f"s{i}" for i in range(28)],
+                "issue_date": dates.strftime("%Y-%m-%d"),
+                "target_date": (dates + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
+                "y_true": [400 + 3 * i for i in range(28)],
+            }
+        )
+        paired = pd.concat(
+            [
+                frame.assign(arm="baseline", y_pred=[380 + 2.5 * i for i in range(28)]),
+                frame.assign(arm="treatment", y_pred=[385 + 2.7 * i for i in range(28)]),
+            ],
+            ignore_index=True,
+        )
+        prediction_file = self.root / "source_spec_predictions.csv"
+        paired.to_csv(prediction_file, index=False)
+
+        protocol = self._base_protocol(
+            "robustness_diagnostic",
+            "E_RD_SPEC_01",
+            model=ModelSpec(
+                name="reused",
+                parameters={
+                    "source_experiment_id": "E_LEGACY_SPEC",
+                    "source_prediction_file": str(prediction_file),
+                },
+            ),
+            diagnostics_spec=[
+                DiagnosticSpec(
+                    diagnostic_id="paired_bootstrap",
+                    name="配对日历块 bootstrap",
+                    parameters={"block_size": 2, "n_draws": 100, "seed": 7},
+                ),
+                DiagnosticSpec(
+                    diagnostic_id="time_segments",
+                    name="时间分段误差诊断",
+                ),
+                DiagnosticSpec(
+                    diagnostic_id="residual_diagnostics",
+                    name="平均偏差与残差诊断",
+                ),
+            ],
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(
+            [item.diagnostic_id for item in result.diagnostics],
+            [
+                "paired_calendar_bootstrap",
+                "time_segments",
+                "residual_diagnostics",
+            ],
+        )
+        bootstrap = next(
+            item
+            for item in result.diagnostics
+            if item.diagnostic_id == "paired_calendar_bootstrap"
+        )
+        self.assertEqual(bootstrap.structured["n_iterations"], 100)
+        self.assertEqual(bootstrap.structured["block_size"], 2)
+        self.assertEqual(bootstrap.structured["n_valid_pearson_draws"], 100)
+
+    def test_robustness_diagnostic_resolves_previous_round_archive(self) -> None:
+        dates = pd.date_range("2021-02-01", periods=28, freq="D")
+        frame = pd.DataFrame(
+            {
+                "sample_id": [f"s{i}" for i in range(28)],
+                "issue_date": dates.strftime("%Y-%m-%d"),
+                "target_date": (dates + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
+                "y_true": [400 + 3 * i for i in range(28)],
+            }
+        )
+        paired = pd.concat(
+            [
+                frame.assign(arm="baseline", y_pred=[380 + 2.5 * i for i in range(28)]),
+                frame.assign(arm="treatment", y_pred=[385 + 2.7 * i for i in range(28)]),
+            ],
+            ignore_index=True,
+        )
+        archive_dir = self.root / "results" / "round_01" / "archive" / "batch_run_01"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        paired.to_csv(archive_dir / "predictions.csv", index=False)
+        (archive_dir / "experiment_protocol.json").write_text(
+            json.dumps(
+                {
+                    "experiment_id": "E_SRC_01",
+                    "round_id": 1,
+                    "model": {"parameters": {"forecast_horizon_days": 1}},
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (archive_dir / "metrics.json").write_text(
+            json.dumps({"run_id": "batch_run_01", "experiment_id": "E_SRC_01"}),
+            encoding="utf-8",
+        )
+
+        protocol = self._base_protocol(
+            "robustness_diagnostic",
+            "E_RD_ARCHIVE_01",
+            round_id=2,
+            model=ModelSpec(
+                name="reused",
+                parameters={
+                    "source_experiment_id": "E_SRC_01",
+                    "source_round_id": 1,
+                    "source_run_id": "batch_run_01",
+                    "forecast_horizon_days": 1,
+                },
+            ),
+            diagnostics_spec=[
+                DiagnosticSpec(
+                    diagnostic_id="paired_bootstrap",
+                    name="配对日历块 bootstrap",
+                    parameters={"n_draws": 100, "block_size": 2, "seed": 9},
+                )
+            ],
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual({run.run_id for run in result.runs}, {"baseline", "treatment"})
+        self.assertEqual(
+            [item.diagnostic_id for item in result.diagnostics],
+            ["paired_calendar_bootstrap"],
+        )
+        for run in result.runs:
+            self.assertEqual(run.parameters["source_round_id"], 1)
+            self.assertEqual(run.parameters["source_experiment_id"], "E_SRC_01")
+            self.assertEqual(run.parameters["source_run_id"], "batch_run_01")
+            self.assertTrue(run.parameters["prediction_artifact_hash"])
+            self.assertIn(
+                "SHA-256 已核验",
+                "; ".join(
+                    entry.note or ""
+                    for entry in result.data_coverage
+                ),
+            )
 
     def test_new_type_evaluation_does_not_auto_update_support(self) -> None:
         repository = UnifiedStateRepository(self.root)

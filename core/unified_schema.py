@@ -188,6 +188,11 @@ class EvidenceItem(ShadowBaseModel):
     source: str = Field(min_length=1)
     added_at_round: int = Field(ge=0)
     support_weight: float | None = Field(default=None, ge=0.0, le=1.0)
+    experiment_id: str | None = None
+    run_id: str | None = None
+    contrast_id: str | None = None
+    evidence_version: str | None = None
+    evidence_key: str | None = None
 
 
 class CritiqueRecord(ShadowBaseModel):
@@ -196,6 +201,11 @@ class CritiqueRecord(ShadowBaseModel):
     from_role: str = Field(min_length=1)
     added_at_round: int = Field(ge=0)
     resolved: bool = False
+    experiment_id: str | None = None
+    run_id: str | None = None
+    contrast_id: str | None = None
+    evidence_version: str | None = None
+    evidence_key: str | None = None
 
 
 class PredictionRecord(ShadowBaseModel):
@@ -218,6 +228,11 @@ class SupportHistoryEntry(ShadowBaseModel):
     round: int = Field(ge=0)
     score: float = Field(ge=0.0, le=1.0)
     event: str = Field(min_length=1)
+    experiment_id: str | None = None
+    run_id: str | None = None
+    contrast_id: str | None = None
+    evidence_version: str | None = None
+    evidence_key: str | None = None
 
 
 class HypothesisSourceSignal(ShadowBaseModel):
@@ -381,6 +396,11 @@ class UncertaintyHistoryEntry(ShadowBaseModel):
     event: str = Field(min_length=1)
     source: str = Field(min_length=1)
     description: str = Field(min_length=1)
+    experiment_id: str | None = None
+    run_id: str | None = None
+    contrast_id: str | None = None
+    evidence_version: str | None = None
+    evidence_key: str | None = None
 
 
 class UncertaintyRecord(ShadowBaseModel):
@@ -476,7 +496,7 @@ class HypothesisPrediction(ShadowBaseModel):
 
 
 class EstimatedValue(ShadowBaseModel):
-    value: float = Field(ge=0.0, le=1.0)
+    value: float = Field(ge=-1.0, le=1.0)
     rationale: str | None = None
 
 
@@ -780,6 +800,10 @@ class ExperimentDiagnostic(ShadowBaseModel):
 class PerformanceMetrics(ShadowBaseModel):
     experiment_id: str = Field(min_length=1)
     round_id: int = Field(ge=0)
+    experiment_type: ExperimentType | None = Field(
+        default=None,
+        description="registered executable experiment type of the evaluated result",
+    )
     baseline_rmse: float | None = None
     baseline_mae: float | None = None
     baseline_pearson_r: float | None = None
@@ -798,6 +822,9 @@ class PerformanceMetrics(ShadowBaseModel):
     )
     ig_prior_probs: dict[str, float] | None = None
     ig_posterior_probs: dict[str, float] | None = None
+    runs: list[ExperimentRun] = Field(default_factory=list)
+    contrasts: list[ExperimentContrast] = Field(default_factory=list)
+    diagnostics: list[ExperimentDiagnostic] = Field(default_factory=list)
 
 
 class BootstrapReport(ShadowBaseModel):
@@ -848,6 +875,14 @@ class HypothesisAssessment(ShadowBaseModel):
     direction_matched: bool | Literal["partial"]
     magnitude_matched: bool | Literal["partial"]
     reason: str = Field(min_length=1)
+    metric: str = "rmse"
+    observed_metric_delta: float | None = None
+    metric_ci: list[float] | None = None
+    evidence_classification: str | None = None
+    evidence_labels: list[str] = Field(default_factory=list)
+    updated: bool = True
+    run_id: str | None = None
+    contrast_id: str | None = None
 
 
 class EvidenceClaim(ShadowBaseModel):
@@ -885,6 +920,10 @@ class ConclusionExperimentLayer(ShadowBaseModel):
     treatment_pearson_r: float | None = None
     skill_delta: float | None = None
     decisive: bool = False
+    experiment_type: str | None = None
+    runs: list[ExperimentRun] = Field(default_factory=list)
+    contrasts: list[ExperimentContrast] = Field(default_factory=list)
+    diagnostics: list[ExperimentDiagnostic] = Field(default_factory=list)
 
 
 class ConclusionHypothesisRow(ShadowBaseModel):
@@ -1043,6 +1082,10 @@ class PlannerReasoningTraceItem(ShadowBaseModel):
     summary: str = Field(min_length=1)
     related_hypotheses: list[str] = Field(default_factory=list)
     related_uncertainties: list[str] = Field(default_factory=list)
+    referenced_variables: list[str] = Field(
+        default_factory=list,
+        description="Raw column/domain variable names referenced by this trace.",
+    )
     support_delta: float | None = Field(default=None, ge=-1.0, le=1.0)
     priority_delta: float | None = Field(default=None, ge=-1.0, le=1.0)
 
@@ -1221,6 +1264,10 @@ class InterpretationEnhancement(ShadowBaseModel):
     impact_strength: float = Field(default=0.5, ge=0.0, le=1.0)
     confidence: float = Field(default=0.6, ge=0.0, le=1.0)
     uncertainty_priority_action: Literal["increase", "decrease", "maintain"] = "maintain"
+    run_id: str | None = None
+    contrast_id: str | None = None
+    evidence_version: str | None = None
+    evidence_key: str | None = None
 
 
 class ProtocolRefinementSuggestion(ShadowBaseModel):
@@ -1288,6 +1335,11 @@ class UncertaintyState(ShadowBaseModel):
 class ExperimentMemoryEntry(ShadowBaseModel):
     experiment_id: str = Field(min_length=1)
     round_id: int = Field(ge=0)
+    experiment_type: str | None = Field(
+        default=None,
+        description="registered executable experiment type; used for comparable-history selection",
+    )
+    model_families: list[str] = Field(default_factory=list)
     status: ExecutionStatus
     tested_hypotheses: list[str] = Field(default_factory=list)
     target_uncertainties: list[str] = Field(default_factory=list)
@@ -1311,9 +1363,18 @@ class ReasoningTraceEntry(ShadowBaseModel):
     summary: str = Field(min_length=1)
     related_hypotheses: list[str] = Field(default_factory=list)
     related_uncertainties: list[str] = Field(default_factory=list)
+    referenced_variables: list[str] = Field(
+        default_factory=list,
+        description="Raw column/domain variable names referenced by this trace.",
+    )
     support_delta: float | None = Field(default=None, ge=-1.0, le=1.0)
     priority_delta: float | None = Field(default=None, ge=-1.0, le=1.0)
     created_at: datetime = Field(default_factory=datetime.now)
+    experiment_id: str | None = None
+    run_id: str | None = None
+    contrast_id: str | None = None
+    evidence_version: str | None = None
+    evidence_key: str | None = None
 
 
 class ExperimentMemoryState(ShadowBaseModel):

@@ -6,8 +6,14 @@ from typing import Iterable
 import pandas as pd
 from pydantic import Field
 
+from core.experiment_tools.compiled_plan import CompiledExperimentPlan
 from core.schema import ExperimentConfig as LegacyAdjustmentConfig
-from core.unified_schema import ExperimentProtocol, ModelSpec, ShadowBaseModel
+from core.unified_schema import (
+    ExperimentProtocol,
+    ModelSpec,
+    RunSpec,
+    ShadowBaseModel,
+)
 from models.elasticnet_runner import (
     ElasticNetConfig as RunnerElasticNetConfig,
     ExperimentConfig as RunnerExperimentConfig,
@@ -22,7 +28,7 @@ class ElasticNetDataSourceConfig(ShadowBaseModel):
     omni_file_path: Path
     lhaaso_file_path: Path
     extra_file_paths: list[Path] = []
-    sparse_sources: list[str] = Field(default_factory=list, description="需要缺失记录剔除审计的源名称")
+    sparse_sources: list[str] = Field(default_factory=list, description="需要缺失记录审计的源名称")
     time_column: str = "dataset_id"
     target_column: str = "SW Plasma Speed, km/s"
     column_aliases: dict[str, str] = {}
@@ -72,7 +78,101 @@ class ElasticNetProtocolBridge:
             )
         )
         past_lag_days = overrides.get("past_lag_days", model_parameters.get("past_lag_days"))
+        return self._assemble_runner_config(
+            target_column=target_column,
+            feature_columns=feature_columns,
+            window_size=window_size,
+            forecast_horizon_days=forecast_horizon_days,
+            past_lag_days=past_lag_days,
+            test_split_ratio=float(
+                model_parameters.get(
+                    "test_split_ratio",
+                    self.data_source.test_split_ratio,
+                )
+            ),
+            model_family=self._resolve_model_family(protocol, model_parameters),
+            model_parameters=model_parameters,
+        )
 
+    def build_runner_config_from_plan(
+        self,
+        compiled_plan: CompiledExperimentPlan,
+        run_spec: RunSpec,
+        feature_columns: list[str],
+    ) -> RunnerExperimentConfig:
+        """Build the runner config exclusively from the compiled plan.
+
+        The executor must never re-derive time windows from the legacy
+        protocol fields; this method rejects plans that lack the authoritative
+        time parameters instead of falling back to hidden defaults.
+        """
+
+        feature_columns = self.validate_feature_columns(feature_columns)
+        time_parameters = dict(compiled_plan.time_parameters or {})
+        required_time_keys = (
+            "forecast_horizon_days",
+            "past_lag_days",
+            "window_size",
+            "test_split_ratio",
+        )
+        missing = [
+            key
+            for key in required_time_keys
+            if time_parameters.get(key) is None
+        ]
+        if missing:
+            raise ValueError(
+                f"编译计划缺少权威时间参数: {missing}，"
+                "执行器禁止从旧协议重新推导。"
+            )
+
+        model_parameters = dict(compiled_plan.model_parameters or {})
+        model_parameters.update(dict(run_spec.parameters or {}))
+        for legacy_key in ("feature_groups", "arm_time_windows", "model_families"):
+            model_parameters.pop(legacy_key, None)
+        # 编译计划中的共享时间参数是唯一权威值，即使 run 级覆盖残留同名
+        # 字段也不能再次改变执行参数。
+        model_parameters.update(time_parameters)
+
+        available_columns = self._available_columns()
+        target = compiled_plan.target or self.data_source.target_column
+        target_column = (
+            self._resolve_column_name(
+                self.data_source.target_column or target,
+                available_columns,
+            )
+            or target
+        )
+        return self._assemble_runner_config(
+            target_column=target_column,
+            feature_columns=feature_columns,
+            window_size=int(time_parameters["window_size"]),
+            forecast_horizon_days=int(time_parameters["forecast_horizon_days"]),
+            past_lag_days=(
+                int(time_parameters["past_lag_days"])
+                if time_parameters["past_lag_days"] is not None
+                else None
+            ),
+            test_split_ratio=float(time_parameters["test_split_ratio"]),
+            model_family=self._normalize_model_family_value(
+                run_spec.model_family
+                or model_parameters.get("model_family")
+            ),
+            model_parameters=model_parameters,
+        )
+
+    def _assemble_runner_config(
+        self,
+        *,
+        target_column: str,
+        feature_columns: list[str],
+        window_size: int,
+        forecast_horizon_days: int,
+        past_lag_days: int | None,
+        test_split_ratio: float,
+        model_family: str,
+        model_parameters: dict,
+    ) -> RunnerExperimentConfig:
         return RunnerExperimentConfig(
             file_config=RunnerFileConfig(
                 omni_file_path=self.data_source.omni_file_path,
@@ -85,20 +185,50 @@ class ElasticNetProtocolBridge:
             ),
             time_window_config=RunnerTimeWindowConfig(
                 window_size=window_size,
-                test_split_ratio=float(model_parameters.get("test_split_ratio", self.data_source.test_split_ratio)),
+                test_split_ratio=test_split_ratio,
                 use_lag_feature=bool(model_parameters.get("use_lag_feature", False)),
                 max_lag_day=int(model_parameters.get("max_lag_day", 0)),
                 forecast_horizon_days=forecast_horizon_days,
-                past_lag_days=int(past_lag_days) if past_lag_days is not None else None,
+                past_lag_days=(
+                    int(past_lag_days)
+                    if past_lag_days is not None
+                    else None
+                ),
             ),
             elasticnet_config=RunnerElasticNetConfig(
-                model_family=self._resolve_model_family(protocol, model_parameters),
+                model_family=model_family,
                 alpha=float(model_parameters.get("alpha", 0.5)),
                 l1_ratio=float(model_parameters.get("l1_ratio", 0.5)),
-                random_state=int(model_parameters.get("random_state", self.data_source.random_state)),
-                alpha_grid=list(model_parameters.get("alpha_grid", [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0])),
-                fit_intercept=bool(model_parameters.get("fit_intercept", True)),
-                ridge_solver=str(model_parameters.get("ridge_solver", "svd")),
+                random_state=int(
+                    model_parameters.get(
+                        "random_state",
+                        self.data_source.random_state,
+                    )
+                ),
+                alpha_grid=list(
+                    model_parameters.get(
+                        "alpha_grid",
+                        [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0],
+                    )
+                ),
+                l1_ratio_grid=list(
+                    model_parameters.get(
+                        "l1_ratio_grid",
+                        [0.1, 0.3, 0.5, 0.7, 0.9],
+                    )
+                ),
+                param_search_mode=str(
+                    model_parameters.get("param_search_mode", "auto")
+                ),
+                max_param_search_combinations=int(
+                    model_parameters.get("max_param_search_combinations", 30)
+                ),
+                fit_intercept=bool(
+                    model_parameters.get("fit_intercept", True)
+                ),
+                ridge_solver=str(
+                    model_parameters.get("ridge_solver", "svd")
+                ),
             ),
         )
 
@@ -112,11 +242,11 @@ class ElasticNetProtocolBridge:
         design = protocol.features
         candidates = [
             overrides.get("forecast_horizon_days"),
+            model_parameters.get("forecast_horizon_days"),
             design.forecast_horizon_days,
             design.control_forecast_horizon_days,
             design.treatment_forecast_horizon_days,
             protocol.forecast_horizon_days,
-            model_parameters.get("forecast_horizon_days"),
         ]
         for value in candidates:
             if value is not None:
@@ -132,7 +262,11 @@ class ElasticNetProtocolBridge:
     def _resolve_model_family(protocol: ExperimentProtocol, model_parameters: dict) -> str:
         parameter_family = model_parameters.get("model_family")
         family = parameter_family or protocol.model.name or "ElasticNet"
-        normalized = str(family).strip().lower()
+        return ElasticNetProtocolBridge._normalize_model_family_value(family)
+
+    @staticmethod
+    def _normalize_model_family_value(family: str | None) -> str:
+        normalized = str(family or "ElasticNet").strip().lower()
         if normalized not in {"ridge", "elasticnet", "enet"}:
             raise ValueError(f"未知模型族: {family}")
         if normalized == "enet":

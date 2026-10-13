@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from pathlib import Path
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -141,6 +144,200 @@ class SamplePlan:
         }
 
 
+@dataclass(frozen=True)
+class FrozenEvaluationPlan:
+    """Frozen evaluation partition persisted once per project.
+
+    ``test_start`` fixes the first issue date of the evaluation segment so a
+    changed feature set cannot silently move the boundary. ``split_label`` is
+    deliberately conservative: when there is no sealed, never-inspected final
+    interval, the run is recorded as ``dev_backtest`` instead of pretending to
+    be a blind final test.
+    """
+
+    schema_version: str = "evaluation-plan-v1"
+    split_label: str = "dev_backtest"
+    test_ratio: float = 0.2
+    n_internal_folds: int = 2
+    test_start: str | None = None
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    notes: list[str] = field(default_factory=list)
+
+    ALLOWED_LABELS: ClassVar[tuple[str, ...]] = ("dev_backtest", "final_test_blind")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "split_label": self.split_label,
+            "test_ratio": float(self.test_ratio),
+            "n_internal_folds": int(self.n_internal_folds),
+            "test_start": self.test_start,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "notes": list(self.notes),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> FrozenEvaluationPlan:
+        label = str(payload.get("split_label") or "dev_backtest")
+        if label not in cls.ALLOWED_LABELS:
+            raise ValueError(f"评估计划 split_label 非法: {label}")
+        return cls(
+            schema_version=str(payload.get("schema_version") or "evaluation-plan-v1"),
+            split_label=label,
+            test_ratio=float(payload.get("test_ratio") or 0.2),
+            n_internal_folds=int(payload.get("n_internal_folds") or 2),
+            test_start=str(payload["test_start"]) if payload.get("test_start") else None,
+            created_at=str(payload.get("created_at") or ""),
+            updated_at=str(payload.get("updated_at") or ""),
+            notes=list(payload.get("notes") or []),
+        )
+
+    def with_test_start(
+        self,
+        test_start: pd.Timestamp | str | None,
+    ) -> FrozenEvaluationPlan:
+        if test_start is None:
+            return self
+        return FrozenEvaluationPlan(
+            schema_version=self.schema_version,
+            split_label=self.split_label,
+            test_ratio=self.test_ratio,
+            n_internal_folds=self.n_internal_folds,
+            test_start=str(pd.Timestamp(test_start).normalize().date().isoformat()),
+            created_at=self.created_at,
+            updated_at=datetime.now().isoformat(),
+            notes=list(self.notes),
+        )
+
+
+def evaluation_plan_path(project_root: Path | str) -> Path:
+    root = Path(project_root)
+    config_dir = root / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return config_dir / "evaluation_plan.json"
+
+
+def compute_default_test_start(
+    records: list[CalendarSample],
+    *,
+    test_ratio: float = 0.2,
+    n_internal_folds: int = 2,
+) -> pd.Timestamp:
+    """Derive the initial evaluation boundary using the legacy fraction rule."""
+
+    retained = [
+        record
+        for record in records
+        if record.drop_reason is None
+    ]
+    issues = _unique_issue_dates(retained)
+    min_dates = int(n_internal_folds) + 2
+    if len(issues) < min_dates:
+        raise ValueError(
+            f"共同样本仅有 {len(issues)} 个 issue 日期，少于划分为 "
+            f"{n_internal_folds} 个内部折 + 测试段所需的最小 {min_dates}"
+        )
+    test_start_idx = int(round(len(issues) * (1.0 - float(test_ratio))))
+    test_start_idx = max(
+        int(n_internal_folds) + 1,
+        min(len(issues) - 1, test_start_idx),
+    )
+    return issues[test_start_idx]
+
+
+def load_or_freeze_evaluation_plan(
+    project_root: Path | str,
+    *,
+    test_ratio: float = 0.2,
+    n_internal_folds: int = 2,
+    requested_split_label: str | None = None,
+    sealed_final_test: bool = False,
+) -> FrozenEvaluationPlan:
+    """Load a project-level frozen evaluation plan, creating it on first use.
+
+    An existing file is authoritative and every candidate must reuse the same
+    boundary. A new ``final_test_blind`` label is only honored when the caller
+    can prove the interval is sealed and uninspected; otherwise the plan is
+    recorded as ``dev_backtest`` so the system never relabels inspected data as
+    a blind test.
+    """
+
+    path = evaluation_plan_path(project_root)
+    if path.exists():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"评估计划无法解析 {path}: {exc}") from exc
+        plan = FrozenEvaluationPlan.from_dict(payload)
+        if not math.isclose(
+            plan.test_ratio,
+            float(test_ratio),
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ):
+            raise ValueError(
+                f"已冻结评估计划 test_ratio={plan.test_ratio}，"
+                f"与本次请求 {test_ratio} 冲突，禁止静默重切。"
+            )
+        if plan.n_internal_folds != int(n_internal_folds):
+            raise ValueError(
+                f"已冻结评估计划 n_internal_folds={plan.n_internal_folds}，"
+                f"与本次请求 {n_internal_folds} 冲突，禁止静默重切。"
+            )
+        return plan
+
+    label = str(requested_split_label or "dev_backtest")
+    notes = [
+        "评估分区在项目首次执行时冻结，后续候选实验不得移动 test_start。",
+        "缺失值在冻结的测试段内按每个实验各自的共同日历样本处理，不得越过分区边界。",
+    ]
+    if label == "final_test_blind" and not sealed_final_test:
+        label = "dev_backtest"
+        notes.append(
+            "请求 final_test_blind，但没有封存且从未查看的最终测试区间证据；"
+            "按 dev_backtest 如实记录，不把已查看数据伪称为盲测。"
+        )
+    if label not in FrozenEvaluationPlan.ALLOWED_LABELS:
+        raise ValueError(f"split_label 非法: {label}")
+
+    plan = FrozenEvaluationPlan(
+        split_label=str(label),
+        test_ratio=float(test_ratio),
+        n_internal_folds=int(n_internal_folds),
+        created_at=datetime.now().isoformat(),
+        updated_at=datetime.now().isoformat(),
+        notes=notes,
+    )
+    return freeze_evaluation_plan(project_root, plan)
+
+
+def freeze_evaluation_plan(
+    project_root: Path | str,
+    plan: FrozenEvaluationPlan,
+) -> FrozenEvaluationPlan:
+    path = evaluation_plan_path(project_root)
+    path.write_text(
+        json.dumps(plan.to_dict(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return plan
+
+
+def is_blind_sealed(project_root: Path | str) -> bool:
+    """Whether the persisted project plan is a sealed final-test partition."""
+
+    path = evaluation_plan_path(project_root)
+    if not path.exists():
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return FrozenEvaluationPlan.from_dict(payload).split_label == "final_test_blind"
+    except (OSError, ValueError):
+        return False
+
+
 def _normalize_dates(time_raw: pd.Series) -> pd.Series:
     series = pd.Series(time_raw, index=time_raw.index)
     if pd.api.types.is_datetime64_any_dtype(series):
@@ -215,15 +412,13 @@ def build_sample_plan(
     check_unique_calendar_dates(time_raw)
     times = _normalize_dates(time_raw)
 
-    frame = X_raw.copy()
-    feature_values = frame[feature_columns].astype(float)
+    feature_values = X_raw[feature_columns].astype(float)
     numeric_ok = feature_values.notna().to_numpy(dtype=bool)
     target_values = pd.to_numeric(y_raw, errors="coerce").to_numpy(dtype=float)
     target_ok = np.isfinite(target_values)
-    quality_rows = np.flatnonzero(
-        numeric_ok.all(axis=1) & target_ok
+    quality_available_days = int(
+        np.count_nonzero(numeric_ok.all(axis=1) & target_ok)
     )
-    quality_available_days = int(len(quality_rows))
 
     specs = tuple(
         FeatureSpec(variable=column, offset_days=-lag)
@@ -235,11 +430,14 @@ def build_sample_plan(
     ordered = pd.DataFrame(
         {
             "_hp_time": times.to_numpy(),
-            "_hp_target": target_values,
-            "_hp_quality": np.isin(np.arange(len(frame)), quality_rows),
+            "_hp_orig_index": np.arange(len(X_raw)),
         }
     ).sort_values("_hp_time", kind="mergesort")
     dates = ordered["_hp_time"].to_numpy()
+    original_rows = ordered["_hp_orig_index"].to_numpy(dtype=int)
+    # 排序后特征/目标掩码必须与日期同步，否则输入行顺序会改变样本计划。
+    numeric_ok = numeric_ok[original_rows]
+    target_ok = target_ok[original_rows]
     date_to_index = {
         pd.Timestamp(value).normalize(): index for index, value in enumerate(dates)
     }
@@ -406,6 +604,7 @@ def make_calendar_split(
     *,
     test_ratio: float = 0.2,
     n_internal_folds: int = 2,
+    test_start: pd.Timestamp | str | None = None,
 ) -> CalendarSplit:
     """Create the frozen common-sample split and internal expanding folds.
 
@@ -431,9 +630,29 @@ def make_calendar_split(
             f"共同样本仅有 {len(issues)} 个 issue 日期，少于划分为 "
             f"{n_internal_folds} 个内部折 + 测试段所需的最小 {min_dates}"
         )
-    test_start_idx = int(round(len(issues) * (1.0 - test_ratio)))
-    test_start_idx = max(n_internal_folds + 1, min(len(issues) - 1, test_start_idx))
-    test_start = issues[test_start_idx]
+    if test_start is not None:
+        frozen_test_start = pd.Timestamp(test_start).normalize()
+        train_issues = [value for value in issues if value < frozen_test_start]
+        if len(train_issues) < n_internal_folds + 1:
+            raise ValueError(
+                f"冻结测试起点 {frozen_test_start.date().isoformat()} 过早，"
+                f"只有 {len(train_issues)} 个训练 issue 日期，不足 "
+                f"{n_internal_folds + 1} 个内部折块。"
+            )
+        test_issues = [value for value in issues if value >= frozen_test_start]
+        if not test_issues:
+            raise ValueError(
+                f"冻结测试起点 {frozen_test_start.date().isoformat()} 晚于全部 "
+                f"{len(issues)} 个 issue 日期，测试段为空。"
+            )
+        test_start = frozen_test_start
+    else:
+        test_start_idx = int(round(len(issues) * (1.0 - test_ratio)))
+        test_start_idx = max(
+            n_internal_folds + 1,
+            min(len(issues) - 1, test_start_idx),
+        )
+        test_start = issues[test_start_idx]
 
     issue_to_record: dict[pd.Timestamp, list[CalendarSample]] = {}
     for record in retained:

@@ -42,7 +42,7 @@ export function ApprovalOverlay({ data, open, onClose, onAction, busy = false, i
         <div className="approval-overlay__table">
           <div className="approval-overlay__row approval-overlay__row--head">
             <span>实验</span>
-            <span>信息增益</span>
+            <span>预期区分度</span>
             <span>性能增益</span>
             <span>风险</span>
             <span>成本</span>

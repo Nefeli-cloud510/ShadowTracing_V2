@@ -163,6 +163,7 @@ initial_support 不要填写数值：首轮由系统程序依据 evidence_items 
             response_model=HypothesisProposerResponse,
             payload_fixer=_prune_malformed_evidence_items,
             temperature=0.35,
+            role="假设提出者llm",
         )
         response.source = "real_llm"
         response.model = self.gateway.model
@@ -222,6 +223,7 @@ initial_support 不要填写数值：首轮由系统程序依据 evidence_items 
             response_model=ProposedHypothesis,
             payload_fixer=_prune_malformed_evidence_items,
             temperature=0.45,
+            role="假设提出者llm",
         )
         proposal.display_hypothesis_id = next_display_id
         proposal.level = 1

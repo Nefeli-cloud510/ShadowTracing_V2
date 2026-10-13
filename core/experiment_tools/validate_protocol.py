@@ -32,6 +32,7 @@ class ProtocolValidationResult:
     compiled_contrasts: list[ContrastSpec] = field(default_factory=list)
     compiled_diagnostics: list[DiagnosticSpec] = field(default_factory=list)
     compiled_plan: CompiledExperimentPlan | None = None
+    time_parameters: dict[str, object] = field(default_factory=dict)
 
 
 def validate_experiment_protocol(
@@ -130,6 +131,7 @@ def _validate_baseline_benchmark(protocol: ExperimentProtocol) -> ProtocolValida
         valid=not reasons,
         reasons=reasons,
         warnings=list(protocol.warnings),
+        time_parameters=times,
         compiled_runs=runs,
         compiled_contrasts=[],
         compiled_diagnostics=[],
@@ -168,15 +170,25 @@ def _finalize_protocol_validation(
 
     if not result.valid:
         return result
+    model_parameters = dict(protocol.model.parameters)
+    model_parameters.update(
+        {
+            key: value
+            for key, value in result.time_parameters.items()
+            if value is not None
+        }
+    )
+    for legacy_key in ("feature_groups", "arm_time_windows", "model_families"):
+        model_parameters.pop(legacy_key, None)
     result.compiled_plan = CompiledExperimentPlan(
         experiment_type=protocol.experiment_type,
         target=protocol.target,
         experiment_id=protocol.experiment_id,
         round_id=protocol.round_id,
-        model_parameters=dict(protocol.model.parameters),
+        model_parameters=model_parameters,
         time_parameters={
             key: value
-            for key, value in _time_parameters(protocol).items()
+            for key, value in result.time_parameters.items()
             if value is not None
         },
         runs=[
@@ -200,40 +212,154 @@ def _finalize_protocol_validation(
     return result
 
 
-TIME_PARAMETER_KEYS = (
+INTEGER_TIME_PARAMETER_KEYS = (
     "forecast_horizon_days",
     "past_lag_days",
     "window_size",
-    "test_split_ratio",
+)
+RATIO_TIME_PARAMETER_KEYS = ("test_split_ratio",)
+TIME_PARAMETER_KEYS = (
+    *INTEGER_TIME_PARAMETER_KEYS,
+    *RATIO_TIME_PARAMETER_KEYS,
+)
+# 这些键决定双臂是否在同一预处理 / 选参规则下比较。任何臂级覆盖不一致
+# 都会把“增加焦点特征”和“改变正则化”混在一起，必须拒绝。
+TRAINING_RULE_KEYS = (
+    "alpha",
+    "l1_ratio",
+    "param_search_mode",
+    "alpha_grid",
+    "l1_ratio_grid",
+    "max_param_search_combinations",
+    "use_lag_feature",
+    "max_lag_day",
+    "fit_intercept",
+    "ridge_solver",
+    "random_state",
 )
 TRAINING_CONTRAST_KINDS = {"metric_delta", "incremental_gain"}
 
 
-def _time_parameters(protocol: ExperimentProtocol) -> dict[str, object]:
+def _parse_time_value(
+    key: str,
+    value: object,
+    source: str,
+    reasons: list[str],
+) -> float | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        reasons.append(f"{source} 字段 {key} 必须是有限数值，收到 {value!r}。")
+        return None
+    if not math.isfinite(numeric):
+        reasons.append(f"{source} 字段 {key} 必须是有限数值，收到 {value!r}。")
+        return None
+    if key in INTEGER_TIME_PARAMETER_KEYS:
+        if isinstance(value, bool) or not numeric.is_integer() or numeric < 1:
+            reasons.append(
+                f"{source} 字段 {key} 必须是正整数，收到 {value!r}。"
+            )
+            return None
+        return int(numeric)
+    if numeric <= 0 or numeric >= 1:
+        reasons.append(
+            f"{source} 字段 {key} 必须是 (0, 1) 内的划分比例，收到 {value!r}。"
+        )
+        return None
+    return numeric
+
+
+def _canonical_time_parameters(
+    protocol: ExperimentProtocol,
+    reasons: list[str],
+) -> dict[str, object]:
+    """Resolve one authoritative value per shared time parameter.
+
+    Every duplicate source (``features.forecast_horizon_days``, per-arm
+    windows, root protocol and ``model.parameters``) must agree; otherwise the
+    plan is ambiguous and the executor could silently pick a different horizon
+    or lag than the compiled plan declared.
+    """
+
+    sources: list[tuple[str, str, object]] = []
+
+    def collect(key: str, value: object, source: str) -> None:
+        if value is not None:
+            sources.append((key, source, value))
+
     params = protocol.model.parameters
-    return {key: params.get(key) for key in TIME_PARAMETER_KEYS}
+    for key in TIME_PARAMETER_KEYS:
+        collect(key, params.get(key), "model.parameters")
+    collect(
+        "forecast_horizon_days",
+        protocol.features.forecast_horizon_days,
+        "features.forecast_horizon_days",
+    )
+    collect(
+        "forecast_horizon_days",
+        protocol.features.control_forecast_horizon_days,
+        "features.control_forecast_horizon_days",
+    )
+    collect(
+        "forecast_horizon_days",
+        protocol.features.treatment_forecast_horizon_days,
+        "features.treatment_forecast_horizon_days",
+    )
+    collect(
+        "forecast_horizon_days",
+        protocol.forecast_horizon_days,
+        "protocol.forecast_horizon_days",
+    )
+
+    arm_windows = params.get("arm_time_windows")
+    if isinstance(arm_windows, dict):
+        for label in ("baseline", "treatment"):
+            override = arm_windows.get(label)
+            if not isinstance(override, dict):
+                continue
+            for key in TIME_PARAMETER_KEYS:
+                collect(
+                    key,
+                    override.get(key),
+                    f"model.parameters.arm_time_windows.{label}",
+                )
+
+    canonical: dict[str, object] = {}
+    for key in TIME_PARAMETER_KEYS:
+        entries = [(source, value) for item_key, source, value in sources if item_key == key]
+        if not entries:
+            reasons.append(
+                f"普通训练实验必须显式固定 {key}，禁止执行器读取旧默认值。"
+            )
+            continue
+        valid_values: list[tuple[str, float | int]] = []
+        for source, value in entries:
+            parsed = _parse_time_value(key, value, source, reasons)
+            if parsed is not None:
+                valid_values.append((source, parsed))
+        distinct = {
+            tuple(value) if isinstance(value, list) else value
+            for _, value in valid_values
+        }
+        if distinct and len(distinct) > 1:
+            detail = "；".join(
+                f"{source}={value}"
+                for source, value in valid_values
+            )
+            reasons.append(
+                f"重复时间参数 {key} 存在冲突值（{detail}），"
+                "编译计划不允许同一字段出现歧义。"
+            )
+        if valid_values:
+            canonical[key] = valid_values[0][1]
+    return canonical
 
 
 def _validate_shared_time_parameters(
     protocol: ExperimentProtocol,
     reasons: list[str],
 ) -> dict[str, object]:
-    times = _time_parameters(protocol)
-    for key in TIME_PARAMETER_KEYS:
-        value = times.get(key)
-        if value is None:
-            reasons.append(
-                f"普通训练实验必须显式固定 {key}，禁止执行器读取旧默认值。"
-            )
-            continue
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError):
-            reasons.append(f"{key} 必须是有限正数，收到 {value!r}。")
-            continue
-        if not math.isfinite(numeric) or numeric <= 0:
-            reasons.append(f"{key} 必须是有限正数，收到 {value!r}。")
-    return times
+    return _canonical_time_parameters(protocol, reasons)
 
 
 def _validate_run_time_parameters(
@@ -263,6 +389,52 @@ def _validate_retrain_required(run: RunSpec, reasons: list[str]) -> None:
         reasons.append(
             f"run {run.run_id} 禁止 retrain=False：普通训练实验必须重新训练并产出新预测。"
         )
+
+
+def _effective_training_rule(
+    protocol: ExperimentProtocol,
+    run: RunSpec,
+) -> dict[str, object]:
+    merged = dict(protocol.model.parameters)
+    merged.update(dict(run.parameters or {}))
+    merged.pop("feature_groups", None)
+    merged.pop("arm_time_windows", None)
+    merged.pop("model_families", None)
+    return {
+        key: merged.get(key)
+        for key in TRAINING_RULE_KEYS
+        if merged.get(key) is not None
+    }
+
+
+def _validate_training_selection_compatible(
+    protocol: ExperimentProtocol,
+    runs: list[RunSpec],
+    *,
+    group_key=None,
+    reasons: list[str],
+) -> None:
+    seen: dict[str, dict[str, object]] = {}
+    for run in runs:
+        group = str(group_key(run)) if group_key is not None else "shared"
+        effective = _effective_training_rule(protocol, run)
+        previous = seen.get(group)
+        if previous is not None and previous != effective:
+            differing = sorted(
+                set(previous) | set(effective),
+                key=str,
+            )
+            details = "；".join(
+                f"{key}={previous.get(key)} vs {effective.get(key)}"
+                for key in differing
+                if previous.get(key) != effective.get(key)
+            )
+            label = f"（{group}）" if group != "shared" else ""
+            reasons.append(
+                f"run {label}必须采用同一预处理/选参规则： "
+                f"同一比较组内不允许给出不同的固定参数或搜索空间（{details}）。"
+            )
+        seen[group] = effective
 
 
 def _validate_no_diagnostics(
@@ -473,6 +645,12 @@ def _validate_incremental(protocol: ExperimentProtocol) -> ProtocolValidationRes
             ),
         ]
 
+    _validate_training_selection_compatible(
+        protocol,
+        runs,
+        reasons=reasons,
+    )
+
     contrasts: list[ContrastSpec] = []
     if protocol.contrasts_spec:
         contrasts = [ContrastSpec.model_validate(item.model_dump()) for item in protocol.contrasts_spec]
@@ -511,6 +689,7 @@ def _validate_incremental(protocol: ExperimentProtocol) -> ProtocolValidationRes
         valid=not reasons,
         reasons=reasons,
         warnings=list(protocol.warnings),
+        time_parameters=times,
         compiled_runs=runs,
         compiled_contrasts=contrasts,
         compiled_diagnostics=[],
@@ -605,6 +784,15 @@ def _validate_model_sensitivity(protocol: ExperimentProtocol) -> ProtocolValidat
                 )
             )
 
+    _validate_training_selection_compatible(
+        protocol,
+        runs,
+        group_key=lambda run: (
+            _model_sensitivity_arm(run.run_id, families) or ("unknown", "")
+        )[0],
+        reasons=reasons,
+    )
+
     contrasts: list[ContrastSpec] = []
     if protocol.contrasts_spec:
         contrasts = [ContrastSpec.model_validate(item.model_dump()) for item in protocol.contrasts_spec]
@@ -662,6 +850,7 @@ def _validate_model_sensitivity(protocol: ExperimentProtocol) -> ProtocolValidat
         valid=not reasons,
         reasons=reasons,
         warnings=warnings,
+        time_parameters=times,
         compiled_runs=runs,
         compiled_contrasts=contrasts,
         compiled_diagnostics=[],

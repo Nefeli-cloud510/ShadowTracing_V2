@@ -2,26 +2,33 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from core.experiment_tools.compiled_plan import normalize_diagnostic_id
 from core.experiment_tools.registry import get_tool
 from core.experiment_tools.validate_protocol import validate_experiment_protocol
 from core.harness_unified import UnifiedExperimentHarness
 from core.result_unified import build_metric_delta, build_run_metrics, export_result_bundle
 from core.robustness_diagnostics import (
+    empty_bootstrap_summary,
     paired_calendar_block_bootstrap,
     summary_to_robustness_report,
 )
 from core.unified_schema import (
     DataSourceCoverage,
+    DiagnosticSpec,
     ExecutionSummary,
     ExperimentDiagnostic,
     ExperimentProtocol,
     ExperimentResult,
+    ExperimentRun,
+    RunSpec,
 )
 
 
@@ -83,6 +90,7 @@ class ExperimentDispatcher:
             round_dir=round_dir,
             latest_protocol_path=self.harness.latest_protocol_path,
             latest_metrics_path=self.harness.latest_metrics_path,
+            write_latest=not self.harness.is_blind_sealed(),
         )
         return result
 
@@ -91,85 +99,161 @@ class ExperimentDispatcher:
         protocol: ExperimentProtocol,
         validation,
     ) -> ExperimentResult:
-        params = protocol.model.parameters
-        source_experiment_id = params.get("source_experiment_id")
-        source_prediction_file = params.get("source_prediction_file")
-        for run_spec in protocol.runs_spec:
-            if run_spec.source_prediction_file:
-                source_prediction_file = run_spec.source_prediction_file
-                break
-        base_frame, treat_frame = self._resolve_source_predictions(
-            protocol=protocol,
-            source_experiment_id=source_experiment_id,
-            source_prediction_file=source_prediction_file,
-        )
+        run_ids: list[str] = [run.run_id for run in protocol.runs_spec] or [
+            "baseline",
+            "treatment",
+        ]
+        if len(run_ids) != 2:
+            return self._invalid_result(
+                protocol,
+                [
+                    "robustness_diagnostic 必须恰好包含两个 retrain=False 的复用 run，"
+                    "当前 runs_spec 为空或数量不是两个。"
+                ],
+            )
+        try:
+            base_frame, treat_frame, source_meta = self._resolve_source_predictions(
+                protocol=protocol,
+                run_ids=run_ids,
+            )
+        except (FileNotFoundError, ValueError, AssertionError) as exc:
+            return self._invalid_result(protocol, [str(exc)])
+
+        diagnostics_specs = [
+            DiagnosticSpec.model_validate(item.model_dump())
+            for item in protocol.diagnostics_spec
+        ]
+        normalized_specs = {
+            normalized: spec
+            for spec in diagnostics_specs
+            if (normalized := normalize_diagnostic_id(spec.diagnostic_id))
+        }
+
         started = time.perf_counter()
-        bootstrap = paired_calendar_block_bootstrap(
-            base_frame,
-            treat_frame,
-            block_size=7,
-            n_draws=4000,
-            seed=20261008,
+        diagnostics: list[ExperimentDiagnostic] = []
+        bootstrap_summary = empty_bootstrap_summary(
+            "diagnostics_spec 未声明 paired_calendar_bootstrap。"
         )
-        robustness = summary_to_robustness_report(bootstrap)
-        time_segments = self._time_segment_diagnostics(base_frame, treat_frame)
-        residual_stats = self._residual_diagnostics(base_frame, treat_frame)
+
+        bootstrap_spec = normalized_specs.get("paired_calendar_bootstrap")
+        if bootstrap_spec is not None:
+            params = bootstrap_spec.parameters or {}
+            block_size = int(params.get("block_size", 7))
+            n_draws = int(params.get("n_draws", 4000))
+            seed = int(params.get("seed", 20261008))
+            bootstrap_summary = paired_calendar_block_bootstrap(
+                base_frame,
+                treat_frame,
+                block_size=block_size,
+                n_draws=n_draws,
+                seed=seed,
+            )
+            diagnostics.append(
+                ExperimentDiagnostic(
+                    diagnostic_id="paired_calendar_bootstrap",
+                    name=bootstrap_spec.name,
+                    source_run_ids=list(run_ids),
+                    structured=bootstrap_summary,
+                    status="completed",
+                )
+            )
+
+        robustness = summary_to_robustness_report(bootstrap_summary)
+
+        if "time_segments" in normalized_specs:
+            diagnostics.append(
+                ExperimentDiagnostic(
+                    diagnostic_id="time_segments",
+                    name=normalized_specs["time_segments"].name,
+                    source_run_ids=list(run_ids),
+                    structured=self._time_segment_diagnostics(
+                        base_frame,
+                        treat_frame,
+                    ),
+                    status="completed",
+                )
+            )
+        if "residual_diagnostics" in normalized_specs:
+            diagnostics.append(
+                ExperimentDiagnostic(
+                    diagnostic_id="residual_diagnostics",
+                    name=normalized_specs["residual_diagnostics"].name,
+                    source_run_ids=list(run_ids),
+                    structured=self._residual_diagnostics(
+                        base_frame,
+                        treat_frame,
+                    ),
+                    status="completed",
+                )
+            )
         duration_seconds = time.perf_counter() - started
 
-        diagnostics = [
-            ExperimentDiagnostic(
-                diagnostic_id="paired_calendar_bootstrap",
-                name="7 日配对日历块 bootstrap",
-                source_run_ids=["baseline", "treatment"],
-                structured=bootstrap,
-                status="completed",
-            ),
-            ExperimentDiagnostic(
-                diagnostic_id="time_segments",
-                name="时间分段误差诊断",
-                source_run_ids=["baseline", "treatment"],
-                structured=time_segments,
-                status="completed",
-            ),
-            ExperimentDiagnostic(
-                diagnostic_id="residual_diagnostics",
-                name="平均偏差与残差诊断",
-                source_run_ids=["baseline", "treatment"],
-                structured=residual_stats,
-                status="completed",
-            ),
-        ]
+        base_metrics = _metrics_from_frame(base_frame)
+        treat_metrics = _metrics_from_frame(treat_frame)
+        label_by_run = {run.run_id: run.label for run in protocol.runs_spec}
         runs = [
-            {
-                "run_id": "baseline",
-                "name": "对照组（复用预测）",
-                "prediction_artifact": None,
-                "metrics": _metrics_from_frame(base_frame),
-                "model_family": str(protocol.model.name or "reused"),
-                "feature_labels": [],
-                "feature_columns": [],
-                "parameters": {"source_experiment_id": source_experiment_id},
-                "n_train": None,
-                "n_test": int(len(base_frame)),
-                "training_mode": "reused",
-                "protocol_version": protocol.protocol_version,
-            },
-            {
-                "run_id": "treatment",
-                "name": "实验组（复用预测）",
-                "prediction_artifact": None,
-                "metrics": _metrics_from_frame(treat_frame),
-                "model_family": str(protocol.model.name or "reused"),
-                "feature_labels": [],
-                "feature_columns": [],
-                "parameters": {"source_experiment_id": source_experiment_id},
-                "n_train": None,
-                "n_test": int(len(treat_frame)),
-                "training_mode": "reused",
-                "protocol_version": protocol.protocol_version,
-            },
+            ExperimentRun(
+                run_id=run_ids[0],
+                name=label_by_run.get(run_ids[0], "对照组（复用预测）"),
+                prediction_artifact=source_meta["frames"][0]["path"],
+                metrics=build_run_metrics(base_metrics),
+                model_family=str(protocol.model.name or "reused"),
+                feature_labels=[],
+                feature_columns=[],
+                parameters={
+                    "source_experiment_id": source_meta["frames"][0][
+                        "source_experiment_id"
+                    ],
+                    "source_round_id": source_meta["frames"][0]["source_round_id"],
+                    "source_run_id": source_meta["frames"][0].get("source_run_id"),
+                    "prediction_artifact_hash": source_meta["frames"][0][
+                        "prediction_artifact_hash"
+                    ],
+                },
+                n_train=None,
+                n_test=int(len(base_frame)),
+                training_mode="reused",
+                protocol_version=protocol.protocol_version,
+            ),
+            ExperimentRun(
+                run_id=run_ids[1],
+                name=label_by_run.get(run_ids[1], "实验组（复用预测）"),
+                prediction_artifact=source_meta["frames"][1]["path"],
+                metrics=build_run_metrics(treat_metrics),
+                model_family=str(protocol.model.name or "reused"),
+                feature_labels=[],
+                feature_columns=[],
+                parameters={
+                    "source_experiment_id": source_meta["frames"][1][
+                        "source_experiment_id"
+                    ],
+                    "source_round_id": source_meta["frames"][1]["source_round_id"],
+                    "source_run_id": source_meta["frames"][1].get("source_run_id"),
+                    "prediction_artifact_hash": source_meta["frames"][1][
+                        "prediction_artifact_hash"
+                    ],
+                },
+                n_train=None,
+                n_test=int(len(treat_frame)),
+                training_mode="reused",
+                protocol_version=protocol.protocol_version,
+            ),
         ]
-        from core.unified_schema import ExperimentRun
+
+        warnings = ["复用已有预测结果，未重新训练模型。"]
+        if bootstrap_summary.get("status") == "completed":
+            if not bootstrap_summary.get("stable_rmse"):
+                warnings.append(
+                    "不确定性的 bootstrap CI 跨越零，结论方向待科学评价。"
+                )
+            if not bootstrap_summary.get("n_valid_pearson_draws"):
+                warnings.append(
+                    "有效 Pearson 重采样次数为 0，相关系数区间不可用。"
+                )
+        else:
+            warnings.append(
+                f"bootstrap 未运行：{bootstrap_summary.get('reason') or '未配置'}。"
+            )
 
         result = ExperimentResult(
             experiment_id=protocol.experiment_id,
@@ -177,32 +261,40 @@ class ExperimentDispatcher:
             status="completed",
             experiment_type=protocol.experiment_type,
             protocol_version=protocol.protocol_version,
-            runs=[ExperimentRun.model_validate(item) for item in runs],
-            comparison=build_metric_delta(
-                _metrics_from_frame(base_frame),
-                _metrics_from_frame(treat_frame),
-            ),
+            runs=runs,
+            comparison=build_metric_delta(base_metrics, treat_metrics),
             diagnostics=diagnostics,
             source_evidence_ids=list(protocol.source_evidence_ids),
             allowed_conclusions=list(protocol.allowed_conclusions),
             unresolved_questions=list(protocol.unresolved_questions),
-            validity_status=(
-                "valid" if bool(bootstrap.get("stable_rmse")) else "uncertain"
-            ),
-            warnings=[
-                "复用已有预测结果，未重新训练模型。",
-                "不确定性的 bootstrap CI 跨越零，结论方向待科学评价。",
-            ]
-            if not bootstrap.get("stable_rmse")
-            else ["复用已有预测结果，未重新训练模型。"],
+            validity_status="valid",
+            warnings=warnings,
             visualizations=[],
             data_coverage=[
                 DataSourceCoverage(
-                    source=f"source:{source_experiment_id}",
-                    run_id="baseline",
+                    source=(
+                        source_meta["frames"][0].get("source_experiment_id")
+                        or "source_predictions"
+                    ),
+                    run_id=runs[0].run_id,
                     observed_days=int(len(base_frame)),
-                    note="复用已有预测文件。",
-                )
+                    note=(
+                        f"复用预测文件 {source_meta['frames'][0]['path']}，"
+                        "SHA-256 已核验。"
+                    ),
+                ),
+                DataSourceCoverage(
+                    source=(
+                        source_meta["frames"][1].get("source_experiment_id")
+                        or "source_predictions"
+                    ),
+                    run_id=runs[1].run_id,
+                    observed_days=int(len(treat_frame)),
+                    note=(
+                        f"复用预测文件 {source_meta['frames'][1]['path']}，"
+                        "SHA-256 已核验。"
+                    ),
+                ),
             ],
             execution=ExecutionSummary(
                 duration_seconds=duration_seconds,
@@ -218,6 +310,7 @@ class ExperimentDispatcher:
             round_dir=round_dir,
             latest_protocol_path=self.harness.latest_protocol_path,
             latest_metrics_path=self.harness.latest_metrics_path,
+            write_latest=not self.harness.is_blind_sealed(),
         )
         return result
 
@@ -225,55 +318,446 @@ class ExperimentDispatcher:
         self,
         *,
         protocol: ExperimentProtocol,
-        source_experiment_id: str | None,
-        source_prediction_file: str | None,
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        round_dir = self.harness.results_dir / f"round_{protocol.round_id:02d}"
-        candidates: list[Path] = []
-        if source_prediction_file:
-            path = Path(source_prediction_file)
+        run_ids: list[str],
+    ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+        defaults = dict(protocol.model.parameters)
+        refs: list[dict] = []
+        for index, run_id in enumerate(run_ids):
+            run_spec = next(
+                (item for item in protocol.runs_spec if item.run_id == run_id),
+                None,
+            )
+            ref = dict(defaults)
+            if run_spec is not None:
+                ref.update(run_spec.parameters)
+                if run_spec.source_experiment_id:
+                    ref["source_experiment_id"] = run_spec.source_experiment_id
+                if run_spec.source_prediction_file:
+                    ref["source_prediction_file"] = run_spec.source_prediction_file
+            ref["_run_id"] = run_id
+            ref["_arm_hint"] = "baseline" if index == 0 else "treatment"
+            refs.append(ref)
+
+        loaded = [self._load_source_frame(protocol, ref) for ref in refs]
+        base_frame, base_meta = loaded[0]
+        treat_frame, treat_meta = loaded[1]
+        self._assert_paired_frames(base_frame, treat_frame)
+        return (
+            base_frame,
+            treat_frame,
+            {"frames": [base_meta, treat_meta]},
+        )
+
+    def _load_source_frame(
+        self,
+        protocol: ExperimentProtocol,
+        ref: dict,
+    ) -> tuple[pd.DataFrame, dict]:
+        source_experiment_id = str(ref.get("source_experiment_id") or "legacy")
+        raw_round = ref.get("source_round_id") or protocol.round_id
+        try:
+            source_round_id = int(raw_round)
+        except (TypeError, ValueError):
+            source_round_id = protocol.round_id
+
+        prediction_file = ref.get("source_prediction_file")
+        if prediction_file:
+            path = Path(str(prediction_file))
             if not path.is_absolute():
                 path = self.project_root / path
-            candidates.append(path)
-        if source_experiment_id:
-            base_dir = round_dir / source_experiment_id / "predictions"
-            candidates.append(base_dir / f"{source_experiment_id}_baseline.csv")
-            candidates.append(base_dir / f"{source_experiment_id}_treatment.csv")
-            candidates.append(round_dir / f"{source_experiment_id}_baseline.csv")
-            candidates.append(round_dir / f"{source_experiment_id}_treatment.csv")
-            archive_root = round_dir / "archive"
-            if archive_root.exists():
-                for archive in sorted(archive_root.iterdir()):
-                    if not archive.is_dir():
-                        continue
-                    candidates.append(archive / "predictions.csv")
-        existing = [path for path in candidates if path.exists()]
-        if not existing:
-            raise FileNotFoundError(
-                f"robustness_diagnostic 找不到来源预测文件（source={source_experiment_id}, "
-                f"file={source_prediction_file}）"
-            )
-        frames: list[pd.DataFrame] = []
-        for path in existing:
-            frame = pd.read_csv(path)
-            frames.append(frame)
-        if len(frames) == 1 and "arm" in frames[0].columns:
-            combined = frames[0]
-            base = combined[combined["arm"] == "baseline"].reset_index(drop=True)
-            treatment = combined[combined["arm"] == "treatment"].reset_index(drop=True)
-        elif len(frames) >= 2:
-            base, treatment = frames[0], frames[1]
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"robustness_diagnostic 找不到来源预测文件 {path}。"
+                )
+            frame = self._read_prediction_file(path, ref)
         else:
-            raise FileNotFoundError("来源预测文件必须包含配对双臂或 arm 列。")
+            path, frame = self._search_source_predictions(
+                protocol,
+                ref=ref,
+                source_experiment_id=source_experiment_id,
+                source_round_id=source_round_id,
+            )
 
-        def _normalize(frame: pd.DataFrame) -> pd.DataFrame:
-            normalized = frame[
-                ["sample_id", "issue_date", "target_date", "y_true", "y_pred"]
-            ].copy()
-            normalized["sample_id"] = normalized["sample_id"].astype(str)
-            return normalized.reset_index(drop=True)
+        self._verify_artifact_hash(path, ref.get("prediction_artifact_hash"))
+        frame = self._normalize_frame(frame)
+        self._validate_source_metadata(protocol, ref, path, frame)
+        return frame, {
+            "path": str(path.resolve()),
+            "source_experiment_id": source_experiment_id,
+            "source_round_id": source_round_id,
+            "source_run_id": ref.get("source_run_id"),
+            "prediction_artifact_hash": self._file_sha256(path),
+            "run_id": str(ref.get("_run_id") or ""),
+        }
 
-        return _normalize(base), _normalize(treatment)
+    @staticmethod
+    def _read_prediction_file(path: Path, ref: dict) -> pd.DataFrame:
+        frame = pd.read_csv(path)
+        if "arm" in frame.columns:
+            preferred = list(
+                dict.fromkeys(
+                    str(item)
+                    for item in (
+                        ref.get("source_run_id"),
+                        ref.get("_run_id"),
+                        ref.get("_arm_hint"),
+                    )
+                    if item is not None
+                )
+            )
+            available = sorted(
+                {str(item) for item in frame["arm"].dropna().unique()}
+            )
+            matched = [name for name in preferred if name in available]
+            if len(matched) == 1:
+                frame = frame[frame["arm"].astype(str) == matched[0]].reset_index(
+                    drop=True
+                )
+            elif len(matched) > 1:
+                raise ValueError(
+                    f"来源预测文件 {path} 的 arm={available} 与多个候选 {preferred} 匹配，"
+                    "必须用 source_run_id 唯一指定该 run 对应的臂。"
+                )
+            else:
+                raise ValueError(
+                    f"来源预测文件 {path} 的 arm={available} 中没有 run "
+                    f"{ref.get('_run_id') or ref.get('_arm_hint')} 对应的臂。"
+                )
+        required = {"sample_id", "issue_date", "target_date", "y_true", "y_pred"}
+        missing = required - set(frame.columns)
+        if missing:
+            raise ValueError(
+                f"来源预测文件 {path} 缺少必要列：{sorted(missing)}。"
+            )
+        return frame
+
+    def _search_source_predictions(
+        self,
+        protocol: ExperimentProtocol,
+        *,
+        ref: dict,
+        source_experiment_id: str,
+        source_round_id: int,
+    ) -> tuple[Path, pd.DataFrame]:
+        for round_dir in self._round_dirs(protocol, source_round_id):
+            candidates = self._direct_prediction_candidates(
+                round_dir,
+                source_experiment_id,
+                ref,
+            )
+            candidates.extend(
+                self._archive_prediction_candidates(
+                    round_dir,
+                    source_experiment_id,
+                    ref,
+                )
+            )
+            existing = [path for path in candidates if path.exists()]
+            if not existing:
+                continue
+            if len(existing) > 1:
+                raise ValueError(
+                    "来源实验定位存在歧义，匹配到多个预测文件："
+                    + "；".join(str(path) for path in existing)
+                    + "。请用 source_round_id / source_run_id / "
+                    "prediction_artifact_hash 精确指定。"
+                )
+            path = existing[0]
+            return path, self._read_prediction_file(path, ref)
+        raise FileNotFoundError(
+            f"robustness_diagnostic 找不到来源实验 {source_experiment_id!r} 的预测文件"
+            f"（source_round_id={source_round_id or protocol.round_id}），"
+            "已搜索 results/round_*/ 下的 per-run 与 archive 预测。"
+        )
+
+    def _round_dirs(
+        self,
+        protocol: ExperimentProtocol,
+        source_round_id: int,
+    ) -> list[Path]:
+        if source_round_id:
+            return [
+                self.harness.results_dir / f"round_{int(source_round_id):02d}"
+            ]
+        current = [self.harness.results_dir / f"round_{protocol.round_id:02d}"]
+        previous = [
+            self.harness.results_dir / f"round_{index:02d}"
+            for index in range(protocol.round_id - 1, 0, -1)
+        ]
+        return [*current, *previous]
+
+    def _direct_prediction_candidates(
+        self,
+        round_dir: Path,
+        source_experiment_id: str,
+        ref: dict,
+    ) -> list[Path]:
+        names = list(
+            dict.fromkeys(
+                str(item)
+                for item in (
+                    ref.get("source_run_id"),
+                    ref.get("_run_id"),
+                    ref.get("_arm_hint"),
+                )
+                if item is not None
+            )
+        )
+        candidates: list[Path] = []
+        for name in names:
+            candidates.extend(
+                [
+                    round_dir
+                    / source_experiment_id
+                    / "predictions"
+                    / f"{source_experiment_id}_{name}.csv",
+                    round_dir
+                    / source_experiment_id
+                    / f"{source_experiment_id}_{name}.csv",
+                    round_dir / f"{source_experiment_id}_{name}.csv",
+                ]
+            )
+        return candidates
+
+    def _archive_prediction_candidates(
+        self,
+        round_dir: Path,
+        source_experiment_id: str,
+        ref: dict,
+    ) -> list[Path]:
+        archive_root = round_dir / "archive"
+        if not archive_root.exists():
+            return []
+        matches: list[Path] = []
+        for archive_dir in sorted(archive_root.iterdir()):
+            if not archive_dir.is_dir():
+                continue
+            if not (archive_dir / "predictions.csv").exists():
+                continue
+            if not self._archive_matches_experiment(
+                archive_dir,
+                source_experiment_id,
+            ):
+                continue
+            if not self._archive_matches_run(archive_dir, ref):
+                continue
+            matches.append(archive_dir / "predictions.csv")
+        return matches
+
+    @staticmethod
+    def _archive_matches_experiment(
+        archive_dir: Path,
+        source_experiment_id: str,
+    ) -> bool:
+        for meta_name in ("experiment_protocol.json", "metrics.json"):
+            meta_path = archive_dir / meta_name
+            if not meta_path.exists():
+                continue
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if meta.get("experiment_id") == source_experiment_id:
+                return True
+        return False
+
+    @staticmethod
+    def _archive_matches_run(archive_dir: Path, ref: dict) -> bool:
+        run_ids: set[str] = set()
+        metrics_path = archive_dir / "metrics.json"
+        if metrics_path.exists():
+            try:
+                metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                metrics = {}
+            if metrics.get("run_id"):
+                run_ids.add(str(metrics["run_id"]))
+            for run in metrics.get("runs") or []:
+                if run.get("run_id"):
+                    run_ids.add(str(run["run_id"]))
+
+        arm_values: set[str] = set()
+        frame_path = archive_dir / "predictions.csv"
+        if frame_path.exists():
+            try:
+                arms = pd.read_csv(frame_path, usecols=["arm"])
+                arm_values = {
+                    str(item) for item in arms["arm"].dropna().unique()
+                }
+            except (ValueError, OSError):
+                pass
+
+        requested = [
+            str(item)
+            for item in (
+                ref.get("source_run_id"),
+                ref.get("_run_id"),
+                ref.get("_arm_hint"),
+            )
+            if item is not None
+        ]
+        return any(
+            item in run_ids or item in arm_values for item in requested
+        )
+
+    @staticmethod
+    def _file_sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(8192), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _verify_artifact_hash(self, path: Path, expected_hash) -> None:
+        if not expected_hash:
+            return
+        expected = str(expected_hash).strip().lower()
+        if expected.startswith("sha256:"):
+            expected = expected[len("sha256:") :]
+        actual = self._file_sha256(path)
+        if expected != actual:
+            raise ValueError(
+                f"来源预测文件 {path} 的 SHA-256 与 prediction_artifact_hash 不一致："
+                f"期望 {expected}，实际 {actual}。"
+            )
+
+    def _validate_source_metadata(
+        self,
+        protocol: ExperimentProtocol,
+        ref: dict,
+        path: Path,
+        frame: pd.DataFrame,
+    ) -> None:
+        declared_horizon = ref.get("forecast_horizon_days")
+        if declared_horizon is None:
+            declared_horizon = protocol.model.parameters.get(
+                "forecast_horizon_days"
+            )
+        expected_horizon = (
+            int(declared_horizon)
+            if declared_horizon is not None
+            else protocol.forecast_horizon_days
+        )
+        if expected_horizon is not None:
+            issue = pd.to_datetime(frame["issue_date"]).dt.normalize()
+            target = pd.to_datetime(frame["target_date"]).dt.normalize()
+            horizons = (target - issue).dt.days
+            mismatched = int(np.count_nonzero(horizons != int(expected_horizon)))
+            if mismatched:
+                raise ValueError(
+                    f"来源预测 {path} 的目标提前量与协议不一致：期望 "
+                    f"{expected_horizon} 天，{mismatched} 行不匹配。"
+                )
+
+        base_dir = path.parent
+        manifest_path = base_dir / "sample_manifest.csv"
+        if manifest_path.exists():
+            manifest = pd.read_csv(manifest_path, dtype={"sample_id": str})
+            frame_ids = set(frame["sample_id"].astype(str))
+            manifest_ids = set(manifest["sample_id"].astype(str))
+            missing_ids = frame_ids - manifest_ids
+            if missing_ids:
+                raise ValueError(
+                    f"来源预测 {path} 有 {len(missing_ids)} 个 sample_id 不在 "
+                    "sample_manifest.csv 中，预测行与样本清单不一致。"
+                )
+            covered = manifest[manifest["sample_id"].astype(str).isin(frame_ids)]
+            if "split" in covered.columns:
+                non_test = sorted(
+                    {
+                        str(item)
+                        for item in covered["split"].astype(str).dropna().unique()
+                        if str(item) != "test"
+                    }
+                )
+                if non_test:
+                    raise ValueError(
+                        f"来源预测 {path} 引用了非 test 样本，split={non_test}。"
+                    )
+            if (
+                expected_horizon is not None
+                and "horizon_days" in covered.columns
+            ):
+                horizons = {
+                    int(item)
+                    for item in pd.to_numeric(
+                        covered["horizon_days"],
+                        errors="coerce",
+                    ).dropna()
+                }
+                if horizons and horizons != {int(expected_horizon)}:
+                    raise ValueError(
+                        f"来源预测 {path} 的 sample_manifest horizon_days="
+                        f"{sorted(horizons)} 与协议 {expected_horizon} 不一致。"
+                    )
+
+        for meta_name in ("prediction_protocol.json", "experiment_protocol.json"):
+            meta_path = base_dir / meta_name
+            if not meta_path.exists():
+                continue
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            source_target = meta.get("target")
+            if source_target and source_target != protocol.target:
+                raise ValueError(
+                    f"来源预测 {path} 的目标字段 {source_target!r} 与当前协议 "
+                    f"{protocol.target!r} 不一致。"
+                )
+            source_params = (meta.get("model") or {}).get("parameters") or {}
+            for key in ("forecast_horizon_days", "past_lag_days"):
+                declared = ref.get(key)
+                if declared is None:
+                    declared = protocol.model.parameters.get(key)
+                actual = source_params.get(key)
+                if (
+                    declared is not None
+                    and actual is not None
+                    and float(actual) != float(declared)
+                ):
+                    raise ValueError(
+                        f"来源预测 {path} 的 {key}={actual} 与当前协议 "
+                        f"{declared} 不一致。"
+                    )
+
+    @staticmethod
+    def _normalize_frame(frame: pd.DataFrame) -> pd.DataFrame:
+        normalized = frame[
+            ["sample_id", "issue_date", "target_date", "y_true", "y_pred"]
+        ].copy()
+        normalized["sample_id"] = normalized["sample_id"].astype(str)
+        return normalized.reset_index(drop=True)
+
+    @staticmethod
+    def _assert_paired_frames(
+        base_frame: pd.DataFrame,
+        treat_frame: pd.DataFrame,
+    ) -> None:
+        if len(base_frame) == 0 or len(treat_frame) == 0:
+            raise ValueError("来源预测配对后存在空臂，无法执行 bootstrap/诊断。")
+        if len(base_frame) != len(treat_frame):
+            raise ValueError(
+                "配对来源预测样本数不一致："
+                f"{len(base_frame)} vs {len(treat_frame)}。"
+            )
+        base_ids = list(base_frame["sample_id"].astype(str))
+        treat_ids = list(treat_frame["sample_id"].astype(str))
+        if base_ids != treat_ids:
+            raise ValueError(
+                "配对来源预测 sample_id 顺序/集合不一致，禁止隐式重排后比较增益。"
+            )
+        if list(base_frame["target_date"]) != list(treat_frame["target_date"]):
+            raise ValueError(
+                "配对来源预测 target_date 顺序/集合不一致，禁止隐式重排后比较增益。"
+            )
+        if not np.allclose(
+            base_frame["y_true"].to_numpy(dtype=float),
+            treat_frame["y_true"].to_numpy(dtype=float),
+        ):
+            raise ValueError(
+                "配对来源预测 y_true 不一致，公共真实标签语义被破坏。"
+            )
 
     @staticmethod
     def _time_segment_diagnostics(
@@ -304,8 +788,8 @@ class ExperimentDispatcher:
                     "n_samples": int(end - start),
                     "date_start": str(dates.iloc[start].date()),
                     "date_end": str(dates.iloc[end - 1].date()),
-                    "baseline_rmse": base_metrics["rmse"],
-                    "treatment_rmse": treat_metrics["rmse"],
+                    "baseline_rmse": base_metrics["test_rmse"],
+                    "treatment_rmse": treat_metrics["test_rmse"],
                     "baseline_bias": _mean_bias(seg_base),
                     "treatment_bias": _mean_bias(seg_treat),
                 }
@@ -385,15 +869,19 @@ def _metrics_from_frame(frame: pd.DataFrame) -> dict:
     y_pred = frame["y_pred"].astype(float).to_numpy()
     rmse = float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
     mae = float(np.mean(np.abs(y_true - y_pred)))
-    pearson_r = float(np.corrcoef(y_true, y_pred)[0, 1])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pearson_raw = float(np.corrcoef(y_true, y_pred)[0, 1])
+    pearson_r = (
+        pearson_raw if np.isfinite(pearson_raw) else None
+    )
     ss_res = float(np.sum((y_true - y_pred) ** 2))
     ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
     r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else None
     return {
-        "rmse": rmse,
-        "mae": mae,
-        "pearson_r": pearson_r,
-        "r2": r2,
+        "test_rmse": rmse,
+        "test_mae": mae,
+        "test_pearson_r": pearson_r,
+        "test_r2": r2,
     }
 
 

@@ -13,6 +13,7 @@ from core.display_text_cleaner import (
 )
 from core.experiment_tools.registry import (
     ALLOWED_MODEL_FAMILIES,
+    candidate_selectable_types,
     get_tool,
     normalize_model_family,
     registered_tool_summaries,
@@ -110,7 +111,10 @@ class CandidateExperimentDesignerLLM:
     def _tool_catalog_text(cls) -> str:
         lines = []
         for item in registered_tool_summaries():
-            availability = "可选" if item.get("available") else "当前不可选"
+            if item.get("experiment_type") == "robustness_diagnostic":
+                availability = "仅程序追加"
+            else:
+                availability = "可选" if item.get("available") else "当前不可选"
             reasons = (
                 f"；限制：{'、'.join(item['refusal_reasons'])}"
                 if item.get("refusal_reasons")
@@ -129,25 +133,25 @@ class CandidateExperimentDesignerLLM:
 
 你的选择必须遵守以下规则：
 1. 默认实验类型是 incremental_prediction（增量预测实验）：对照组包含常规日地环境变量且不含待验证焦点变量，实验组在对照组全部变量基础上加入待验证焦点变量；
-2. 当前执行层已接通 Ridge 与 ElasticNet 两个模型家族。默认增量实验使用 ElasticNet；
-3. 只有当科学不确定性明确讨论“模型家族、线性/非线性、算法依赖、模型稳定性”时才选择 model_sensitivity（模型敏感性实验）。此时实验组变量仍保持“对照组+焦点变量”，模型家族必须同时包含 Ridge 与 ElasticNet，用于比较加日影前后的增益是否依赖模型；
+2. 当前执行层已接通 Ridge 与 ElasticNet 两个线性正则化模型家族。默认增量实验使用 ElasticNet；
+3. 只有科学不确定性明确讨论“线性模型家族、正则化设置、算法依赖、模型稳定性”时才选择 model_sensitivity（模型敏感性实验）。Ridge 与 ElasticNet 都是线性回归模型，只能检验线性模型中的正则化方式与设置敏感性，不能验证“线性/非线性”机制；若不确定性讨论的是非线性关系，应保留 incremental_prediction，并在 rationale 中写明当前执行层的能力边界。模型敏感性实验的实验组变量仍保持“对照组+焦点变量”，模型家族必须同时包含 Ridge 与 ElasticNet，用于比较加日影前后的增益是否一致；
 4. baseline_benchmark 是单臂基准实验：只给出 treatment_display 作为被测基准特征组合，baseline_display 留空，不设置对照组/实验组对比；
 5. 只能使用 data_dictionary 中出现的真实物理量展示名，禁止发明变量、虚构数据来源；
 6. 待验证焦点变量必须出现在实验组变量列表中，且不能出现在对照组；
 7. 对照组与实验组必须存在明确变量差异，且差异必须只来自待验证焦点变量；
-8. 不要选择因变量作为自变量，不要选择时间列；
+8. 预测时刻已经可获得的历史目标值允许作为滞后特征；禁止使用未来真实标签或目标日当天的目标值作为自变量，时间列本身不得作为自变量；
 9. 若不确定性讨论的是某个太阳风特征（如行星际磁场、地磁指数）对主特征的影响，仍要优先检验主特征在固定常规对照组下的增量贡献；
-10. 未登记或当前不可选的实验类型只能明确拒绝，禁止改标签后按 incremental_prediction 执行。
+10. 只允许选择本目录中登记且开放为候选入口的实验类型（__CANDIDATE_TYPES__）；robustness_diagnostic 只能由程序对已批准实验的预测产物追加，不开放为候选实验入口。未登记或当前不可选的类型必须明确拒绝，禁止改标签后按 incremental_prediction 执行。
 
 """
             + cls._tool_catalog_text()
             + """
 
 输出结构必须为：
-{"focus_display": "<待验证焦点变量展示名>", "baseline_display": ["..."], "treatment_display": ["...", ...], "rationale": "<方向性设计理由>", "experiment_type": "<incremental_prediction|model_sensitivity|baseline_benchmark>", "model_families": ["ridge", "elasticnet"]}
+{"focus_display": "<待验证焦点变量展示名>", "baseline_display": ["..."], "treatment_display": ["...", ...], "rationale": "<方向性设计理由>", "experiment_type": "<__CANDIDATE_TYPES__>", "model_families": ["ridge", "elasticnet"]}
 
-若选择 incremental_prediction，model_families 可省略；若选择 model_sensitivity，model_families 必须为 ["ridge", "elasticnet"]。只输出严格 JSON，不要夹带解释。"""
-        )
+若选择 incremental_prediction，model_families 可省略；若选择 model_sensitivity，model_families 必须为 ["ridge", "elasticnet"]。robustness_diagnostic 不作为候选设计入口。只输出严格 JSON，不要夹带解释。"""
+        ).replace("__CANDIDATE_TYPES__", "|".join(sorted(cls._ALLOWED_EXPERIMENT_TYPES)))
 
     def __init__(
         self,
@@ -220,6 +224,7 @@ class CandidateExperimentDesignerLLM:
                     response_model=CandidateDesignLLMResponse,
                     fallback_factory=None,
                     temperature=0.3,
+                    role="候选实验设计llm",
                 )
                 return self._apply_response(
                     candidate=candidate,
@@ -234,11 +239,7 @@ class CandidateExperimentDesignerLLM:
         )
         return False
 
-    _ALLOWED_EXPERIMENT_TYPES = {
-        "incremental_prediction",
-        "model_sensitivity",
-        "baseline_benchmark",
-    }
+    _ALLOWED_EXPERIMENT_TYPES = frozenset(candidate_selectable_types())
 
     def _apply_response(
         self,
@@ -268,10 +269,16 @@ class CandidateExperimentDesignerLLM:
             ).strip()
         )
         tool = get_tool(requested_type)
-        if requested_type not in self._ALLOWED_EXPERIMENT_TYPES or tool is None:
+        if tool is None:
             raise ValueError(
                 f"LLM 请求的实验类型 {requested_type!r} 未登记，"
                 "禁止改标签后按普通增量实验执行。"
+            )
+        if requested_type not in self._ALLOWED_EXPERIMENT_TYPES:
+            raise ValueError(
+                f"实验类型 {requested_type!r} 已登记但未开放为候选实验入口"
+                "（robustness_diagnostic 仅由程序对已批准实验追加），"
+                "禁止改标签后按增量实验执行。"
             )
         if not tool.available:
             refusal = "；".join(tool.refusal_reasons) or "执行器尚未接通"
@@ -329,6 +336,9 @@ class CandidateExperimentDesignerLLM:
             design.control = control
             design.treatment = treatment
             _apply_model_sensitivity_design(design)
+            design.notes.append(
+                "capability_boundary:model_sensitivity_仅限线性家族内的正则化与设置敏感性，不验证非线性机制"
+            )
             candidate.experiment_type = "model_sensitivity"
         else:
             design.control = control
@@ -371,6 +381,7 @@ class CandidateExperimentWriterLLM:
         "Pearson",
         "Pearson_r",
         "RMSE",
+        "Ridge",
         "ElasticNet",
         "Elastic_Net",
     }
@@ -384,8 +395,9 @@ class CandidateExperimentWriterLLM:
 2. distinguishing_insight（区分性思路）：措辞必须与用户消息中“实验类型”的运行结构匹配：
    - incremental_prediction：说明对照组（不加待验证变量）与实验组（加待验证变量）的差异，
      如何通过比较预测相关系数 / 均方根误差的增量区分竞争假设；
-   - model_sensitivity：说明 Ridge 与 ElasticNet 两个模型家族分别在加入日影前后的
-     预测相关系数 / 均方根误差变化，只比较同一家族内部的增量是否一致，不跨家族直接对比；
+   - model_sensitivity：说明 Ridge 与 ElasticNet 两个线性正则化模型家族分别在加入日影前后的
+     预测相关系数 / 均方根误差变化，只比较同一模型家族内部的增量是否一致，不跨家族直接对比；
+     该实验只能反映线性模型中的正则化与模型设置敏感性，不得写成非线性机制的验证；
    - baseline_benchmark：说明单臂基准特征组合的性能快照与科学含义，不使用“对照组 / 实验组”对比句式。
 3. value_analysis（实验综合价值数据分析）：只用用户消息中“预计算实验评估”给出的四个指标数值与计算说明，
    分五段自然语言书写，段与段之间用换行符分隔：
@@ -401,7 +413,7 @@ class CandidateExperimentWriterLLM:
 
 要求：
 1. 只能使用 data_dictionary_display_summary 中出现的物理量展示名，严禁发明变量、虚构数据来源或
-   设计当前 Ridge / ElasticNet 执行流程无法验证的机制。
+   设计当前 Ridge / ElasticNet 线性执行流程无法验证的机制（包括非线性机制）。
 2. purpose 不要写成长句复述不确定性 ID；要写成可阅读、可执行的实验目的。
 3. distinguishing_insight 不要机械堆砌字段式的程序词，必须按实验类型的运行结构选择措辞：
    双臂增量实验使用“对照组 / 实验组”，模型敏感性实验按家族内增量撰写，单臂基准不使用对比句式。
@@ -505,6 +517,7 @@ class CandidateExperimentWriterLLM:
                     response_model=CandidateProseLLMResponse,
                     fallback_factory=None,
                     temperature=0.3,
+                    role="候选实验撰稿llm",
                 )
                 self._validate_prose(candidate, response, semantic_service)
                 return response
@@ -745,6 +758,7 @@ class ExperimentPlannerLLM:
             ),
             response_model=ExperimentPlannerLLMResponse,
             fallback_factory=lambda: self._fallback(candidate, history_context=history_context),
+            role="实验规划者llm",
         )
         semantic_service = semantic_service or VariableSemanticService()
         feature_focus_raw = semantic_service.raw_list(response.suggested_feature_focus)
@@ -794,7 +808,7 @@ class ExperimentPlannerLLM:
             f"history_context={history_context or '无历史轮次'}\n"
             f"{display_block}"
             "history_context 提供了最近实验的指标、结论与失败归因。请据此判断本轮模型参数是否需要调整：\n"
-            "若上轮测试集样本过少可小幅降低 test_split_ratio；缺失记录按行剔除后样本偏少时可减小 past_lag_days；"
+            "若上轮测试集样本过少可小幅降低 test_split_ratio；缺失记录在日历样本层按特征历史与目标可用性判定，样本偏少时可减小 past_lag_days；"
             "若超参数明显未调优可给出新的 alpha/l1_ratio。\n"
             "请输出 JSON: rationale, suggested_model_parameters, suggested_feature_focus, protocol_notes, extra_steps。"
         )
@@ -862,13 +876,27 @@ def _filter_model_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
         "alpha",
         "l1_ratio",
         "random_state",
+        "l1_ratio_grid",
+        "param_search_mode",
+        "max_param_search_combinations",
     }
     filtered: dict[str, Any] = {}
     for key, value in parameters.items():
         if key not in allowed:
             continue
-        if isinstance(value, (int, float, bool)):
+        if isinstance(value, list) and key == "l1_ratio_grid":
+            numeric_values: list[float] = []
+            for item in value:
+                try:
+                    numeric_values.append(float(item))
+                except (TypeError, ValueError):
+                    continue
+            if numeric_values:
+                filtered[key] = numeric_values
+        elif isinstance(value, (int, float, bool)):
             filtered[key] = value
+        elif key == "param_search_mode" and str(value).lower() in {"auto", "fixed"}:
+            filtered[key] = str(value).lower()
     return filtered
 
 
