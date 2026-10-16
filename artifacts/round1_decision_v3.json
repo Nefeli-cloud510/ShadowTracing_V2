@@ -1,0 +1,4 @@
+{
+  "decision": "adjust",
+  "humanFeedback": "第一轮结论（E_R01_03，35 天共同测试）：Ridge 与 ElasticNet 中，加入 LHAASO 日影南北偏移 p2_y中心值 后 RMSE 点估计均略微变差（Ridge ΔRMSE=-0.2519，ElasticNet ΔRMSE=-0.4863 km/s），Pearson 点估计小幅上升（+0.0404 / +0.0392），但两家族 bootstrap CI 均跨零且 stable=false，按规则判定为“未检出稳定增益”，不增加假设支持，也不标为收敛。本轮基线为 BX, nT (GSE, GSM)，未检验风速历史基线。第二轮设计要求：1) 所有候选的日影特征必须为 p2_y中心值，禁止再把 OMNI 的 Scalar B 当作日影特征；2) 基线改为风速历史（SW Plasma Speed, km/s 滞后项），实验组为相同风速历史+p2_y中心值；3) 保持与第一轮完全相同的 forecast_horizon_days=3、past_lag_days=3、window_size=14、control_lag_days=3、treatment_lag_days=3、随机种子与 0.2 测试划分，一次只改基线与特征组合；4) 继续按 Ridge/ElasticNet 家族内增益比较，并以 RMSE 主证据和 bootstrap CI 判定；5) 增加训练均值与最近可用风速持续性两类简单基线，作为当前预测是否有基本价值的参照；6) 本轮不宣称最佳窗口或跨时段稳定。"
+}

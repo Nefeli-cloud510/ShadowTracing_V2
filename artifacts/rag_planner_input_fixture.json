@@ -1,0 +1,650 @@
+{
+  "task_id": "ST_LIVE_20261015_132955",
+  "source_round_id": 1,
+  "next_round_id": 2,
+  "source_experiment_id": "E_R01_03",
+  "scientific_question": "LHAASO观测到的宇宙线日影南北偏移是否包含能够提前改善未来太阳风速度预测的有效信息？",
+  "target": "SW Plasma Speed, km/s",
+  "human_feedback": "",
+  "evaluation_summary": {
+    "experiment_id": "E_R01_03",
+    "round_id": 1,
+    "delta_pearson_r": 0.06588507257362292,
+    "delta_rmse": 0.6660221216824169,
+    "key_findings": [
+      "模型敏感性实验结果为“未检出稳定增益”：ridge: RMSE 增量=0.666, CI=[-0.243, 1.561]；elasticnet: RMSE 增量=0.9785, CI=[0.1327, 1.808]。点估计方向与稳定证据分开判断，该结果不自动改变假设支持度。"
+    ],
+    "robustness_recommendation": "配对块 bootstrap（4000 次、7 天块）不支持稳定增益方向；未运行分时段检验，不据此作分时段稳定性结论。",
+    "stable": false
+  },
+  "unresolved_uncertainties": [
+    {
+      "uncertainty_id": "U_LLM_R01_01",
+      "question": "在仅使用太阳风速度历史滞后构造 Ridge/ElasticNet 基线后，加入当前宇宙线日影南北偏移能否在测试期带来 RMSE 下降和 Pearson_r 提升？",
+      "priority": "high",
+      "priority_score": 0.9,
+      "status": "active",
+      "related_hypotheses": [
+        "H_shadow_incremental_gain",
+        "H_by_mediated_path"
+      ]
+    },
+    {
+      "uncertainty_id": "U_LLM_R01_02",
+      "question": "当宇宙线日影南北偏移自身历史滞后也进入模型后，当前时刻的宇宙线日影南北偏移是否仍对太阳风速度产生独立线性贡献？",
+      "priority": "high",
+      "priority_score": 0.9,
+      "status": "active",
+      "related_hypotheses": [
+        "H_by_beyond_effect",
+        "H_by_mediated_path"
+      ]
+    },
+    {
+      "uncertainty_id": "U_LLM_R01_03",
+      "question": "宇宙线日影南北偏移改善太阳风速度预测的超前窗口是否集中在短至中等提前量，并随超前量增大而衰减？",
+      "priority": "high",
+      "priority_score": 0.9,
+      "status": "active",
+      "related_hypotheses": [
+        "H_lead_time_window",
+        "H_shadow_incremental_gain"
+      ]
+    },
+    {
+      "uncertainty_id": "U_LLM_R01_04",
+      "question": "宇宙线日影南北偏移带来的太阳风速度预测增益是否对滞后窗口、超前窗口、alpha、l1_ratio 以及 2021 年不同评价期划分保持同一方向？",
+      "priority": "high",
+      "priority_score": 0.9,
+      "status": "active",
+      "related_hypotheses": [
+        "H_window_stability",
+        "H_shadow_incremental_gain",
+        "H_lead_time_window"
+      ]
+    },
+    {
+      "uncertainty_id": "U_LLM_R01_05",
+      "question": "太阳风速度历史滞后与宇宙线日影南北偏移之间的线性相关，是否足以解释加入宇宙线日影南北偏移后的预测改善？",
+      "priority": "high",
+      "priority_score": 0.9,
+      "status": "active",
+      "related_hypotheses": [
+        "H_by_mediated_path",
+        "H_shadow_incremental_gain"
+      ]
+    },
+    {
+      "uncertainty_id": "U_LLM_R01_06",
+      "question": "加入宇宙线日影南北偏移后，测试期残差是否仍与宇宙线日影南北偏移存在可检测的线性相关，提示路径条件或观测条件未被当前线性特征组合充分表达？",
+      "priority": "medium",
+      "priority_score": 0.6,
+      "status": "active",
+      "related_hypotheses": [
+        "H_by_beyond_effect",
+        "H_window_stability"
+      ]
+    },
+    {
+      "uncertainty_id": "U_LLM_R01_07",
+      "question": "Ridge 与 ElasticNet 在相似 alpha 和 l1_ratio 设置下，宇宙线日影南北偏移系数的符号与幅度是否一致，从而区分正则化敏感性与真实线性贡献？",
+      "priority": "medium",
+      "priority_score": 0.6,
+      "status": "active",
+      "related_hypotheses": [
+        "H_window_stability",
+        "H_by_mediated_path"
+      ]
+    },
+    {
+      "uncertainty_id": "U_LLM_R01_08",
+      "question": "宇宙线日影南北偏移对太阳风速度预测的增益是否主要由少数高速流或特定时间段驱动，而非对太阳风速度的普遍线性信息？",
+      "priority": "medium",
+      "priority_score": 0.6,
+      "status": "active",
+      "related_hypotheses": [
+        "H_shadow_incremental_gain",
+        "H_window_stability"
+      ]
+    }
+  ],
+  "active_hypotheses": [
+    {
+      "hypothesis_id": "H_shadow_incremental_gain",
+      "statement": "在太阳风速度历史线性预测模型之外，宇宙线日影南北偏移是否能够提供可检验的增量信息，从而改善未来太阳风速度的预测？",
+      "status": "active",
+      "support_score": 0.7284
+    },
+    {
+      "hypothesis_id": "H_by_mediated_path",
+      "statement": "如果宇宙线日影南北偏移的预测增益只是与太阳风速度历史或路径条件高度伴随的重复信号，那么在强化历史滞后与正则化后，这种增益是否应接近消失？",
+      "status": "active",
+      "support_score": 0.667
+    },
+    {
+      "hypothesis_id": "H_window_stability",
+      "statement": "宇宙线日影南北偏移带来的预测改善，是否对滞后窗口、超前窗口、Ridge/ElasticNet正则化强度以及2021年不同评价期划分保持稳健？",
+      "status": "active",
+      "support_score": 0.417
+    },
+    {
+      "hypothesis_id": "H_lead_time_window",
+      "statement": "宇宙线日影南北偏移改善太阳风速度预测的超前窗口，是否与其对太阳风路径感应的时间尺度一致，并集中在短至中等的提前量上？",
+      "status": "active",
+      "support_score": 0.4126
+    },
+    {
+      "hypothesis_id": "H_by_beyond_effect",
+      "statement": "在太阳风速度历史和宇宙线日影南北偏移自身历史都被纳入线性模型后，当前时刻的宇宙线日影南北偏移是否仍保留超出路径伴随与滞后重复的独立线性预测贡献？",
+      "status": "observing",
+      "support_score": 0.3861
+    }
+  ],
+  "recent_hypothesis_assessments": [],
+  "recent_disagreement_updates": [],
+  "recent_reasoning_traces": [
+    {
+      "trace_id": "RAGP001",
+      "stage": "rag_project",
+      "summary": "\"priority\": \"high\"}], \"key_findings\": [\"模型敏感性实验结果为“未检出稳定增益”：ridge: RMSE 增量=0.666, CI=[-0.243, 1.561]；elasticnet: RMSE 增量=0.9785, CI=[0.1327, 1.808]。点估计方向与稳定证据分开判断，该结果不自动改变假设支持度。\"],",
+      "related_hypotheses": [],
+      "related_uncertainties": [],
+      "referenced_variables": []
+    },
+    {
+      "trace_id": "RAGP002",
+      "stage": "rag_project",
+      "summary": "tus\": \"completed\"}]}, \"key_findings\": [\"模型敏感性实验结果为“未检出稳定增益”：ridge: RMSE 增量=0.666, CI=[-0.243, 1.561]；elasticnet: RMSE 增量=0.9785, CI=[0.1327, 1.808]。点估计方向与稳定证据分开判断，该结果不自动改变假设支持度。\",",
+      "related_hypotheses": [],
+      "related_uncertainties": [],
+      "referenced_variables": []
+    },
+    {
+      "trace_id": "SQ0101",
+      "stage": "scientific_questioner",
+      "summary": "当前 evaluation 只给出加入 feature 后的线性敏感性：Ridge 对 target 的 RMSE 增量为正且置信区间跨零，ElasticNet 的 RMSE 增量为正且置信区间全正，同时 Pearson_r 增量虽为正但不稳定。这说明现有流程没有证明 feature 能在 target 历史基线之外提供稳定线性增益。",
+      "related_hypotheses": [],
+      "related_uncertainties": [],
+      "referenced_variables": []
+    },
+    {
+      "trace_id": "SQ0102",
+      "stage": "scientific_questioner",
+      "summary": "H1 的核心主张需要加入当前 feature 后测试期 RMSE 下降，并且至少一个模型家族的 RMSE 增益置信区间不跨零；现有结果方向相反或不稳定，因此 H1 只能降至待观察，等待更合适的滞后窗口、超前窗口、feature 历史滞后和评价期划分。",
+      "related_hypotheses": [],
+      "related_uncertainties": [],
+      "referenced_variables": []
+    },
+    {
+      "trace_id": "SQ0103",
+      "stage": "scientific_questioner",
+      "summary": "H2 与 H3 的区分依赖嵌套线性模型：仅含 target 历史、加入当前 feature、再加入 feature 自身历史、最后同时加入当前 feature 与 feature 历史。只有在这种比较中，当前 feature 的系数、残差 Pearson_r 和 RMSE 增量才能判断其是冗余伴随信息还是独立贡献。",
+      "related_hypotheses": [],
+      "related_uncertainties": [],
+      "referenced_variables": []
+    },
+    {
+      "trace_id": "SQ0101",
+      "stage": "scientific_questioner",
+      "summary": "当前证据只支持对线性正则化模型中增量信息的检验，不支持非线性机制判断；Ridge 的 RMSE 增量置信区间跨零，ElasticNet 的 RMSE 增量置信区间位于正侧，且配对块 bootstrap 不支持稳定增益方向。",
+      "related_hypotheses": [],
+      "related_uncertainties": [],
+      "referenced_variables": [
+        "宇宙线日影南北偏移",
+        "太阳风速度"
+      ]
+    },
+    {
+      "trace_id": "SQ0102",
+      "stage": "scientific_questioner",
+      "summary": "宇宙线日影南北偏移与太阳风速度历史可能共享同一传播和磁偏转滞后信号，因此当前 Pearson_r 点估计提升不足以证明宇宙线日影南北偏移提供独立线性预测信息。",
+      "related_hypotheses": [],
+      "related_uncertainties": [],
+      "referenced_variables": [
+        "宇宙线日影南北偏移",
+        "太阳风速度"
+      ]
+    },
+    {
+      "trace_id": "SQ0103",
+      "stage": "scientific_questioner",
+      "summary": "Ridge 与 ElasticNet 对宇宙线日影南北偏移的反应不一致，提示预测表现对正则化强度、共线性惩罚和模型家族选择敏感，而不是已经确立稳定增量增益。",
+      "related_hypotheses": [],
+      "related_uncertainties": [],
+      "referenced_variables": [
+        "宇宙线日影南北偏移",
+        "太阳风速度"
+      ]
+    }
+  ],
+  "recent_human_feedback": [
+    {
+      "feedback_id": "F001",
+      "feedback_type": "轮次备注",
+      "content": "第一轮（模型敏感性：Ridge/ElasticNet 分别做基线/加入日影，固定目标 SW Plasma Speed、提前 3 天、14 天窗口、共同样本划分）的真实结论：两家族点估计均为 RMSE 下降（Ridge deltaRMSE=+0.666，CI=[-0.243, 1.561]；ElasticNet deltaRMSE=+0.978，CI=[0.133, 1.808]），Pearson r 增量均为正但 CI 跨零。按保守规则，ElasticNet RMSE 增益 CI 不跨零可记为稳定正向，Ridge 记为未检出稳定增益，整体仍不能宣示日影增量已被确认。第二轮应固定目标、特征、时间定义与数据版本，优先核验 ElasticNet RMSE 稳定增益是否成立：检查日影特征是否进入模型、是否被正则化筛零、系数差异是否为模型设置伪影，并增加对时间分段的稳定性诊断；避免同时改变多个条件。",
+      "linked_reasoning_trace_ids": [],
+      "related_experiment_id": "E_R01_03",
+      "context_summary": ""
+    }
+  ],
+  "data_dictionary_summary": {
+    "dictionary_id": "DICT_LIVE_20261015_132955",
+    "dataset_name": "omni_2021_full_calendar_v3 + lhaaso_shadow_pfss_2021_full_calendar_v3",
+    "time_column": "TIME",
+    "target_candidates": [
+      "SW Plasma Speed, km/s"
+    ],
+    "feature_candidates": [
+      "p2_y中心值",
+      "ss_br_mean",
+      "BX, nT (GSE, GSM)",
+      "p2_y中心值误差"
+    ],
+    "display_time_column": "time",
+    "display_target_candidates": [
+      "target"
+    ],
+    "display_feature_candidates": [
+      "feature"
+    ],
+    "raw_display_map": {
+      "TIME": "time",
+      "SW Plasma Speed, km/s": "target",
+      "p2_y中心值": "feature",
+      "ss_br_mean": "feature",
+      "BX, nT (GSE, GSM)": "feature",
+      "p2_y中心值误差": "feature"
+    },
+    "display_raw_map": {
+      "time": "TIME",
+      "target": "SW Plasma Speed, km/s",
+      "feature": "p2_y中心值误差"
+    }
+  },
+  "planning_constraints": {
+    "no_future_information": true,
+    "validation_feedback_allowed": true,
+    "final_test_blind": true,
+    "max_rounds": 10,
+    "max_experiments_per_round": 6,
+    "resource_budget": {}
+  },
+  "planner_guidance": [
+    "上一轮结果稳定性不足，下一轮优先设计稳健性验证或更简单的方案。",
+    "优先关注未解决不确定性: 在仅使用太阳风速度历史滞后构造 Ridge/ElasticNet 基线后，加入当前宇宙线日影南北偏移能否在测试期带来 RMSE 下降和 Pearson_r 提升？",
+    "最近人工反馈: 第一轮（模型敏感性：Ridge/ElasticNet 分别做基线/加入日影，固定目标 SW Plasma Speed、提前 3 天、14 天窗口、共同样本划分）的真实结论：两家族点估计均为 RMSE 下降（Ridge deltaRMSE=+0.666，CI=[-0.243, 1.561]；ElasticNet deltaRMSE=+0.978，CI=[0.133, 1.808]），Pearson r 增量均为正但 CI 跨零。按保守规则，ElasticNet RMSE 增益 CI 不跨零可记为稳定正向，Ridge 记为未检出稳定增益，整体仍不能宣示日影增量已被确认。第二轮应固定目标、特征、时间定义与数据版本，优先核验 ElasticNet RMSE 稳定增益是否成立：检查日影特征是否进入模型、是否被正则化筛零、系数差异是否为模型设置伪影，并增加对时间分段的稳定性诊断；避免同时改变多个条件。",
+    "rag_project:\"priority\": \"high\"}], \"key_findings\": [\"模型敏感性实验结果为“未检出稳定增益”：ridge: RMSE 增量=0.666, CI=[-0.243, 1.561]；elasticnet: RMSE 增量=0.9785, CI=[0.1327, 1.808]。点估计方向与稳定证据分开判断，该结果不自动改变假设支持度。\"],",
+    "human_tree_notes:确认第二轮假设树：H1-H5 继承第一轮轮末支持度与状态，第一轮实验结果仅登记为证据、不自动上调支持度；请进入科学质询，重点追问下一轮实验如何区分稳定增益与正则化/滞后重复伪影。",
+    "本轮质询不剪枝：当前结果只削弱线性增量增益证据，不足以否定宇宙线日影南北偏移与太阳风速度路径之间的物理联系。",
+    "优先执行 Ridge/ElasticNet 可量化实验：固定 target 历史滞后窗口，加入当前 feature，比较测试期 RMSE 增量与 Pearson_r；随后加入 feature 历史滞后，检验当前 feature 贡献是否被吸收。",
+    "对 H3，不要将 delta_pearson_r 的正向点估计解释为独立信息；必须看到当前 feature 在 target 历史和 feature 历史共同存在时仍带来 RMSE 下降或稳定残差相关。",
+    "所有解释限于线性可观测增益；Ridge/ElasticNet 不能验证非线性机制，也不能把未检出稳定增益外推为物理上无信息。",
+    "下一轮应保留太阳风速度历史滞后基线，并分别加入宇宙线日影南北偏移当前值和宇宙线日影南北偏移自身历史滞后，以检验其独立线性贡献是否被历史重复和路径伴随吸收。",
+    "对超前窗口进行短、中、长分层，观察宇宙线日影南北偏移的 RMSE 增量与 Pearson_r 是否随超前量增大而衰减；若仅在短窗口出现且不稳定，则更支持伴随路径解释。",
+    "对 2021 年评价期执行时间片或分时段检验，避免把局部时段提升误判为全年普遍增益；同时用块 bootstrap 判断增益方向是否稳定。",
+    "将 Ridge 与 ElasticNet 的 alpha、l1_ratio 敏感性纳入稳健性约束：只有跨模型家族和跨正则化设置稳定降低 RMSE，才支持宇宙线日影南北偏移具有可检验增量信息。",
+    "不将当前结果解释为非线性前驱机制或物理因果链；当前流程只能回答线性模型中宇宙线日影南北偏移是否带来稳定预测改善。",
+    "multi_source_mining:hypothesis_conflict=6,residual_pattern=2,support_shift=0,failure_attribution=0,missing_evidence=0"
+  ],
+  "llm_hypothesis_proposals": [
+    {
+      "display_hypothesis_id": "H1",
+      "statement": "在固定太阳风速度历史滞后基线后，加入当前宇宙线日影南北偏移，是否能在 Ridge/ElasticNet 线性模型中带来测试期 RMSE 下降与 Pearson_r 提升，并使至少一个模型家族的 RMSE 增益置信区间不跨零？",
+      "level": 1,
+      "activation_condition": "使用同一数据版本、同一共同样本、同一目标太阳风速度、同一 3 天超前预测窗口；基线仅包含太阳风速度历史滞后；候选模型加入宇宙线日影南北偏移当前值；分别运行 Ridge 与 ElasticNet，并用 bootstrap 或时间分段检验评估增益稳定性。",
+      "falsification": "",
+      "expected_effect": "",
+      "falsification_conditions": [
+        "Ridge 与 ElasticNet 加入宇宙线日影南北偏移当前值后，测试期 RMSE 均无下降或置信区间跨零。",
+        "宇宙线日影南北偏移当前值在候选模型中被正则化为零，或系数不稳定。",
+        "Pearson_r 增量始终接近零且置信区间跨零，时间分段中正向比例不足。",
+        "增益只在单一模型家族、单一窗口或单一评价期出现，且无法通过重复训练或分段检验维持。"
+      ],
+      "alternative_explanations": [
+        "ElasticNet 的稀疏选择可能在特定样本划分下偶然放大当前日影值。",
+        "宇宙线日影南北偏移可能只是太阳风速度历史或路径状态的伴随变量。",
+        "Ridge/ElasticNet 的正则化强度与特征尺度差异可能制造模型家族间的不一致。"
+      ],
+      "predictions": [
+        {
+          "experiment_condition": "候选模型相对基线在测试期的 RMSE 下降量",
+          "expected_observable": "测试期 RMSE 下降量（km/s）",
+          "expected_direction": "decrease",
+          "expected_range": [
+            0.1,
+            1.8
+          ]
+        },
+        {
+          "experiment_condition": "候选模型相对基线的 Pearson_r 增量",
+          "expected_observable": "测试期 Pearson_r 增量",
+          "expected_direction": "increase",
+          "expected_range": [
+            0.01,
+            0.08
+          ]
+        },
+        {
+          "experiment_condition": "ElasticNet 加入宇宙线日影南北偏移当前值后的 bootstrap RMSE 增益下界",
+          "expected_observable": "RMSE 增益 95% 置信区间下界",
+          "expected_direction": "increase",
+          "expected_range": [
+            0.05,
+            1.2
+          ]
+        },
+        {
+          "experiment_condition": "宇宙线日影南北偏移当前值在 ElasticNet 中的非零系数比例",
+          "expected_observable": "重复训练或 bootstrap 中当前日影值系数非零的比例",
+          "expected_direction": "increase",
+          "expected_range": [
+            0.7,
+            1.0
+          ]
+        }
+      ],
+      "evidence_items": [
+        {
+          "description": "上一轮模型敏感性实验显示，ElasticNet 的 RMSE 增益置信区间不跨零，但 Ridge 的 RMSE 增益置信区间跨零；Pearson_r 增量方向为正但置信区间跨零。",
+          "evidence_type": "observational_data",
+          "source": "上一轮模型敏感性实验与 RAG key_findings"
+        },
+        {
+          "description": "宇宙线日影南北偏移可能记录太阳风对宇宙线偏转路径的影响，因此具备与未来太阳风速度状态相关的线性预测潜力。",
+          "evidence_type": "physical_reasoning",
+          "source": "科学问题与太阳风-宇宙线偏转物理"
+        },
+        {
+          "description": "当前证据尚不能区分日影增量来自独立路径信息还是历史/路径伴随信息。",
+          "evidence_type": "evidence_gap",
+          "source": "上一轮未检出稳定增益的保守结论"
+        }
+      ],
+      "source": "real_llm",
+      "model": "qwen3.8-flash",
+      "generated_at": "2026-10-15T06:13:07.516231+00:00"
+    },
+    {
+      "display_hypothesis_id": "H2",
+      "statement": "如果宇宙线日影南北偏移的预测增益只是重复太阳风速度历史或路径状态的伴随信息，那么在同时纳入太阳风速度历史滞后和宇宙线日影南北偏移自身历史滞后后，当前日影值的额外线性预测贡献是否应接近消失？",
+      "level": 1,
+      "activation_condition": "当 H1 出现正向点估计，尤其是 ElasticNet RMSE 增益置信区间不跨零时，构造基线模型包含太阳风速度历史滞后与宇宙线日影南北偏移历史滞后，再在候选模型中加入当前宇宙线日影南北偏移，比较额外增益与系数稳定性。",
+      "falsification": "",
+      "expected_effect": "",
+      "falsification_conditions": [
+        "即使纳入太阳风速度历史滞后和日影自身历史滞后，当前宇宙线日影南北偏移仍带来不跨零的 RMSE 下降。",
+        "当前日影值系数在多个正则化强度下稳定非零，且加入后 Pearson_r 增量稳定为正。",
+        "额外增益的时间分段一致性高，不能由历史滞后或路径伴随解释。"
+      ],
+      "alternative_explanations": [
+        "日影历史滞后可能因测量噪声或采样误差而未能完全吸收当前路径信息。",
+        "未显式纳入的路径状态变量仍可能与当前日影值共线。",
+        "线性模型只能检验线性伴随关系，不能证明非线性路径机制。"
+      ],
+      "predictions": [
+        {
+          "experiment_condition": "在已包含太阳风速度历史滞后与日影历史滞后的基线之后，再加入当前日影值带来的额外 RMSE 下降量",
+          "expected_observable": "额外 RMSE 下降量（km/s）",
+          "expected_direction": "decrease",
+          "expected_range": [
+            0.0,
+            0.15
+          ]
+        },
+        {
+          "experiment_condition": "当前宇宙线日影南北偏移在强正则化模型中的标准化系数绝对值",
+          "expected_observable": "当前日影值标准化系数绝对值",
+          "expected_direction": "decrease",
+          "expected_range": [
+            0.0,
+            0.05
+          ]
+        },
+        {
+          "experiment_condition": "额外 RMSE 增益在 bootstrap 或分段检验中置信区间跨零的比例",
+          "expected_observable": "额外 RMSE 增益置信区间跨零的比例",
+          "expected_direction": "increase",
+          "expected_range": [
+            0.7,
+            1.0
+          ]
+        }
+      ],
+      "evidence_items": [
+        {
+          "description": "上一轮实验仅给出模型家族差异和置信区间跨零情况，尚未检验加入日影历史滞后后当前日影值是否仍独立。",
+          "evidence_type": "observational_data",
+          "source": "上一轮模型敏感性实验"
+        },
+        {
+          "description": "太阳风速度历史与宇宙线日影南北偏移可能共享低频路径变化，因此伴随解释具有物理合理性。",
+          "evidence_type": "physical_reasoning",
+          "source": "太阳风路径状态与宇宙线偏转的物理联系"
+        },
+        {
+          "description": "当前变量库对路径伴随变量的覆盖程度不足以直接排除重复信息假说。",
+          "evidence_type": "evidence_gap",
+          "source": "数据变量库与上一轮实验边界"
+        }
+      ],
+      "source": "real_llm",
+      "model": "qwen3.8-flash",
+      "generated_at": "2026-10-15T06:13:07.516231+00:00"
+    },
+    {
+      "display_hypothesis_id": "H3",
+      "statement": "在太阳风速度历史滞后与宇宙线日影南北偏移自身历史滞后都已进入线性模型后，当前宇宙线日影南北偏移是否仍保留超出路径伴随与滞后重复的独立线性预测贡献？",
+      "level": 2,
+      "parent_id": "H1",
+      "activation_condition": "H1 的初步增量检验显示加入当前宇宙线日影南北偏移后 RMSE 下降或 Pearson_r 提升，尤其是 ElasticNet 增益置信区间不跨零；随后构造包含太阳风速度历史滞后和日影历史滞后的更严格基线。",
+      "falsification": "",
+      "expected_effect": "",
+      "falsification_conditions": [
+        "加入日影自身历史滞后后，当前日影值的额外 RMSE 增益消失或置信区间跨零。",
+        "当前日影值系数被正则化筛零，或在不同 alpha、l1_ratio 下不稳定。",
+        "额外增益只在单一评价期出现，无法在 bootstrap 或时间分段中重复。"
+      ],
+      "alternative_explanations": [
+        "当前日影值仍可能与未显式纳入的路径变量共线。",
+        "日影历史滞后可能因误差或平滑不足而残留可预测信息。",
+        "线性模型可能捕捉到的是路径伴随的线性代理，而非独立物理信息。"
+      ],
+      "predictions": [
+        {
+          "experiment_condition": "严格基线加入当前日影值后的额外 RMSE 下降量",
+          "expected_observable": "额外 RMSE 下降量（km/s）",
+          "expected_direction": "decrease",
+          "expected_range": [
+            0.1,
+            1.0
+          ]
+        },
+        {
+          "experiment_condition": "严格基线加入当前日影值后的额外 Pearson_r 增量",
+          "expected_observable": "额外 Pearson_r 增量",
+          "expected_direction": "increase",
+          "expected_range": [
+            0.01,
+            0.06
+          ]
+        },
+        {
+          "experiment_condition": "当前宇宙线日影南北偏移在 Ridge/ElasticNet 中的标准化系数绝对值",
+          "expected_observable": "当前日影值标准化系数绝对值",
+          "expected_direction": "increase",
+          "expected_range": [
+            0.05,
+            0.3
+          ]
+        }
+      ],
+      "evidence_items": [
+        {
+          "description": "上一轮继承树中该假设状态为 observing，支持度低于主增量假设，说明独立贡献尚未确认。",
+          "evidence_type": "observational_data",
+          "source": "上一轮假设支持度与状态"
+        },
+        {
+          "description": "宇宙线日影南北偏移的当前值可能包含太阳风路径状态的即时变化，理论上可在历史滞后之外提供线性增量。",
+          "evidence_type": "physical_reasoning",
+          "source": "太阳风路径状态与宇宙线偏转的物理联系"
+        },
+        {
+          "description": "当前实验尚未完成同时纳入太阳风速度历史滞后与日影历史滞后的严格增量检验。",
+          "evidence_type": "evidence_gap",
+          "source": "上一轮实验设计与剩余不确定性"
+        }
+      ],
+      "source": "real_llm",
+      "model": "qwen3.8-flash",
+      "generated_at": "2026-10-15T06:13:07.516231+00:00"
+    },
+    {
+      "display_hypothesis_id": "H4",
+      "statement": "宇宙线日影南北偏移改善太阳风速度预测的超前窗口，是否集中在短至中等提前量，并随超前量增大而衰减？",
+      "level": 2,
+      "parent_id": "H1",
+      "activation_condition": "H1 初步成立后，固定数据版本、目标太阳风速度、共同样本和模型家族，仅改变预测超前窗口，比较 1 至 3 天与 5 至 7 天等短、中、长超前窗口的 RMSE 下降与 Pearson_r 增量。",
+      "falsification": "",
+      "expected_effect": "",
+      "falsification_conditions": [
+        "较长超前窗口的 RMSE 增益不衰减，甚至大于短至中窗口。",
+        "短至中窗口增益置信区间跨零，而长窗口增益稳定为正。",
+        "增益随窗口变化无单调趋势，且不能由线性模型中的滞后重复解释。"
+      ],
+      "alternative_explanations": [
+        "太阳风速度传播时间受太阳风状态影响，不同超前窗口可能对应不同传播条件。",
+        "日影测量与太阳风速度观测的时间对齐误差可能改变最优超前窗口。",
+        "目标太阳风速度的自相关结构可能使长窗口预测本身更依赖历史滞后。"
+      ],
+      "predictions": [
+        {
+          "experiment_condition": "1 至 3 天超前窗口中，加入当前宇宙线日影南北偏移后的 RMSE 下降量",
+          "expected_observable": "短至中窗口 RMSE 下降量（km/s）",
+          "expected_direction": "decrease",
+          "expected_range": [
+            0.1,
+            1.5
+          ]
+        },
+        {
+          "experiment_condition": "5 至 7 天超前窗口中，加入当前宇宙线日影南北偏移后的 RMSE 下降量",
+          "expected_observable": "较长窗口 RMSE 下降量（km/s）",
+          "expected_direction": "decrease",
+          "expected_range": [
+            0.0,
+            0.5
+          ]
+        },
+        {
+          "experiment_condition": "短至中窗口 RMSE 增益与较长窗口 RMSE 增益的比值",
+          "expected_observable": "短至中窗口增益 / 较长窗口增益",
+          "expected_direction": "increase",
+          "expected_range": [
+            1.2,
+            3.0
+          ]
+        }
+      ],
+      "evidence_items": [
+        {
+          "description": "上一轮实验固定 3 天超前窗口，尚未系统比较不同超前窗口的增益衰减。",
+          "evidence_type": "observational_data",
+          "source": "上一轮模型敏感性实验"
+        },
+        {
+          "description": "太阳风路径状态对日影偏移的影响可能主要对应短至中等传播时间尺度，因此增益随超前量增大而衰减具有物理合理性。",
+          "evidence_type": "physical_reasoning",
+          "source": "太阳风传播与宇宙线偏转路径的物理联系"
+        },
+        {
+          "description": "当前线性流程只能检验不同超前窗口下的线性预测增益，不能识别非线性传播机制。",
+          "evidence_type": "evidence_gap",
+          "source": "执行层能力边界"
+        }
+      ],
+      "source": "real_llm",
+      "model": "qwen3.8-flash",
+      "generated_at": "2026-10-15T06:13:07.516231+00:00"
+    },
+    {
+      "display_hypothesis_id": "H5",
+      "statement": "宇宙线日影南北偏移带来的预测改善，是否对滞后窗口、超前窗口、Ridge/ElasticNet 正则化强度以及 2021 年不同评价期划分保持稳健？",
+      "level": 2,
+      "parent_id": "H1",
+      "activation_condition": "H1 初步成立后，固定目标太阳风速度、数据版本和共同样本，仅改变滞后窗口、超前窗口、Ridge alpha、ElasticNet alpha 与 l1_ratio，并将 2021 年划分为多个连续评价期进行稳定性诊断。",
+      "falsification": "",
+      "expected_effect": "",
+      "falsification_conditions": [
+        "增益仅在单一滞后窗口、单一超前窗口或单一正则化设置下出现。",
+        "多数评价期中 RMSE 增益方向翻转，或置信区间频繁跨零。",
+        "当前宇宙线日影南北偏移在多数正则化设置下被筛零。",
+        "Ridge 与 ElasticNet 的结论差异主要由模型设置造成，而非日影信息本身。"
+      ],
+      "alternative_explanations": [
+        "2021 年太阳风与日影观测可能处于特定活动条件，导致增益不具普遍性。",
+        "样本划分或时间分段不平衡可能放大局部评价期增益。",
+        "Ridge 与 ElasticNet 对共线特征的收缩方式不同，可能产生正则化伪影。"
+      ],
+      "predictions": [
+        {
+          "experiment_condition": "多个连续评价期中，加入当前宇宙线日影南北偏移后 RMSE 下降为正向的评价期占比",
+          "expected_observable": "正向 RMSE 下降的评价期占比",
+          "expected_direction": "increase",
+          "expected_range": [
+            0.67,
+            1.0
+          ]
+        },
+        {
+          "experiment_condition": "Ridge alpha 与 ElasticNet alpha、l1_ratio 网格中，当前日影值系数非零的比例",
+          "expected_observable": "正则化网格中当前日影值非零系数比例",
+          "expected_direction": "increase",
+          "expected_range": [
+            0.7,
+            1.0
+          ]
+        },
+        {
+          "experiment_condition": "不同滞后窗口与超前窗口组合下的平均 Pearson_r 增量",
+          "expected_observable": "多窗口平均 Pearson_r 增量",
+          "expected_direction": "increase",
+          "expected_range": [
+            0.01,
+            0.06
+          ]
+        },
+        {
+          "experiment_condition": "相对太阳风速度历史基线的 RMSE skill 改善",
+          "expected_observable": "RMSE skill 相对改善",
+          "expected_direction": "increase",
+          "expected_range": [
+            0.01,
+            0.1
+          ]
+        }
+      ],
+      "evidence_items": [
+        {
+          "description": "上一轮结果稳定性不足：Ridge RMSE 增益置信区间跨零，ElasticNet RMSE 增益置信区间不跨零，但 Pearson_r 增量置信区间跨零。",
+          "evidence_type": "observational_data",
+          "source": "上一轮模型敏感性实验与 RAG key_findings"
+        },
+        {
+          "description": "稳健性检验需要覆盖窗口、正则化强度和时间分段，上一轮尚未完成这些诊断。",
+          "evidence_type": "evidence_gap",
+          "source": "上一轮剩余不确定性与 planner_guidance"
+        },
+        {
+          "description": "线性正则化模型适合比较不同 alpha、l1_ratio 和窗口设置下的稳定性，但不能据此推断非线性物理机制。",
+          "evidence_type": "physical_reasoning",
+          "source": "当前执行层能力边界"
+        }
+      ],
+      "source": "real_llm",
+      "model": "qwen3.8-flash",
+      "generated_at": "2026-10-15T06:13:07.516231+00:00"
+    }
+  ],
+  "generated_at": "2026-10-15T06:13:07.516231Z"
+}

@@ -1,0 +1,14 @@
+{
+  "action": "approve",
+  "candidateId": "E_R01_03",
+  "humanNotes": "第一轮核心模型敏感性实验：特征固定为 LHAASO 日影南北偏移 p2_y中心值，基线暂用 BX, nT (GSE, GSM)，在相同时间配置（窗口14、历史滞后3天、提前3天）下分别运行 Ridge 与 ElasticNet 家族内比较，不跨家族归因。正式判定以 RMSE 主证据与 bootstrap CI 为准；本轮不宣称最佳窗口。下一轮改为风速历史基线（SW Plasma Speed 滞后项）对比相同风速历史+日影，固定全部时间配置复跑。",
+  "modelParameters": {
+    "forecast_horizon_days": 3,
+    "past_lag_days": 3,
+    "window_size": 14,
+    "control_lag_days": 3,
+    "treatment_lag_days": 3,
+    "control_forecast_horizon_days": 3,
+    "treatment_forecast_horizon_days": 3
+  }
+}

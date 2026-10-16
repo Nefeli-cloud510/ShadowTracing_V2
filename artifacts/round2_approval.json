@@ -1,0 +1,14 @@
+{
+  "action": "modify",
+  "candidateId": "E_R02_03",
+  "humanNotes": "选择 E_R02_03 作为第二轮验证实验。候选原本同时改变预测超前(3->5)、历史滞后(3->7)和窗口(14->21)，违反本轮固定目标、特征、时间定义、数据版本并一次只改一个因素的反馈。作为 PI 显式覆写时间配置回第一轮同配置：forecast_horizon_days=3, past_lag_days=3, window_size=14, control_lag_days=3, treatment_lag_days=3, control_forecast_horizon_days=3, treatment_forecast_horizon_days=3。本轮定位为固定条件下对第一轮 ElasticNet 稳定正向与 Ridge 未确认结论的复跑核验，不宣称任何新窗口结论。",
+  "modelParameters": {
+    "forecast_horizon_days": 3,
+    "past_lag_days": 3,
+    "window_size": 14,
+    "control_lag_days": 3,
+    "treatment_lag_days": 3,
+    "control_forecast_horizon_days": 3,
+    "treatment_forecast_horizon_days": 3
+  }
+}

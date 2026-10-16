@@ -1,0 +1,1 @@
+{"humanNotes":"第一轮核心实验：固定窗口14、历史滞后3天、提前3天，比较Ridge与ElasticNet在基线（ss_br_mean+BX）基础上加入日影南北偏移p2_y中心值的模型敏感性。","action":"approve","candidateId":"E_R01_03"}

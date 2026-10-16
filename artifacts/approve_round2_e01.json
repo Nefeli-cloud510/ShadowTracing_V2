@@ -1,0 +1,16 @@
+{
+  "action": "approve",
+  "candidateId": "E_R02_01",
+  "humanNotes": "PI 显式固定第二轮：已把基线改为风速历史 SW Plasma Speed, km/s，实验组为风速历史+p2_y中心值；统一 3/3/14、随机种子 42、0.2 划分，继续 Ridge/ElasticNet 家族内增益与 bootstrap CI，本轮不宣称最佳窗口，并加入训练均值/风速持续性简单基线。",
+  "modelParameters": {
+    "forecast_horizon_days": 3,
+    "past_lag_days": 3,
+    "window_size": 14,
+    "control_lag_days": 3,
+    "treatment_lag_days": 3,
+    "control_forecast_horizon_days": 3,
+    "treatment_forecast_horizon_days": 3,
+    "random_state": 42,
+    "test_split_ratio": 0.2
+  }
+}

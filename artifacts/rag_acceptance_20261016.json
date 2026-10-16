@@ -1,0 +1,601 @@
+{
+  "generated_at": "2026-10-16T15:52:18.808149+00:00",
+  "session_root": "D:\\ShadowTracing\\runtime\\live_session\\sessions\\session_20261016_235153_078867",
+  "ingestion": {
+    "literature_files": [
+      {
+        "file_name": "lhaaso_imf_2021.txt",
+        "character_count": 41636,
+        "extraction_status": "ready",
+        "extracted_text_path": "outputs/pdf_texts/lhaaso_imf_2021.txt"
+      },
+      {
+        "file_name": "nanyun_2021.txt",
+        "character_count": 121732,
+        "extraction_status": "ready",
+        "extracted_text_path": "outputs/pdf_texts/nanyun_2021.txt"
+      },
+      {
+        "file_name": "lizhe_2021.txt",
+        "character_count": 1681,
+        "extraction_status": "ready",
+        "extracted_text_path": "outputs/pdf_texts/lizhe_2021.txt"
+      },
+      {
+        "file_name": "thesis_2021.txt",
+        "character_count": 57318,
+        "extraction_status": "ready",
+        "extracted_text_path": "outputs/pdf_texts/thesis_2021.txt"
+      }
+    ],
+    "manifest_path": "D:\\ShadowTracing\\runtime\\live_session\\sessions\\session_20261016_235153_078867\\state\\upload_manifest.json"
+  },
+  "remote_telemetry": {
+    "configured": true,
+    "attempts": 6,
+    "successful_attempts": 6,
+    "history": [
+      {
+        "timestamp": "2026-10-16T23:52:15.208397",
+        "query": "LHAASO 日影领先约 3.3 天，具体对应什么观测量？",
+        "max_results": 3,
+        "endpoint": "https://llm-jz60biyiqkkwzssm.cn-beijing.maas.aliyuncs.com/api/v1/indices/knowledge/search",
+        "agent_id": "aid-01640e2221b04890b0ba201d359f51ba",
+        "attempted": true,
+        "success": true,
+        "result_count": 3,
+        "error": null
+      },
+      {
+        "timestamp": "2026-10-16T23:52:15.779738",
+        "query": "这篇论文是否证明日影能提高太阳风速度预测？",
+        "max_results": 3,
+        "endpoint": "https://llm-jz60biyiqkkwzssm.cn-beijing.maas.aliyuncs.com/api/v1/indices/knowledge/search",
+        "agent_id": "aid-01640e2221b04890b0ba201d359f51ba",
+        "attempted": true,
+        "success": true,
+        "result_count": 3,
+        "error": null
+      },
+      {
+        "timestamp": "2026-10-16T23:52:16.347996",
+        "query": "什么证据支持本轮某条假设？",
+        "max_results": 3,
+        "endpoint": "https://llm-jz60biyiqkkwzssm.cn-beijing.maas.aliyuncs.com/api/v1/indices/knowledge/search",
+        "agent_id": "aid-01640e2221b04890b0ba201d359f51ba",
+        "attempted": true,
+        "success": true,
+        "result_count": 3,
+        "error": null
+      },
+      {
+        "timestamp": "2026-10-16T23:52:17.075374",
+        "query": "量子引力对地磁暴预报的约束是什么？",
+        "max_results": 3,
+        "endpoint": "https://llm-jz60biyiqkkwzssm.cn-beijing.maas.aliyuncs.com/api/v1/indices/knowledge/search",
+        "agent_id": "aid-01640e2221b04890b0ba201d359f51ba",
+        "attempted": true,
+        "success": true,
+        "result_count": 3,
+        "error": null
+      },
+      {
+        "timestamp": "2026-10-16T23:52:17.713941",
+        "query": "请用检索到的 IMF 领先 3.3 天证据生成候选实验",
+        "max_results": 3,
+        "endpoint": "https://llm-jz60biyiqkkwzssm.cn-beijing.maas.aliyuncs.com/api/v1/indices/knowledge/search",
+        "agent_id": "aid-01640e2221b04890b0ba201d359f51ba",
+        "attempted": true,
+        "success": true,
+        "result_count": 3,
+        "error": null
+      },
+      {
+        "timestamp": "2026-10-16T23:52:18.325636",
+        "query": "请用检索到的 IMF 领先 3.3 天证据生成候选实验",
+        "max_results": 2,
+        "endpoint": "https://llm-jz60biyiqkkwzssm.cn-beijing.maas.aliyuncs.com/api/v1/indices/knowledge/search",
+        "agent_id": "aid-01640e2221b04890b0ba201d359f51ba",
+        "attempted": true,
+        "success": true,
+        "result_count": 2,
+        "error": null
+      }
+    ]
+  },
+  "queries": [
+    {
+      "query": "LHAASO 日影领先约 3.3 天，具体对应什么观测量？",
+      "expected_note": "应定位到行星际磁场/IMF 的时间关联，不得改写成太阳风速度已能提前准确预报。",
+      "project_hits": [],
+      "local_literature_hits": [
+        {
+          "source_type": "literature_memory",
+          "source_id": "lhaaso_imf_2021",
+          "title": "lhaaso_imf_2021.txt",
+          "excerpt": "ticﬁelds using galactic cosmic rays The LHAASO Collaboration 1,* *Correspondence: nanyc@ihep.ac.cn (Y.N.); chensz@ihep.ac.cn (S.C.); fengcf@sdu.edu.cn (C.F.) Received: April 10, 20",
+          "excerpt_full_length": 180,
+          "score": 0.3333,
+          "citation": "outputs/pdf_texts/lhaaso_imf_2021.txt",
+          "flags": {
+            "project_related": true,
+            "imf_field": false,
+            "solar_wind": false,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "literature_memory",
+          "source_id": "lizhe_2021",
+          "title": "lizhe_2021.txt",
+          "excerpt": "场的强度与空间结构会发生剧烈扰动，进而对高能带电粒子的传播路径产生显著调制，导致LHAASO实验观测到的日月影形态、偏移及深度发生变化。目前，LHAASO实验凭借其卓越的灵敏度，成为全球唯一能实现天量级日月影动态观测的地面阵列。本项目旨在针对2021–2024年间指向地球的若干CME事件，系统分析爆发期及后续演化阶段的观测数据，探索太阳爆发活动对宇宙线日月影",
+          "excerpt_full_length": 180,
+          "score": 0.3333,
+          "citation": "outputs/pdf_texts/lizhe_2021.txt",
+          "flags": {
+            "project_related": true,
+            "imf_field": false,
+            "solar_wind": false,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "literature_memory",
+          "source_id": "nanyun_2021",
+          "title": "nanyun_2021.txt",
+          "excerpt": "FIELDSUSINGTHE CoSMIC．RAYSUNSHADoWoFTHE LHAASOEXPERIMENT YunchengNan Prof．CunfengFeng CoSupervisor：Prof．SongzhanChen InstituteofFrontierandInterdisciplinaryScience ShandongUniversi",
+          "excerpt_full_length": 180,
+          "score": 0.3333,
+          "citation": "outputs/pdf_texts/nanyun_2021.txt",
+          "flags": {
+            "project_related": true,
+            "imf_field": false,
+            "solar_wind": false,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        }
+      ],
+      "remote_hits": [
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "第4章LHAASO数据\n 7.4空间天气预报",
+          "excerpt": "两者结果比较吻合，细微差异可能就是来源于估算方法以及模拟中太阳风速的差别。因此，本工作利用日影测量的磁场，先于1AU处卫星观测的1.8天，对于预报这次CHH引起的地磁暴在时间上存在明显优势。空间天气预报主要是来预报可能引起地磁暴的CME或者CHH活动的到达时间，太阳每天自转约13.20°。在上一小节中，我们拟合出日经移位参数6的结果为：6=(-32.83*568)°，对应时间约为2.5天。因此行星际磁场从特征面Rss处出发，在约2.5天后，在到达近地卫星观测点之前就会被日影在南北方向上的移位提前观测到。受太阳风的影响，行星际磁场以约400km/s向地球运动并在约4.3天到达近地卫星位置。因此，日影在南北方向上的移位特征可以比卫星提前1.8天观测到行星际磁场。在ARGO-YBJ[13]的结果中，尽管估算方法不同，也计算了日影先与卫星观测到行星际磁场的时间：1.6天。两者结果比较吻合，细微差异可能就是来源于估算方法以及模拟中太阳风速",
+          "excerpt_full_length": 575,
+          "score": 0.7481284141540527,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": true,
+            "lead_relation": true,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "7.5小结|第4章LHAASO数据\n 此页不缺内容",
+          "excerpt": "7.5小结本章使用WCDA-1的日影观测以及模拟，测量了短时期CR2220行星际磁场的y分量，并与卫星的结果非常吻合。根据此，我们讨论了此时的行星际磁场图像为偶极日冕场作为太阳磁场成分。另外，日影测量的磁场将比卫星测量的结果提前1.8天，与ARGO-YBJ的结果1.6天比较吻合，其中差别可能来源于太阳风速的差异以及时间估算方法的差异。这表明我们对太空天气预报有潜在的能力。在未来，我们可以利用日影的这种能力来预报CHH以及CME。万方数据\n第4章LHAASO数据\n 此页不缺内容\n总结与展望[empty]-121-",
+          "excerpt_full_length": 258,
+          "score": 0.7317204475402832,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": true,
+            "lead_relation": true,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "第4章LHAASO数据\n 7.2日影观测及模拟分析|7.2.1日影观测",
+          "excerpt": "我们选取的数据分析条件为：天顶角小于50，时间范围为CR2220， Nfit范围从100到800，对应中值能量为6.2TeV.根据ARGO-YBJ的结果[13]，行星际磁场是通过将观测日影在南北方向上的移位与模拟结果相对比从而被测量到的。本部分将基于以上数据分析条件对WCDA-1实验的日影进行观测和模拟分析。\n7.2.1日影观测\n在5.2中，我们已经对月影进行了分析，验证了分析方法的正确性。此部分我们直接将月影的分析方法应用到日影的数据分析中，来得到日影在南北方向上的移位信息。第7章WCDA-1日影对日地空间磁场的研究[empty]-107-",
+          "excerpt_full_length": 274,
+          "score": 0.6991210579872131,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": false,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        }
+      ],
+      "summary": {
+        "project_count": 0,
+        "local_literature_count": 3,
+        "remote_count": 3,
+        "remote_has_project_related": true,
+        "remote_has_power_forecast_confusion": false,
+        "remote_imf_lead_found": true,
+        "local_imf_lead_found": false,
+        "prediction_claim_without_boundary": false
+      }
+    },
+    {
+      "query": "这篇论文是否证明日影能提高太阳风速度预测？",
+      "expected_note": "应区分论文已有发现与本项目待检验问题，不能把文献支持当成实验验证。",
+      "project_hits": [],
+      "local_literature_hits": [],
+      "remote_hits": [
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "第4章LHAASO数据\n 7.4空间天气预报",
+          "excerpt": "两者结果比较吻合，细微差异可能就是来源于估算方法以及模拟中太阳风速的差别。因此，本工作利用日影测量的磁场，先于1AU处卫星观测的1.8天，对于预报这次CHH引起的地磁暴在时间上存在明显优势。空间天气预报主要是来预报可能引起地磁暴的CME或者CHH活动的到达时间，太阳每天自转约13.20°。在上一小节中，我们拟合出日经移位参数6的结果为：6=(-32.83*568)°，对应时间约为2.5天。因此行星际磁场从特征面Rss处出发，在约2.5天后，在到达近地卫星观测点之前就会被日影在南北方向上的移位提前观测到。受太阳风的影响，行星际磁场以约400km/s向地球运动并在约4.3天到达近地卫星位置。因此，日影在南北方向上的移位特征可以比卫星提前1.8天观测到行星际磁场。在ARGO-YBJ[13]的结果中，尽管估算方法不同，也计算了日影先与卫星观测到行星际磁场的时间：1.6天。两者结果比较吻合，细微差异可能就是来源于估算方法以及模拟中太阳风速",
+          "excerpt_full_length": 575,
+          "score": 0.8623227477073669,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": true,
+            "lead_relation": true,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "第1章引言\n 2.2.4日影对太阳爆发性活动和空间天气的研究|此页不缺内容",
+          "excerpt": "其中黑点是观测结果，彩色点是模拟结果。右图中，蓝点是2000年到2009年，和2003年到2009年，观测时间内有和无爆发时间重叠的CME的日影经过时间折叠后的缺失。图片来自[64]。第2章日地间磁场与宇宙线日影[empty]-27-图2-19是Tibet-ASy实验在3TeV观测的CME事件对日影的缺失的影响。从左图中的(c)图可以看到，在太阳活动极大时，模拟的日影缺失明显小于观测到的日影缺失。(d)图是没有CME时的日影结果，模拟与观测中的缺失比较吻合。(e)图是有CME时的日影结果，模拟的缺失远小于观测的缺失。因此，Tibet-ASy实验发现(c) 图中模拟和观测的缺失之间的差异主要来源于CME。并且他们还发现在CME 爆发时日影缺失存在增大趋势，与其他时刻结果相比偏离1倍多0，见右图。受低统计量影响，尽管ARGO-YBJ实验还未能真正在天量级上观测到日影从而实现空间天气预报，Tibet-ASy也未能观测到单个太阳爆发活动",
+          "excerpt_full_length": 558,
+          "score": 0.8155044913291931,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": false,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "7.5小结|第4章LHAASO数据\n 此页不缺内容",
+          "excerpt": "7.5小结本章使用WCDA-1的日影观测以及模拟，测量了短时期CR2220行星际磁场的y分量，并与卫星的结果非常吻合。根据此，我们讨论了此时的行星际磁场图像为偶极日冕场作为太阳磁场成分。另外，日影测量的磁场将比卫星测量的结果提前1.8天，与ARGO-YBJ的结果1.6天比较吻合，其中差别可能来源于太阳风速的差异以及时间估算方法的差异。这表明我们对太空天气预报有潜在的能力。在未来，我们可以利用日影的这种能力来预报CHH以及CME。万方数据\n第4章LHAASO数据\n 此页不缺内容\n总结与展望[empty]-121-",
+          "excerpt_full_length": 258,
+          "score": 0.7859796285629272,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": true,
+            "lead_relation": true,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        }
+      ],
+      "summary": {
+        "project_count": 0,
+        "local_literature_count": 0,
+        "remote_count": 3,
+        "remote_has_project_related": true,
+        "remote_has_power_forecast_confusion": false,
+        "remote_imf_lead_found": true,
+        "local_imf_lead_found": false,
+        "prediction_claim_without_boundary": false
+      }
+    },
+    {
+      "query": "什么证据支持本轮某条假设？",
+      "expected_note": "应返回可核对片段，并区分直接证据、间接依据与物理推测。",
+      "project_hits": [],
+      "local_literature_hits": [],
+      "remote_hits": [
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "关于学位论文使用授权的声明",
+          "excerpt": "蓝，绿，红分别是PFSS(Rss=2.5Rsun) ，CSSS(Rss=2.5Rsum) ，CSSS(Rss =10.0Rsun) 模型假设下的模拟结果。点线是根据太阳的视觉大小计算的期望结果。212-15在太阳第23个活动周期，ICECUBE实验的50-60TeV日影的缺失随时间变化图。横坐标是年份，比如：\"10/11\"代表2010年下半年到2011年上半年。黑点是观测结果。蓝，红分别是PFSS和CSSS模型假设下的模拟结果。点线是根据太阳的视觉大小计算的期望结果。2-16左图是ARGO-YBJ观测和模拟的5TeV日影在南北方向上的移位随日经的变化。右图是ARGO-YBJ和卫星测量到的1AU处的行星际磁场随日经变化的对比结果。左图中，三角，曲线，方块分别代表观测结果，对观测结果的拟合，以及模拟结果。右图中，曲线和黑点分别代表ARGO-YBJ测量结果以及卫星(OMNI)观测结果。232-17上图是Tibet-AS γ分别在行星际",
+          "excerpt_full_length": 555,
+          "score": 0.49794265627861023,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": false,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "关于学位论文使用授权的声明",
+          "excerpt": "大实心，小空心、小实心圆和黑点分别代表来自OMNI的观测结果， PFSS(Rss=1.6Rsut) ，PFSS(Rss=2.5Rsum)和CSSS模型假设下的计算结果。6-4日影模拟示意图。%6-52008年，能量为10TeV的CSSS模型影响下日影的模拟计数天图。天图的bin的大小为0.05°×0.05°。颜色代表每个bin中累计的日影信号粒子数。976-62008年，能量为10TeV的CSSS模型影响下日影的模拟计数天图在南北方向投影的分布。986-72008年和2012年，PFSS模型不同参数下日影缺失比的比较。空心，实心圆和空心，实心三角分别对应2008年和2012年PFSS(Rss=1.6Rsm) 和PFSS(Rss=2.5Rstn)模型假设下的模拟结果。图中误差为统计误差，误差小于数据点尺寸。996-82008年，1TeV(左图)和10TeV(右图)\"日影信号事例\"在日冕磁场PFSS模型(Rss=1.6Rsun)中的",
+          "excerpt_full_length": 527,
+          "score": 0.44235336780548096,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": false,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "第4章LHAASO数据\n 参考文献",
+          "excerpt": "[26] Arden W M， Norton A A， Sun X. A \" breathing\" source surface for cycles 2324[J]. Journal of Geophysical Research： Space Physics. 2014， 119(3)：1476-1485.[27]Lee C O，Luhmann J G， Hoeksema J T， et al. Coronal field opens at lower height during the solar cycles 22 and 23 minimum periods： Imf comparison suggests the source surface should be lowered[J]. Solar Physics. 2011，269(2)：367-388.参考文献[empty]-125--..- .[28]Nikol",
+          "excerpt_full_length": 534,
+          "score": 0.4337424337863922,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": false,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        }
+      ],
+      "summary": {
+        "project_count": 0,
+        "local_literature_count": 0,
+        "remote_count": 3,
+        "remote_has_project_related": true,
+        "remote_has_power_forecast_confusion": false,
+        "remote_imf_lead_found": false,
+        "local_imf_lead_found": false,
+        "prediction_claim_without_boundary": false
+      }
+    },
+    {
+      "query": "量子引力对地磁暴预报的约束是什么？",
+      "expected_note": "知识库未覆盖时应返回未找到足够依据，不能编造文献或结论。",
+      "project_hits": [],
+      "local_literature_hits": [],
+      "remote_hits": [
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "第1章引言\n",
+          "excerpt": "如果这些活动指向地球并且磁场方向与地磁场相反，在传播过程中，可能与地球的磁场发生相互作用引起地磁暴，从而影响我们的生活。因此要对这种恶性空间扰动进行预报[8]。此外，太阳还会产生一些爆发性活动，比如：日冕物质抛射[6]和冕洞快速流[7]。如果这些活动指向地球并且磁场方向与地磁场相反，在传播过程中，可能与地球的磁场发生相互作用引起地磁暴，从而影响我们的生活。因此要对这种恶性空间扰动进行预报[8]。受到日地空间磁场的测量，磁场模型的发展以及各部分交叉研究的复杂性的限制，对于这种爆发性活动的预报还处于发展初期。山东大学博上学位论文[empty]-2-来自于宇宙空间的高能宇宙线可以给我们带来日地空间的磁场信息。宇宙线在1912年由奥地利物理学家Hess在高空气球实验中发现[9]。到现在，我们已经对宇宙线已经初步认识。宇宙线是近似各向同性到达地球的。宇宙线的主要成分包括核子、中微子、少量的电子和少量的y射线。宇宙线的能量从几十GeV一直延",
+          "excerpt_full_length": 594,
+          "score": 0.6870049238204956,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": false,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "第4章LHAASO数据\n 7.4空间天气预报",
+          "excerpt": "两者结果比较吻合，细微差异可能就是来源于估算方法以及模拟中太阳风速的差别。因此，本工作利用日影测量的磁场，先于1AU处卫星观测的1.8天，对于预报这次CHH引起的地磁暴在时间上存在明显优势。空间天气预报主要是来预报可能引起地磁暴的CME或者CHH活动的到达时间，太阳每天自转约13.20°。在上一小节中，我们拟合出日经移位参数6的结果为：6=(-32.83*568)°，对应时间约为2.5天。因此行星际磁场从特征面Rss处出发，在约2.5天后，在到达近地卫星观测点之前就会被日影在南北方向上的移位提前观测到。受太阳风的影响，行星际磁场以约400km/s向地球运动并在约4.3天到达近地卫星位置。因此，日影在南北方向上的移位特征可以比卫星提前1.8天观测到行星际磁场。在ARGO-YBJ[13]的结果中，尽管估算方法不同，也计算了日影先与卫星观测到行星际磁场的时间：1.6天。两者结果比较吻合，细微差异可能就是来源于估算方法以及模拟中太阳风速",
+          "excerpt_full_length": 575,
+          "score": 0.5750471353530884,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": true,
+            "lead_relation": true,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "第1章引言\n 2.1.3太阳爆发性活动与空间天气",
+          "excerpt": "在太阳活动最小时，对我们生活影响最大的主要爆发性活动是冕洞高速流(Coronal hole-high speed stream， 简称CHH)[7，8]。在太阳活动最小时，对我们生活影响最大的主要爆发性活动是冕洞高速流(Coronal hole-high speed stream， 简称CHH)[7，8]。来自于冕洞的快速的太阳风在和慢速太阳风交替向外持续吹的过程中发生相互作用，从而形成流相互作用区。如果这个相互作用区在一个太阳自转周内稳定，则形成与太阳共转的相互作用区。由于太阳的冕洞以及快速太阳风可以在多个太阳自转周内持续出现，因此相互作用区也呈周期性被观测到。CHH的平均速度约为700km/s，产生的相互作用区约在2天左右从太阳传播到1AU处。在到达地球附近时，相互作用区携带的磁场可能会引起地磁暴。CHH引起的地磁暴也随太阳自转呈周期性出现。尽管这些太阳爆发活动可能引起地磁暴并影响人类的生活，但对这些活动到达地球时间的预报还",
+          "excerpt_full_length": 510,
+          "score": 0.5723283886909485,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": false,
+            "imf_field": true,
+            "solar_wind": true,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        }
+      ],
+      "summary": {
+        "project_count": 0,
+        "local_literature_count": 0,
+        "remote_count": 3,
+        "remote_has_project_related": true,
+        "remote_has_power_forecast_confusion": false,
+        "remote_imf_lead_found": true,
+        "local_imf_lead_found": false,
+        "prediction_claim_without_boundary": false
+      }
+    },
+    {
+      "query": "请用检索到的 IMF 领先 3.3 天证据生成候选实验",
+      "expected_note": "检查实际传给智能体的上下文，而不只看检索接口返回值。",
+      "project_hits": [],
+      "local_literature_hits": [
+        {
+          "source_type": "literature_memory",
+          "source_id": "lhaaso_imf_2021",
+          "title": "lhaaso_imf_2021.txt",
+          "excerpt": "vel method for monitoring the Sun-Earth IMF. - Compared with the near-Earth spacecraft, the Sun’s shadow can provide 3.3-day earlier predictions for the IMF. - The timing advance s",
+          "excerpt_full_length": 180,
+          "score": 0.25,
+          "citation": "outputs/pdf_texts/lhaaso_imf_2021.txt",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": false,
+            "lead_relation": true,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "literature_memory",
+          "source_id": "lizhe_2021",
+          "title": "lizhe_2021.txt",
+          "excerpt": "2）物理机制关联： 结合卫星观测的磁场强度（B）、太阳风速度（V）及行星际磁场（IMF）扇区结构，探索日影畸变与磁场扰动幅度的定量关系；（3）物理解释： 归纳CME对不同能量级宇宙线传播路径的偏转效应，评估近日空间局部磁场扰动对宇宙线阴影的调制，形成初步的物理解释理论。 8月：进行总结报告。 预期目标和成果形式 预期目标：本项目旨在利用 LHAASO-KM2",
+          "excerpt_full_length": 180,
+          "score": 0.25,
+          "citation": "outputs/pdf_texts/lizhe_2021.txt",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": true,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "literature_memory",
+          "source_id": "nanyun_2021",
+          "title": "nanyun_2021.txt",
+          "excerpt": "意图。蓝线代表场线方向向内，红 线代表场线方向向外，绿虚线代表日球层电流片位置。IMF为 行星际磁场，CMF为日冕磁场，SS为源表面。………………………15 2．11Ulysses观测总结。左图黑线代表不同年份的太阳黑子数。其中， 白线是Ulysses的观测纬度。中图是相应年份观测到的行星际磁 场经过模型内推到源表面后随经度和纬度的变化结果。其中， 红色和蓝",
+          "excerpt_full_length": 180,
+          "score": 0.25,
+          "citation": "outputs/pdf_texts/nanyun_2021.txt",
+          "flags": {
+            "project_related": false,
+            "imf_field": true,
+            "solar_wind": false,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        }
+      ],
+      "remote_hits": [
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_2582f10f96664e849cee779420fe11ac_12379790",
+          "title": "Monitoring the upper atmospheric temperature and interplanetary magnetic field with the GRAPES-3 muon telescope 6. Discussion & conclusion",
+          "excerpt": "The temperature dependence of the all sky cumulative muon flux recorded by G3MT over 22 years has been found to be compatible with what was reported previously from 6 years of G3MT data [18] and an iterative method deconvolutes the effects of the modulation of the primary CR flux by the IMF to provide a more refined value ofαr. The results are in the range reported by other comparable exper-iments[33-37] and relevant",
+          "excerpt_full_length": 1211,
+          "score": 0.4378874599933624,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/aff72de45e464374ab48907fee7807af.1792153154067.pdf?Expires=1792425138&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=ndEWJZWmubhSIhDB%2BVETqVAPkRw%3D",
+          "flags": {
+            "project_related": false,
+            "imf_field": true,
+            "solar_wind": false,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_a08c1fde8b544c42b77b60829532776d_12379790",
+          "title": "关于学位论文使用授权的声明",
+          "excerpt": "IMF为行星际磁场，CMF为日冕磁场，SS为源表面。152-11Ulysses观测总结。左图黑线代表不同年份的太阳黑子数。其中，白线是Ulysses的观测纬度。2-11Ulysses观测总结。左图黑线代表不同年份的太阳黑子数。其中，白线是Ulysses的观测纬度。中图是相应年份观测到的行星际磁场经过模型内推到源表面后随经度和纬度的变化结果。其中，红色和蓝色分别代表磁场的向外和向内两个方向，两个颜色之间的位置代表电流片位置。右图是观测到的太阳风随经度和纬度的变化结果。其中，不同颜色代表太阳风的不同方向。 pe162-12 ARGO-YBJ观测的5TeV日影显著性天图。192-13日影缺失(上图)和太阳黑子数(下图)随时间变化图。由于不同实验对缺失的定义不同，本图数据以无磁场下预期缺失为100%作为标准，将观测结果调整到一致。20山东大学博上学位论文[empty]22-XIV-.-.-...-...- ...2-14在太阳第23个活",
+          "excerpt_full_length": 562,
+          "score": 0.40233469009399414,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/40f8db8add144054a19d434cdb2c9904.1788264695441.pdf?Expires=1792411931&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=aZNgTjpP31a7v7ocvEltIx5OHbg%3D",
+          "flags": {
+            "project_related": true,
+            "imf_field": true,
+            "solar_wind": true,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        },
+        {
+          "source_type": "bailian_knowledge_base",
+          "source_id": "file_2582f10f96664e849cee779420fe11ac_12379790",
+          "title": "Monitoring the upper atmospheric temperature and interplanetary magnetic field with the GRAPES-3 muon telescope 4.3. Iterative refinement",
+          "excerpt": "16, retain only the annual component associated with atmospheric temperature modula-tion. An IFFT was then performed on the filtered spectra to reconstruct the data in the time domain. The reconstructed IFFT time series for the IMF-corrected muon flux (red) and the effective temperature devi-ation (blue) are displayed in Fig. 17(a) and (b), respectively. A clear anti-correlation between the two time series is evident",
+          "excerpt_full_length": 1986,
+          "score": 0.39653918147087097,
+          "citation": "https://dashscope-file-datacenter-prod-01.oss-cn-beijing.aliyuncs.com/1675650126954900/12379790/conn_file_default_12379790/aff72de45e464374ab48907fee7807af.1792153154067.pdf?Expires=1792425138&OSSAccessKeyId=LTAI5tFEd57BcgTFgxpSL5j1&Signature=ndEWJZWmubhSIhDB%2BVETqVAPkRw%3D",
+          "flags": {
+            "project_related": false,
+            "imf_field": true,
+            "solar_wind": false,
+            "lead_relation": false,
+            "prediction_claim": false,
+            "claim_boundary_stated": false,
+            "power_forecast_confusion": false
+          }
+        }
+      ],
+      "summary": {
+        "project_count": 0,
+        "local_literature_count": 3,
+        "remote_count": 3,
+        "remote_has_project_related": true,
+        "remote_has_power_forecast_confusion": false,
+        "remote_imf_lead_found": false,
+        "local_imf_lead_found": true,
+        "prediction_claim_without_boundary": false
+      }
+    }
+  ],
+  "generation_chain": {
+    "query": "请用检索到的 IMF 领先 3.3 天证据生成候选实验",
+    "rag_note_count": 2,
+    "rag_notes_visible_in_prompt": 2,
+    "prompt_length_chars": 4524,
+    "role": "假设提出者llm",
+    "visible_note_fragments": [
+      "rag_literature:vel method for monitoring the Sun-Earth IMF. - Compared with the near-Earth spacecraft, the Sun’s shadow can provide 3.3-day earlier predictions for the IMF. - The timing advance s",
+      "rag_external:The temperature dependence of the all sky cumulative muon flux recorded by G3MT over 22 years has been found to be compatible with what was reported previously from 6 years of G3MT data [18] and an iterative method deconvolutes the effects of the "
+    ],
+    "proposal_count": 5,
+    "source": "real_llm",
+    "model": "fixture-model",
+    "boundary_notes": [
+      "候选实验设计 prompt 当前不直接注入 rag_notes；RAG 片段先进入假设提出者，再经 hypothesis -> candidate 链路由程序关联。"
+    ]
+  },
+  "findings": {
+    "stored_pending_prompt_chain": true,
+    "remote_kb_reachable": true,
+    "local_literature_indexed": true,
+    "power_forecast_confusion_detected": false
+  }
+}
