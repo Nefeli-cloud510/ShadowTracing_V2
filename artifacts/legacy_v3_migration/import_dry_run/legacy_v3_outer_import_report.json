@@ -1,0 +1,109 @@
+{
+  "generated_at": "2026-10-17T07:29:00.101533",
+  "source": "external_diagnostic:legacy_v3_outer_backtest",
+  "session_root": "D:\\ShadowTracing\\runtime\\live_session\\sessions\\session_20261016_235451_805278",
+  "status": "imported_as_external_diagnostic",
+  "support_score_updates": {},
+  "declaration": "This import records external diagnostic evidence only. It does not claim the system autonomously discovered these results, and it does not approve any candidate shown in the dry run.",
+  "evidence_items_added": [
+    {
+      "hypothesis_id": "H_shadow_incremental_gain",
+      "evidence_id": "EXT_L3_H1_20261017",
+      "evidence_key": "external_diagnostic:legacy_v3_outer_backtest:20261017",
+      "type": "observational_data",
+      "support_weight": 0.0
+    },
+    {
+      "hypothesis_id": "H_window_stability",
+      "evidence_id": "EXT_L3_H5_20261017",
+      "evidence_key": "external_diagnostic:legacy_v3_outer_backtest:20261017",
+      "type": "observational_data",
+      "support_weight": 0.0
+    }
+  ],
+  "uncertainty": {
+    "uncertainty_id": "U_EXT_L3_01",
+    "priority": "high",
+    "status": "active",
+    "related_hypotheses": [
+      "H_shadow_incremental_gain",
+      "H_window_stability"
+    ],
+    "priority_score": 0.6713
+  },
+  "priority_queue_top": [
+    {
+      "uncertainty_id": "U_EXT_L3_01",
+      "priority_score": 0.6713,
+      "estimated_resolution_round": 3
+    },
+    {
+      "uncertainty_id": "U_R02_08",
+      "priority_score": 0.5988,
+      "estimated_resolution_round": 3
+    },
+    {
+      "uncertainty_id": "U_R02_05",
+      "priority_score": 0.5838,
+      "estimated_resolution_round": 3
+    },
+    {
+      "uncertainty_id": "U_R02_06",
+      "priority_score": 0.5838,
+      "estimated_resolution_round": 3
+    },
+    {
+      "uncertainty_id": "U_R02_01",
+      "priority_score": 0.5725,
+      "estimated_resolution_round": 3
+    },
+    {
+      "uncertainty_id": "U_R02_02",
+      "priority_score": 0.5725,
+      "estimated_resolution_round": 3
+    },
+    {
+      "uncertainty_id": "U_R02_03",
+      "priority_score": 0.5478,
+      "estimated_resolution_round": 3
+    },
+    {
+      "uncertainty_id": "U_LLM_R01_04",
+      "priority_score": 0.5305,
+      "estimated_resolution_round": 3
+    },
+    {
+      "uncertainty_id": "U_LLM_R01_02",
+      "priority_score": 0.528,
+      "estimated_resolution_round": 3
+    },
+    {
+      "uncertainty_id": "U_R02_07",
+      "priority_score": 0.5155,
+      "estimated_resolution_round": 3
+    }
+  ],
+  "candidate_dry_run": {
+    "target_round": 3,
+    "count": 4,
+    "minimum_required": 3,
+    "note": null,
+    "written_to_live_state": false
+  },
+  "source_artifacts": [
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_audit.json",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_cross_window_main_gain_ci.csv",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_cross_window_main_gain_ci.json",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_cross_window_main_gain_ci.png",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_daily.csv",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_gain_ci_by_fold.png",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_gain_comparison.csv",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_manifest.json",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_manifest.v1.json",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_reproducibility_conclusion.json",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_reproducibility_conclusion.md",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_summary.csv",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_window_coverage.csv",
+    "artifacts/legacy_v3_migration/outer_backtest/outer_backtest_window_gap_summary.csv"
+  ]
+}
