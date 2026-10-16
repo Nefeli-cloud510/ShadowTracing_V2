@@ -194,6 +194,41 @@ def _fmt(value: Any, digits: int = 4) -> str:
     return f"{number:.{digits}f}"
 
 
+def _pearson_summary_lines(bundle: dict[str, Any]) -> list[str]:
+    """Return a program-computed Pearson-r summary so reports never drop it."""
+    result = bundle.get("result") or {}
+    rows = _derive_family_rows_from_result(result) if result else []
+    if rows:
+        lines: list[str] = []
+        for row in rows:
+            point = row.get("point_gain_pearson_r")
+            ci = row.get("pearson_ci")
+            if point is None and not ci:
+                continue
+            family = row.get("family") or row.get("contrast_id") or "family"
+            prefix = ""
+            baseline = row.get("baseline_pearson_r")
+            treatment = row.get("treatment_pearson_r")
+            if baseline is not None and treatment is not None:
+                prefix = f"r {_fmt(baseline)} → {_fmt(treatment)}，"
+            lines.append(f"{family}: {prefix}ΔPearson r={_fmt(point)}，95% CI={_ci_text(ci)}")
+        if lines:
+            return lines
+    metrics = (bundle.get("evaluation") or {}).get("metrics") or {}
+    delta = metrics.get("delta") or {}
+    pearson = delta.get("pearson_r")
+    if pearson is None:
+        return []
+    bootstrap = ((bundle.get("evaluation") or {}).get("robustness") or {}).get("bootstrap") or {}
+    snapshot = metrics.get("snapshot") or {}
+    baseline = snapshot.get("baseline_pearson_r")
+    treatment = snapshot.get("treatment_pearson_r")
+    prefix = ""
+    if baseline is not None and treatment is not None:
+        prefix = f"r {_fmt(baseline)} → {_fmt(treatment)}，"
+    return [f"{prefix}ΔPearson r={_fmt(pearson)}，95% CI={_ci_text(bootstrap.get('pearson_r_ci'))}"]
+
+
 def _first_not_none(*values: Any) -> Any:
     for value in values:
         if value is not None:
@@ -1370,7 +1405,8 @@ def _derive_family_rows_from_result(result: dict[str, Any]) -> list[dict[str, An
         if not isinstance(contrast, dict):
             continue
         family = None
-        for run_id in contrast.get("run_ids") or []:
+        contrast_run_ids = [str(run_id) for run_id in (contrast.get("run_ids") or [])]
+        for run_id in contrast_run_ids:
             run = by_run_id.get(str(run_id))
             if run and run.get("model_family"):
                 family = str(run["model_family"])
@@ -1381,6 +1417,10 @@ def _derive_family_rows_from_result(result: dict[str, Any]) -> list[dict[str, An
         seen.add(family)
         delta = contrast.get("metrics_delta") or {}
         bootstrap = contrast.get("bootstrap_ci") or {}
+        baseline_run = by_run_id.get(contrast_run_ids[0]) if contrast_run_ids else None
+        treatment_run = by_run_id.get(contrast_run_ids[1]) if len(contrast_run_ids) > 1 else None
+        baseline_run_metrics = (baseline_run or {}).get("metrics") or {}
+        treatment_run_metrics = (treatment_run or {}).get("metrics") or {}
         rmse_ci = bootstrap.get("rmse_ci")
         point = delta.get("rmse")
         evaluation = _classify_family_gain_for_export(point, rmse_ci)
@@ -1390,6 +1430,8 @@ def _derive_family_rows_from_result(result: dict[str, Any]) -> list[dict[str, An
                 "contrast_id": contrast.get("contrast_id"),
                 "point_gain_rmse": point,
                 "point_gain_pearson_r": delta.get("pearson_r"),
+                "baseline_pearson_r": baseline_run_metrics.get("pearson_r"),
+                "treatment_pearson_r": treatment_run_metrics.get("pearson_r"),
                 "rmse_ci": rmse_ci,
                 "pearson_ci": bootstrap.get("pearson_r_ci"),
                 "crosses_zero": (
@@ -1617,6 +1659,9 @@ def _four_layer_section(bundle: dict[str, Any]) -> str:
         ("主科学问题", scientific_layer.get("main_question") or _main_question(bundle)),
         ("证据摘要（程序计算）", scientific_layer.get("evidence_text")),
     ]))
+    pearson_lines = _pearson_summary_lines(bundle)
+    if pearson_lines:
+        body.append(_quote("Pearson r 增量摘要（程序计算）", pearson_lines))
     scientific_source_tag = _interpretation_source_tag(scientific_layer)
     body.append(_quote(f"科学问题回答（{scientific_source_tag}）", scientific_layer.get("answer")))
     body.append(_quote(f"传递路径回答（{scientific_source_tag}）", scientific_layer.get("path_answer")))
@@ -1714,6 +1759,9 @@ def _next_advice_section(bundle: dict[str, Any]) -> str:
                 f"受影响实验：{_esc(exp_ids)}，本轮依据不进入下一轮规划。",
             )
         body.append(_bullets(fallback_notes))
+    pearson_lines = _pearson_summary_lines(bundle)
+    if pearson_lines:
+        body.append(_quote("Pearson r 增量（程序计算）", pearson_lines))
     return "<section>" + "".join(body) + "</section>"
 
 
@@ -1785,6 +1833,9 @@ def _conclusion_section(bundle: dict[str, Any]) -> str:
         }))
     else:
         body.append(_quote("科学结论 · 建议简述", data_layer.get("next_focus")))
+    pearson_lines = _pearson_summary_lines(bundle)
+    if pearson_lines:
+        body.append(_quote("科学结论 · Pearson r 摘要（程序计算）", pearson_lines))
     body.append(_h3("7.4 剩余不确定性"))
     remaining = (
         evidence_summary.get("remaining_uncertainties")
@@ -2062,6 +2113,9 @@ def build_defense_summary_html() -> str:
 
         findings = entry.get("scientific_findings") or []
         result_parts = [_to_text(str(item), 320) for item in findings[:3]] or ["本轮结果未落盘"]
+        pearson_lines = _pearson_summary_lines(bundle)
+        if pearson_lines:
+            result_parts.append("Pearson r：" + "；".join(pearson_lines))
         assessments = evaluation.get("hypothesis_assessments") or []
         if assessments:
             result_parts.append(
