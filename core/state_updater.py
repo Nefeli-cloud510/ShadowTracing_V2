@@ -952,6 +952,9 @@ class UnifiedStateUpdater:
             update = disagreement_index.get(uncertainty_id)
             if record is None or update is None:
                 continue
+            resolution_status, resolution_summary = _resolution_status_with_evidence_gate(
+                update
+            )
             history_key = _record_key(
                 protocol.experiment_id,
                 f"uncertainty:{uncertainty_id}",
@@ -977,13 +980,13 @@ class UnifiedStateUpdater:
                     if assessment is not None and hasattr(disagreement, "support_score"):
                         disagreement.support_score = assessment.support_after
                         disagreement.status = assessment.status
-            record.status = "resolved" if update.resolution_status == "resolved" else "active"
-            record.resolution_status = update.resolution_status
-            record.resolved_at_round = protocol.round_id if update.resolution_status == "resolved" else None
-            record.resolved_by = protocol.experiment_id if update.resolution_status == "resolved" else None
-            record.resolution = update.summary if update.resolution_status == "resolved" else None
+            record.status = "resolved" if resolution_status == "resolved" else "active"
+            record.resolution_status = resolution_status
+            record.resolved_at_round = protocol.round_id if resolution_status == "resolved" else None
+            record.resolved_by = protocol.experiment_id if resolution_status == "resolved" else None
+            record.resolution = resolution_summary if resolution_status == "resolved" else None
             record.resolving_experiment = protocol.experiment_id
-            record.notes = update.summary
+            record.notes = resolution_summary
             _replace_or_append(
                 record.history,
                 history_key,
@@ -991,7 +994,7 @@ class UnifiedStateUpdater:
                     round=protocol.round_id,
                     event="disagreement_evaluation",
                     source=protocol.experiment_id,
-                    description=update.summary,
+                    description=resolution_summary,
                     experiment_id=protocol.experiment_id,
                     run_id=run_id,
                     contrast_id=None,
@@ -999,9 +1002,9 @@ class UnifiedStateUpdater:
                     evidence_key=history_key,
                 ),
             )
-            if update.resolution_status == "resolved":
+            if resolution_status == "resolved":
                 continue
-            if update.resolution_status == "partially_resolved":
+            if resolution_status == "partially_resolved":
                 record.priority = "medium" if record.priority == "high" else record.priority
 
         for offset, item in enumerate(remaining, start=1):
@@ -1467,6 +1470,25 @@ def _record_key(
     contrast_id: str | None = None,
 ) -> str:
     return f"{experiment_id}:{run_id or '-'}:{contrast_id or '-'}:{slot}"
+
+
+def _resolution_status_with_evidence_gate(update: Any) -> tuple[str, str]:
+    """Never close an uncertainty from a score gap without valid experiment evidence."""
+
+    declared_status = getattr(update, "resolution_status", "unresolved")
+    if (
+        declared_status in {"resolved", "partially_resolved"}
+        and getattr(update, "evidence_basis", None)
+        != "stable_experiment_evidence"
+    ):
+        return (
+            "unresolved",
+            (
+                f"{getattr(update, 'summary', '本轮没有形成判定')}；"
+                "状态写回未采用 resolved，因为本轮缺少针对该不确定性的有效实验判定。"
+            ),
+        )
+    return declared_status, update.summary
 
 
 def _replace_or_append(records: list, evidence_key: str, new_record) -> bool:

@@ -2815,6 +2815,11 @@ class HumanControlService:
                     compared_hypotheses=item.compared_hypotheses,
                     narrowed=item.narrowed,
                     resolution_status=item.resolution_status,
+                    evidence_basis=getattr(
+                        item,
+                        "evidence_basis",
+                        "missing_valid_experiment_evidence",
+                    ),
                     leading_hypothesis_id=item.leading_hypothesis_id,
                     unresolved_hypotheses=item.unresolved_hypotheses,
                     support_span_before=item.support_span_before,

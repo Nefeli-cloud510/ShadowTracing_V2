@@ -983,6 +983,10 @@ class DisagreementUpdate(ShadowBaseModel):
     support_span_after: float = Field(ge=0.0, le=1.0)
     narrowed: bool = False
     resolution_status: Literal["resolved", "partially_resolved", "unresolved"] = "unresolved"
+    evidence_basis: Literal[
+        "stable_experiment_evidence",
+        "missing_valid_experiment_evidence",
+    ] = "missing_valid_experiment_evidence"
     leading_hypothesis_id: str | None = None
     unresolved_hypotheses: list[str] = Field(default_factory=list)
     summary: str = Field(min_length=1)
@@ -1198,6 +1202,10 @@ class PlannerHumanFeedbackItem(ShadowBaseModel):
 class PlannerDisagreementUpdateItem(ShadowBaseModel):
     uncertainty_id: str = Field(min_length=1)
     resolution_status: Literal["resolved", "partially_resolved", "unresolved"]
+    evidence_basis: Literal[
+        "stable_experiment_evidence",
+        "missing_valid_experiment_evidence",
+    ] = "missing_valid_experiment_evidence"
     compared_hypotheses: list[str] = Field(default_factory=list)
     narrowed: bool = False
     leading_hypothesis_id: str | None = None

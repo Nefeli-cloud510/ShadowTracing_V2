@@ -934,8 +934,13 @@ def _build_disagreement_updates(
         before_span = round(max(before_scores.values()) - min(before_scores.values()), 4) if before_scores else 0.0
         after_span = round(max(after_scores.values()) - min(after_scores.values()), 4) if after_scores else 0.0
         top_gap = round(sorted_after[0][1] - sorted_after[1][1], 4) if len(sorted_after) >= 2 else sorted_after[0][1]
-        narrowed = after_span <= max(before_span - 0.03, before_span * 0.75)
-        if top_gap >= 0.18 and sorted_after[0][1] >= 0.58:
+        has_experiment_evidence = _has_resolution_worthy_experiment_evidence(disagreement, assessments)
+        narrowed = False
+        if has_experiment_evidence:
+            narrowed = after_span <= max(before_span - 0.03, before_span * 0.75)
+        if not has_experiment_evidence:
+            resolution_status = "unresolved"
+        elif top_gap >= 0.18 and sorted_after[0][1] >= 0.58:
             resolution_status = "resolved"
         elif narrowed or top_gap >= 0.10:
             resolution_status = "partially_resolved"
@@ -964,8 +969,14 @@ def _build_disagreement_updates(
             "unresolved": "未解决",
         }[resolution_status]
         narrowed_text = "已收窄" if narrowed else "尚未收窄"
+        evidence_text = (
+            "本轮获得了针对该不确定性的有效实验判定"
+            if has_experiment_evidence
+            else "本轮缺少针对该不确定性的有效实验判定，不能仅凭既有分数差距关闭"
+        )
         summary = (
-            f"{summary_question} 实验后支持度跨度由 {before_span:.3f} 变化至 {after_span:.3f}，"
+            f"{summary_question} {evidence_text}；"
+            f"支持度跨度由 {before_span:.3f} 变化至 {after_span:.3f}，"
             f"前沿假设为 {leading_text}，区分状态为{status_text}，跨度{narrowed_text}。"
         )
         updates.append(
@@ -979,9 +990,42 @@ def _build_disagreement_updates(
                 leading_hypothesis_id=sorted_after[0][0] if sorted_after else None,
                 unresolved_hypotheses=unresolved_hypotheses,
                 summary=summary,
+                evidence_basis=(
+                    "stable_experiment_evidence"
+                    if has_experiment_evidence
+                    else "missing_valid_experiment_evidence"
+                ),
             )
         )
     return updates
+
+
+def _has_resolution_worthy_experiment_evidence(
+    disagreement: dict[str, Any],
+    assessments: list[HypothesisAssessment],
+) -> bool:
+    """Require an experiment evaluation that actually moved a compared hypothesis.
+
+    Score gaps stored before the experiment cannot be treated as new evidence;
+    only stable improvement/degradation classifications are considered worthy
+    of closing or partially closing an uncertainty.
+    """
+
+    eligible = {
+        EVIDENCE_STABLE_IMPROVEMENT,
+        EVIDENCE_STABLE_DEGRADATION,
+    }
+    assessment_index = {item.hypothesis_id: item for item in assessments}
+    for hypothesis_id in disagreement:
+        assessment = assessment_index.get(hypothesis_id)
+        if assessment is None:
+            continue
+        if (
+            assessment.updated is True
+            and assessment.evidence_classification in eligible
+        ):
+            return True
+    return False
 
 
 def _uncertainty_question_from_protocol(protocol: ExperimentProtocol, uncertainty_id: str) -> str:
