@@ -643,6 +643,69 @@ def _figure_grid(bundle: dict[str, Any], round_number: int) -> str:
     return "".join(parts)
 
 
+PRESENTATION_FIGURE_DEFS = (
+    (
+        "v3_gain_ci.png",
+        "主图：迭代评估段 RMSE 增益与 95% CI（正值表示加入日影后改善）",
+    ),
+    (
+        "v3_test_prediction_comparison.png",
+        "主图：迭代评估段真实值与基线/加入日影预测对照",
+    ),
+    (
+        "v3_daily_abs_error_delta.png",
+        "附图：逐日绝对误差改善量（|基线误差| - |日影误差|）",
+    ),
+)
+
+
+def _presentation_figures_html(
+    round_number: int,
+    experiment_id: str | None = None,
+    *,
+    include: Iterable[str] | None = None,
+    compact: bool = False,
+) -> str:
+    """Return embedded core result charts for one round, generating if needed."""
+
+    figure_dir = LIVE_ROOT / "exports" / "figures" / f"round_{round_number:02d}"
+    names = tuple(include) if include is not None else tuple(
+        name for name, _ in PRESENTATION_FIGURE_DEFS
+    )
+    if any(not (figure_dir / name).is_file() for name in names):
+        try:
+            from scripts.report_figures import render_round_core_charts
+
+            render_round_core_charts(
+                session_root=LIVE_ROOT,
+                round_number=round_number,
+                experiment_id=experiment_id,
+                output_dir=figure_dir,
+            )
+        except Exception:
+            return ""
+
+    cells: list[str] = []
+    for name, caption in PRESENTATION_FIGURE_DEFS:
+        if name not in names:
+            continue
+        path = figure_dir / name
+        if not path.is_file():
+            continue
+        relative = str(path.relative_to(LIVE_ROOT))
+        data_uri = _embed_image(relative)
+        if not data_uri:
+            continue
+        cells.append(
+            f'<figure class="figure"><img src="{data_uri}" alt="{_esc(caption)}"/>'
+            f"<figcaption>{_esc(caption)}</figcaption></figure>"
+        )
+    if not cells:
+        return ""
+    grid_class = "figure-grid figure-grid--compact" if compact else "figure-grid"
+    return f'<div class="{grid_class}">{"".join(cells)}</div>'
+
+
 def _main_question(bundle: dict[str, Any]) -> str:
     task = bundle.get("task", {})
     payload = task.get("payload", {})
@@ -1206,7 +1269,16 @@ def _execution_section(bundle: dict[str, Any]) -> str:
             for key, value in parameters.items()
             if not isinstance(value, (dict, list))
         ]))
-    body.append(_h3("4.4 关键结果图"))
+    body.append(_h3("4.4 核心结果图"))
+    experiment_id = bundle.get("result", {}).get("experiment_id")
+    core_charts = _presentation_figures_html(
+        round_number, experiment_id
+    )
+    body.append(
+        core_charts
+        or '<p class="muted">本轮尚未生成可嵌入的核心结果图。</p>'
+    )
+    body.append(_h3("4.5 运行级诊断图"))
     body.append(_figure_grid(bundle, round_number))
     return "<section>" + "".join(body) + "</section>"
 
@@ -1992,6 +2064,18 @@ def build_defense_summary_html() -> str:
             f"<tr><th>改变什么</th><td>{_esc('；'.join(change_parts))}</td></tr>"
             "</table>"
         )
+        body.append("<h4>本轮关键图</h4>")
+        experiment_id = bundle.get("result", {}).get("experiment_id")
+        defense_charts = _presentation_figures_html(
+            round_number,
+            experiment_id,
+            include=("v3_gain_ci.png", "v3_test_prediction_comparison.png"),
+            compact=True,
+        )
+        body.append(
+            defense_charts
+            or '<p class="muted">本轮核心结果图尚未生成。</p>'
+        )
     return _page_wrap("Shadow Tracing · 答辩摘要", "".join(body))
 
 
@@ -2130,6 +2214,9 @@ table.summary-table th { width: 96px; background: transparent; color: #36567E; f
 .quote-label { display: block; font-size: 11px; color: #8A764F; font-weight: 700; margin-bottom: 4px; }
 .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid currentColor; }
 .figure-grid { display: grid; grid-template-columns: 1fr; gap: 14px; margin: 12px 0; }
+.figure-grid--compact { grid-template-columns: 1fr 1fr; gap: 12px; }
+.figure-grid--compact .figure { padding: 7px; }
+.figure-grid--compact .figure img { max-height: 430px; }
 .figure { margin: 0; border: 1px solid #E3E1D8; background: #fff; padding: 10px; border-radius: 8px; break-inside: avoid; text-align: center; }
 .figure img { display: block; max-width: 100%; width: auto; height: auto; max-height: 640px; margin: 0 auto; object-fit: contain; }
 figcaption { font-size: 11px; color: #66708A; margin-top: 5px; }
