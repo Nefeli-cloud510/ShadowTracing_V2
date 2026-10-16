@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -122,6 +123,94 @@ class ReportFiguresTest(unittest.TestCase):
             self.assertEqual(
                 manifest["prediction_source"],
                 "results/round_01/E_R01_01/predictions",
+            )
+            self.assertEqual(manifest["run_id"], "E_R01_01_r1")
+            self.assertEqual(manifest["execution_run_id"], "E_R01_01_r1")
+            self.assertEqual(
+                set(manifest["arms"]),
+                set(REQUIRED_RUNS),
+            )
+
+    def test_render_prefers_latest_run_id_when_archive_has_two_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_fixture_session(root)
+            archive_dir = (
+                root
+                / "results"
+                / "round_01"
+                / "archive"
+                / "E_R01_01_r1"
+            )
+            rerun_dir = root / "results" / "round_01" / "archive" / "E_R01_01_r2"
+            rerun_dir.mkdir(parents=True)
+            metrics = json.loads(
+                (archive_dir / "metrics.json").read_text(encoding="utf-8")
+            )
+            metrics["run_id"] = "E_R01_01_r2"
+            (rerun_dir / "metrics.json").write_text(
+                json.dumps(metrics, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+            (root / "results" / "round_01" / "latest_run_id.txt").write_text(
+                "E_R01_01_r2",
+                encoding="utf-8",
+            )
+
+            result = report_figures.render_round_core_charts(
+                session_root=root,
+                round_number=1,
+                experiment_id="E_R01_01",
+            )
+
+            manifest = json.loads(
+                Path(result["manifest"]).read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["run_id"], "E_R01_01_r2")
+            self.assertEqual(manifest["execution_run_id"], "E_R01_01_r2")
+
+    def test_presentation_figures_html_redraws_when_run_id_drifts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_fixture_session(root)
+
+            with patch.object(report_exporter, "LIVE_ROOT", root):
+                report_exporter._presentation_figures_html(1)
+
+            figure_dir = root / "exports" / "figures" / "round_01"
+            manifest_path = figure_dir / "report_chart_manifest.json"
+            before_manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            before_png = (figure_dir / "v3_test_prediction_comparison.png").read_bytes()
+            self.assertEqual(before_manifest["run_id"], "E_R01_01_r1")
+
+            archive_metrics = (
+                root
+                / "results"
+                / "round_01"
+                / "archive"
+                / "E_R01_01_r1"
+                / "metrics.json"
+            )
+            metrics = json.loads(archive_metrics.read_text(encoding="utf-8"))
+            metrics["run_id"] = "E_R01_01_r2"
+            archive_metrics.write_text(
+                json.dumps(metrics, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+
+            with patch.object(report_exporter, "LIVE_ROOT", root):
+                report_exporter._presentation_figures_html(1)
+
+            after_manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            after_png = (figure_dir / "v3_test_prediction_comparison.png").read_bytes()
+            self.assertEqual(after_manifest["run_id"], "E_R01_01_r2")
+            self.assertNotEqual(
+                hashlib.sha256(before_png).hexdigest(),
+                hashlib.sha256(after_png).hexdigest(),
             )
 
     def test_presentation_figures_html_embeds_existing_figures(self) -> None:

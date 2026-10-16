@@ -393,6 +393,28 @@ class HumanControlFlowTest(unittest.TestCase):
         self.assertEqual(baseline_step.parameters["label"], "baseline")
         self.assertTrue((self.project_root / "config" / "latest_protocol.json").exists())
 
+        candidate_set = self.repository.load_candidate_experiments()
+        approved_candidate = next(
+            item
+            for item in candidate_set.candidates
+            if item.experiment_id == protocol.experiment_id
+        )
+        self.assertEqual(
+            approved_candidate.design.target,
+            protocol.features.target,
+        )
+        self.assertEqual(
+            approved_candidate.design.control,
+            protocol.features.control,
+        )
+        self.assertEqual(
+            approved_candidate.design.treatment,
+            protocol.features.treatment,
+        )
+        self.assertIsNotNone(approved_candidate.utility_score)
+        self.assertTrue(approved_candidate.changed_factors)
+        self.assertTrue(approved_candidate.held_fixed_factors)
+
         process_state = self.repository.load_process_state()
         self.assertEqual(process_state.current_stage, "protocol_ready")
         self.assertEqual(process_state.current_step, "step_5")

@@ -672,7 +672,49 @@ def _presentation_figures_html(
     names = tuple(include) if include is not None else tuple(
         name for name, _ in PRESENTATION_FIGURE_DEFS
     )
-    if any(not (figure_dir / name).is_file() for name in names):
+    expected_source: dict[str, Any] | None = None
+    try:
+        from scripts.report_figures import _resolve_archive
+
+        archive_dir, metrics, resolved_experiment_id = _resolve_archive(
+            LIVE_ROOT / "results" / f"round_{round_number:02d}",
+            experiment_id,
+        )
+        expected_source = {
+            "experiment_id": resolved_experiment_id,
+            "run_id": str(
+                metrics.get("run_id") or f"{resolved_experiment_id}_r1"
+            ),
+            "prediction_source": (
+                f"results/round_{round_number:02d}/{resolved_experiment_id}/predictions"
+            ),
+            "forecast_horizon_days": int(
+                metrics["runs"][0]["parameters"]["forecast_horizon_days"]
+            ),
+            "test_start": metrics.get("test_start"),
+        }
+    except Exception:
+        expected_source = None
+
+    manifest: dict[str, Any] = {}
+    manifest_path = figure_dir / "report_chart_manifest.json"
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            manifest = {}
+
+    stale = bool(expected_source) and any(
+        str(manifest.get(key)) != str(expected_source[key])
+        for key in (
+            "experiment_id",
+            "run_id",
+            "prediction_source",
+            "forecast_horizon_days",
+            "test_start",
+        )
+    )
+    if stale or any(not (figure_dir / name).is_file() for name in names):
         try:
             from scripts.report_figures import render_round_core_charts
 

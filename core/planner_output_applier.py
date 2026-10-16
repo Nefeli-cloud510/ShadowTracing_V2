@@ -9,6 +9,7 @@ from core.support_update_rules import (
     priority_after_action,
     priority_to_score,
 )
+from core.decision_unified import recompute_candidate_plan_metadata
 from core.unified_schema import (
     CritiqueRecord,
     DecisionEntry,
@@ -34,6 +35,7 @@ class PlannerOutputApplier:
 
     def apply(self, planner_output: ReasoningPlannerOutput) -> dict[str, object]:
         task = self.repository.load_task()
+        data_dictionary = self.repository.load_data_dictionary()
         candidate_set = self.repository.load_candidate_experiments()
         tree = self.repository.load_hypothesis_tree()
         uncertainties = self.repository.load_uncertainties()
@@ -41,6 +43,16 @@ class PlannerOutputApplier:
         decision_log = self.repository.load_decision_log()
 
         applied_candidates = self._apply_candidate_supplements(candidate_set, planner_output)
+        if applied_candidates:
+            candidate_set = recompute_candidate_plan_metadata(
+                candidate_set,
+                task=task,
+                data_dictionary=data_dictionary,
+                hypothesis_tree=tree,
+                uncertainty_state=uncertainties,
+                experiment_memory=experiment_memory,
+                current_round=planner_output.next_round_id,
+            )
         hypothesis_updates, uncertainty_updates, trace_updates = self._apply_interpretation_enhancements(
             tree,
             uncertainties,

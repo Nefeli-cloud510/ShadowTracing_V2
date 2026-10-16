@@ -11,6 +11,7 @@ from core.decision_unified import (
     UtilityScorer,
     _apply_model_sensitivity_design,
     _candidate_experiment_type,
+    recompute_candidate_plan_metadata,
 )
 from core.state_repository import UnifiedStateRepository
 from core.unified_schema import (
@@ -679,23 +680,201 @@ class DecisionLayerTest(unittest.TestCase):
         self.assertTrue(candidate.changed_factors)
         self.assertTrue(candidate.held_fixed_factors)
         self.assertTrue(
-            any(
-                re.match(r"^历史长度（3 天 → \d+ 天）$", item)
-                for item in candidate.changed_factors
-            ),
+            not any(re.match(r"^历史长度（3 天 → \d+ 天）$", item) for item in candidate.changed_factors),
             candidate.changed_factors,
         )
         self.assertTrue(
-            any(
-                re.match(r"^时间窗口（14 天 → \d+ 天）$", item)
-                for item in candidate.changed_factors
-            ),
+            not any(re.match(r"^时间窗口（14 天 → \d+ 天）$", item) for item in candidate.changed_factors),
             candidate.changed_factors,
+        )
+        self.assertIn("预测超前 3 天", candidate.held_fixed_factors)
+        self.assertIn("历史长度 3 天", candidate.held_fixed_factors)
+        self.assertIn("时间窗口 14 天", candidate.held_fixed_factors)
+        self.assertTrue(
+            any(item.startswith("window_inherited_from_previous_round:") for item in candidate.design.notes),
+            candidate.design.notes,
         )
         self.assertIn("CI 全部落在正区间", candidate.expected_outcome_branches)
         branch_values = list(candidate.expected_outcome_branches.values())
         self.assertTrue(all(isinstance(item, str) and item for item in branch_values))
-        self.assertTrue(candidate.exploratory)
+
+    def test_window_inheritance_does_not_rotate_with_history_count(self) -> None:
+        experiment_memory = self.repository.load_experiment_memory()
+        for entry_id, horizon, lag, window in (
+            ("E_HIST_01", 3, 3, 14),
+            ("E_HIST_02", 5, 7, 21),
+        ):
+            experiment_memory.entries.append(
+                ExperimentMemoryEntry(
+                    experiment_id=entry_id,
+                    round_id=1 if entry_id == "E_HIST_01" else 2,
+                    status="completed",
+                    tested_hypotheses=["H1"],
+                    metrics_snapshot=PerformanceMetrics(
+                        experiment_id=entry_id,
+                        round_id=1 if entry_id == "E_HIST_01" else 2,
+                        runs=[
+                            ExperimentRun(
+                                run_id=f"{entry_id}_control",
+                                name="control",
+                                model_family="elasticnet",
+                                feature_columns=["By"],
+                                parameters={
+                                    "forecast_horizon_days": horizon,
+                                    "past_lag_days": lag,
+                                    "window_size": window,
+                                },
+                            ),
+                            ExperimentRun(
+                                run_id=f"{entry_id}_treatment",
+                                name="treatment",
+                                model_family="elasticnet",
+                                feature_columns=["By", "DeltaDec"],
+                                parameters={
+                                    "forecast_horizon_days": horizon,
+                                    "past_lag_days": lag,
+                                    "window_size": window,
+                                },
+                            ),
+                        ],
+                    ),
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                )
+            )
+        self.repository.save_experiment_memory(experiment_memory)
+
+        tree = self.repository.load_hypothesis_tree()
+        uncertainties = self.repository.load_uncertainties()
+        uncertainties.current_round = 2
+        UncertaintyPrioritizer().prioritize(uncertainties, tree)
+        candidates = CandidateExperimentGenerator().generate(
+            task=self.task,
+            data_dictionary=self.dictionary,
+            hypothesis_tree=tree,
+            uncertainty_state=uncertainties,
+            experiment_memory=experiment_memory,
+            target_round=3,
+        )
+        candidate = candidates.candidates[0]
+        self.assertEqual(candidate.design.forecast_horizon_days, 5)
+        self.assertEqual(candidate.design.past_lag_days, 7)
+        self.assertEqual(candidate.design.window_size, 21)
+        self.assertTrue(
+            any(
+                item.startswith("window_inherited_from_previous_round:")
+                and "forecast_horizon=5" in item
+                and "past_lag=7" in item
+                and "window=21" in item
+                for item in candidate.design.notes
+            ),
+            candidate.design.notes,
+        )
+
+    def test_recompute_metadata_after_design_change_is_idempotent(self) -> None:
+        experiment_memory = self.repository.load_experiment_memory()
+        experiment_memory.entries.append(
+            ExperimentMemoryEntry(
+                experiment_id="E_HIST_01",
+                round_id=1,
+                status="completed",
+                tested_hypotheses=["H1"],
+                metrics_snapshot=PerformanceMetrics(
+                    experiment_id="E_HIST_01",
+                    round_id=1,
+                    runs=[
+                        ExperimentRun(
+                            run_id="E_HIST_01_control",
+                            name="control",
+                            model_family="elasticnet",
+                            feature_columns=["By"],
+                            parameters={
+                                "forecast_horizon_days": 3,
+                                "past_lag_days": 3,
+                                "window_size": 14,
+                            },
+                        ),
+                        ExperimentRun(
+                            run_id="E_HIST_01_treatment",
+                            name="treatment",
+                            model_family="elasticnet",
+                            feature_columns=["By", "DeltaDec"],
+                            parameters={
+                                "forecast_horizon_days": 3,
+                                "past_lag_days": 3,
+                                "window_size": 14,
+                            },
+                        ),
+                    ],
+                ),
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+            )
+        )
+        self.repository.save_experiment_memory(experiment_memory)
+
+        tree = self.repository.load_hypothesis_tree()
+        uncertainties = self.repository.load_uncertainties()
+        uncertainties.current_round = 1
+        UncertaintyPrioritizer().prioritize(uncertainties, tree)
+        candidates = CandidateExperimentGenerator().generate(
+            task=self.task,
+            data_dictionary=self.dictionary,
+            hypothesis_tree=tree,
+            uncertainty_state=uncertainties,
+            experiment_memory=experiment_memory,
+            target_round=2,
+        )
+        candidate = candidates.candidates[0]
+        candidate.design.forecast_horizon_days = 5
+        candidate.design.past_lag_days = 5
+        candidate.design.window_size = 20
+
+        recomputed = recompute_candidate_plan_metadata(
+            candidates,
+            task=self.task,
+            data_dictionary=self.dictionary,
+            hypothesis_tree=tree,
+            uncertainty_state=uncertainties,
+            experiment_memory=experiment_memory,
+            current_round=2,
+        )
+        updated = recomputed.candidates[0]
+        self.assertIn(
+            "预测超前天数（3 天 → 5 天）",
+            updated.changed_factors,
+        )
+        self.assertIn(
+            "历史长度（3 天 → 5 天）",
+            updated.changed_factors,
+        )
+        self.assertIn(
+            "时间窗口（14 天 → 20 天）",
+            updated.changed_factors,
+        )
+        self.assertNotIn(
+            "预测超前 3 天",
+            updated.held_fixed_factors,
+        )
+        self.assertIsNotNone(updated.utility_score)
+
+        applied_again = recompute_candidate_plan_metadata(
+            recomputed,
+            task=self.task,
+            data_dictionary=self.dictionary,
+            hypothesis_tree=tree,
+            uncertainty_state=uncertainties,
+            experiment_memory=experiment_memory,
+            current_round=2,
+        )
+        self.assertEqual(
+            applied_again.candidates[0].utility_score,
+            updated.utility_score,
+        )
+        self.assertEqual(
+            applied_again.candidates[0].changed_factors,
+            updated.changed_factors,
+        )
 
     def test_utility_scorer_demotes_candidates_duplicating_executed_history(self) -> None:
         experiment_memory = self.repository.load_experiment_memory()

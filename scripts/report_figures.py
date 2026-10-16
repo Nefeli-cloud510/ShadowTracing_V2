@@ -54,6 +54,25 @@ def _load_test_prediction_frames(
     return frames
 
 
+def _latest_execution_run_id(round_root: Path) -> str | None:
+    """Return the run id recorded as current for the round, if available."""
+
+    latest_txt = round_root / "latest_run_id.txt"
+    if latest_txt.is_file():
+        value = latest_txt.read_text(encoding="utf-8").strip()
+        if value:
+            return value
+    latest_json = round_root / "archive" / "latest_run.json"
+    if latest_json.is_file():
+        try:
+            value = json.loads(latest_json.read_text(encoding="utf-8")).get("run_id")
+        except (OSError, ValueError):
+            value = None
+        if value:
+            return str(value)
+    return None
+
+
 def _resolve_archive(
     round_root: Path,
     experiment_id: str | None,
@@ -79,12 +98,28 @@ def _resolve_archive(
             candidates.append((archive_dir, metrics))
 
     if experiment_id:
-        for archive_dir, metrics in candidates:
-            if str(metrics.get("experiment_id", "")) == experiment_id:
-                return archive_dir, metrics, str(metrics["experiment_id"])
-        raise FileNotFoundError(
-            f"no model-sensitivity archive for experiment_id={experiment_id}"
+        matching = [
+            (archive_dir, metrics)
+            for archive_dir, metrics in candidates
+            if str(metrics.get("experiment_id", "")) == experiment_id
+        ]
+        if not matching:
+            raise FileNotFoundError(
+                f"no model-sensitivity archive for experiment_id={experiment_id}"
+            )
+        latest = _latest_execution_run_id(round_root)
+        if latest:
+            for archive_dir, metrics in matching:
+                if (
+                    str(metrics.get("run_id", "")) == latest
+                    or archive_dir.name == latest
+                ):
+                    return archive_dir, metrics, str(metrics["experiment_id"])
+        archive_dir, metrics = max(
+            matching,
+            key=lambda item: str(item[0].parent / item[0].name),
         )
+        return archive_dir, metrics, str(metrics["experiment_id"])
     if not candidates:
         raise FileNotFoundError("no completed model-sensitivity archive found")
     archive_dir, metrics = max(
@@ -119,11 +154,24 @@ def render_round_core_charts(
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    run_id = f"{resolved_experiment_id}_r1"
+    run_id = str(
+        metrics.get("run_id")
+        or _latest_execution_run_id(round_root)
+        or f"{resolved_experiment_id}_r1"
+    )
     horizon = int(
         metrics["runs"][0]["parameters"]["forecast_horizon_days"]
     )
     test_start = metrics.get("test_start")
+    arms = {
+        str(run.get("run_id")): {
+            "name": run.get("name"),
+            "model_family": run.get("model_family"),
+            "feature_columns": list(run.get("feature_columns") or []),
+            "n_test": run.get("n_test"),
+        }
+        for run in metrics.get("runs", [])
+    }
 
     paths = {
         "v3_gain_ci.png": presentation_plots.plot_v3_gain_ci(
@@ -155,6 +203,8 @@ def render_round_core_charts(
         "round_id": round_number,
         "experiment_id": resolved_experiment_id,
         "run_id": run_id,
+        "execution_run_id": run_id,
+        "arms": arms,
         "archive_dir": str(archive_dir.relative_to(session_root)),
         "prediction_source": f"results/round_{round_number:02d}/{resolved_experiment_id}/predictions",
         "split_label": metrics.get("split_label", "dev_backtest"),

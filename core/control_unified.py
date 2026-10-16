@@ -9,6 +9,7 @@ from core.calendar_samples import is_blind_sealed
 from core.central_controller_llm import CentralControllerLLM
 from core.decision_unified import DIFFERENTIATING_EXPERIMENT_ERROR
 from core.decision_unified import DecisionLayerService
+from core.decision_unified import recompute_candidate_plan_metadata
 from core.display_text_cleaner import clean_llm_text, deep_clean_text
 from core.evaluation_unified import export_evaluation_result
 from core.experiment_tools.dispatcher import ExperimentDispatcher
@@ -1368,6 +1369,26 @@ class HumanControlService:
             tree=tree_for_display,
             uncertainty_records=uncertainty_records,
         )
+        candidate.design = protocol.features.model_copy(deep=True)
+        try:
+            data_dictionary = self._load_data_dictionary_or_default()
+            experiment_memory = self.repository.load_experiment_memory()
+            uncertainties = self.repository.load_uncertainties()
+            recompute_candidate_plan_metadata(
+                candidate_set,
+                task=task,
+                data_dictionary=data_dictionary,
+                hypothesis_tree=tree_for_display or self.repository.load_hypothesis_tree(),
+                uncertainty_state=uncertainties,
+                experiment_memory=experiment_memory,
+                current_round=candidate_set.round,
+            )
+            self.repository.save_candidate_experiments(candidate_set)
+        except Exception as exc:
+            raise ValueError(
+                f"候选 {candidate.experiment_id} 的最终设计无法通过重算校验，"
+                "审批协议与页面说明不一致，已阻止生成协议。"
+            ) from exc
         self._repair_protocol_hypothesis_links(protocol)
         plan_summary = self._build_execution_plan_summary(
             task=task,

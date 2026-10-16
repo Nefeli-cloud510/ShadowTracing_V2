@@ -51,6 +51,8 @@ _NOTE_PREFIX_LABELS = (
     ("probe_lagged_stability_across_windows:", "滞后窗口稳健性探测："),
     ("probe_residual_source_with_focus:", "残差来源探测："),
     ("history_evolved_window_preset:", "窗口预设："),
+    ("window_inherited_from_previous_round:", "窗口继承上一轮配置："),
+    ("explicit_window_design:", "窗口按实验设计要求指定："),
     ("hypothesis_triggers:", "假设触发来源："),
     ("hypothesis_source_summary:", "假设来源摘要："),
     ("disagreement_hypotheses:", "待区分假设："),

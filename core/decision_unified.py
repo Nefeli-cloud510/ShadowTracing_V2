@@ -174,6 +174,22 @@ def _entry_design_params(entry) -> dict[str, Any]:
     return params
 
 
+def _latest_window_params(experiment_memory: ExperimentMemoryState | None) -> dict[str, int]:
+    """Return the window configuration of the latest completed experiment."""
+
+    if experiment_memory is None:
+        return {}
+    completed = [entry for entry in experiment_memory.entries if entry.status == "completed"]
+    if not completed:
+        return {}
+    params = _entry_design_params(completed[-1])
+    return {
+        key: int(params[key])
+        for key in ("forecast_horizon_days", "past_lag_days", "window_size")
+        if key in params and params[key] is not None
+    }
+
+
 def _candidate_traceability(
     *,
     record: UncertaintyRecord,
@@ -693,10 +709,23 @@ class CandidateExperimentGenerator:
                     uncertainty_records=uncertainty_state.records,
                 )
             )
-            if experiment_memory and len(experiment_memory.entries):
-                preset = WINDOW_PRESETS[(len(experiment_memory.entries) + 1) % len(WINDOW_PRESETS)]
+            inherited_window = _latest_window_params(experiment_memory)
+            explicit_window = {
+                key: int(getattr(candidate.design, key))
+                for key in ("forecast_horizon_days", "past_lag_days", "window_size")
+                if getattr(candidate.design, key) is not None
+            }
+            if explicit_window:
+                preset = {**WINDOW_PRESETS[0], **inherited_window, **explicit_window}
                 window_note = (
-                    "history_evolved_window_preset:axis=uncertainty,"
+                    "explicit_window_design:axis=uncertainty,"
+                    f"forecast_horizon={preset['forecast_horizon_days']},"
+                    f"past_lag={preset['past_lag_days']},window={preset['window_size']}"
+                )
+            elif len(inherited_window) == 3:
+                preset = inherited_window
+                window_note = (
+                    "window_inherited_from_previous_round:axis=uncertainty,"
                     f"forecast_horizon={preset['forecast_horizon_days']},"
                     f"past_lag={preset['past_lag_days']},window={preset['window_size']}"
                 )
@@ -786,7 +815,8 @@ class UtilityScorer:
             same_design = candidate.design.control == candidate.design.treatment
             if same_design and not _is_baseline_candidate(candidate):
                 utility = min(utility, 0.12)
-                candidate.design.notes.append("selection_penalty:control_equals_treatment")
+                if "selection_penalty:control_equals_treatment" not in candidate.design.notes:
+                    candidate.design.notes.append("selection_penalty:control_equals_treatment")
             if completed_entries:
                 best_similarity = 0.0
                 best_entry_id = None
@@ -818,6 +848,86 @@ class UtilityScorer:
             ),
         )
         return candidate_set
+
+
+def recompute_candidate_plan_metadata(
+    candidate_set: CandidateExperimentSet,
+    *,
+    task: ScientificTask,
+    data_dictionary: DataDictionary,
+    hypothesis_tree: HypothesisTreeState,
+    uncertainty_state: UncertaintyState,
+    experiment_memory: ExperimentMemoryState | None,
+    current_round: int,
+    rescore: bool = True,
+) -> CandidateExperimentSet:
+    """Recompute traceability, estimates and utility after a design changed.
+
+    LLM refinements and PI approval overrides can alter the actual feature set,
+    model families or time window. Keeping the old pre-registered narrative and
+    scores would make the candidate description diverge from the final protocol,
+    so this helper derives every derived field from the final design.
+    """
+
+    node_index = hypothesis_tree.node_index()
+    uncertainty_index = uncertainty_state.record_index()
+    semantic = VariableSemanticService.from_data_dictionary(data_dictionary)
+    for candidate in candidate_set.candidates:
+        record = (
+            uncertainty_index.get(candidate.related_uncertainties[0])
+            if candidate.related_uncertainties
+            else None
+        )
+        if record is None:
+            record = UncertaintyRecord(
+                uncertainty_id=(
+                    candidate.related_uncertainties[0]
+                    if candidate.related_uncertainties
+                    else f"TMP_{candidate.experiment_id}"
+                ),
+                question=(
+                    candidate.scientific_question
+                    or candidate.purpose
+                    or "候选实验待解决的未知问题"
+                ),
+                description=(
+                    candidate.purpose
+                    or candidate.scientific_question
+                    or "候选实验的生成不确定性"
+                ),
+                created_at_round=max(current_round, 0),
+                created_by="system",
+                status="active",
+            )
+        traceability = _candidate_traceability(
+            record=record,
+            design=candidate.design,
+            experiment_type=candidate.experiment_type or "incremental_prediction",
+            experiment_memory=experiment_memory,
+            next_round=current_round,
+        )
+        candidate.responded_prior_finding = traceability["responded_prior_finding"]
+        candidate.target_uncertainty_focus = traceability["target_uncertainty_focus"]
+        candidate.changed_factors = traceability["changed_factors"]
+        candidate.held_fixed_factors = traceability["held_fixed_factors"]
+        candidate.expected_outcome_branches = traceability["expected_outcome_branches"]
+        candidate.exploratory = traceability["exploratory"]
+        _annotate_candidate_estimates(
+            candidate=candidate,
+            task=task,
+            data_dictionary=data_dictionary,
+            hypothesis_tree=hypothesis_tree,
+            experiment_memory=experiment_memory,
+            current_round=current_round,
+        )
+        _apply_semantic_to_candidate_display(candidate, semantic, node_index)
+        try:
+            _validate_candidate_design(candidate)
+        except ValueError as exc:
+            raise ValueError(f"{candidate.experiment_id} 设计在重算后无效: {exc}") from exc
+    if rescore:
+        return UtilityScorer().score(candidate_set, experiment_memory=experiment_memory)
+    return candidate_set
 
 
 class DecisionLayerService:
