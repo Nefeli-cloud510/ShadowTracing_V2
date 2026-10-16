@@ -9,6 +9,13 @@ the scientific assessment as pending instead of being treated as a single
 from __future__ import annotations
 
 from core.evaluation_unified import evaluate_experiment as evaluate_incremental
+from core.support_update_rules import (
+    EVIDENCE_IDENTICAL_PREDICTIONS,
+    EVIDENCE_INCONCLUSIVE,
+    EVIDENCE_NO_STABLE_GAIN,
+    EVIDENCE_STABLE_DEGRADATION,
+    EVIDENCE_STABLE_IMPROVEMENT,
+)
 from core.unified_schema import (
     ConclusionDataLayer,
     ConclusionExperimentLayer,
@@ -19,6 +26,7 @@ from core.unified_schema import (
     EvidenceSummary,
     ExperimentProtocol,
     ExperimentResult,
+    HypothesisAssessment,
     ModelSensitivityFamilyEvidence,
     PerformanceMetrics,
     RobustnessReport,
@@ -183,6 +191,65 @@ def _family_gain_label(evaluation: str) -> str:
         "not_evaluated": "未评估",
     }
     return labels.get(evaluation, evaluation)
+
+
+def _model_sensitivity_evidence_classification(kind: str) -> str:
+    mapping = {
+        "stable_positive": EVIDENCE_STABLE_IMPROVEMENT,
+        "stable_negative": EVIDENCE_STABLE_DEGRADATION,
+        "identical_predictions": EVIDENCE_IDENTICAL_PREDICTIONS,
+        "no_stable_gain": EVIDENCE_NO_STABLE_GAIN,
+    }
+    return mapping.get(kind, EVIDENCE_INCONCLUSIVE)
+
+
+def _model_sensitivity_assessments(
+    protocol: ExperimentProtocol | None,
+    *,
+    conclusion_kind: str,
+    family_evidences: list[dict[str, Any]],
+    prior_supports: dict[str, float] | None,
+) -> list[HypothesisAssessment]:
+    """Attach conservative per-hypothesis assessments without auto-updating support."""
+
+    if protocol is None:
+        return []
+    evidence_classification = _model_sensitivity_evidence_classification(
+        conclusion_kind
+    )
+    labels = [
+        f"{entry['family']}: {_family_gain_label(entry['evaluation'])}"
+        for entry in family_evidences
+    ] or ["无可用家族对比结果"]
+    assessments: list[HypothesisAssessment] = []
+    for hypothesis_id in protocol.tested_hypotheses:
+        before = min(
+            max(float((prior_supports or {}).get(hypothesis_id, 0.5)), 0.05),
+            0.95,
+        )
+        label_text = "；".join(labels) or "无可用家族结论"
+        assessments.append(
+            HypothesisAssessment(
+                hypothesis_id=hypothesis_id,
+                support_before=before,
+                support_after=before,
+                status="active",
+                direction_matched=None,
+                magnitude_matched=None,
+                reason=(
+                    f"模型敏感性实验仅提供结构化证据（{label_text}）："
+                    "point/CI、方向与稳定证据分开记录，按保守门控不自动调整"
+                    "支持度；待人工复核或使用按实验类型定义的正式证据规则写入。"
+                ),
+                metric="rmse",
+                observed_metric_delta=None,
+                metric_ci=None,
+                evidence_classification=evidence_classification,
+                evidence_labels=labels,
+                updated=False,
+            )
+        )
+    return assessments
 
 
 def _evaluate_model_sensitivity(
@@ -382,7 +449,12 @@ def _evaluate_model_sensitivity(
         scientific=ScientificEvaluation(
             experiment_id=result.experiment_id,
             round_id=result.round_id,
-            hypothesis_assessments=[],
+            hypothesis_assessments=_model_sensitivity_assessments(
+                protocol,
+                conclusion_kind=conclusion_kind,
+                family_evidences=family_evidences,
+                prior_supports=prior_supports,
+            ),
             disagreement_updates=[],
             evidence_summary=evidence_summary,
             three_layer_conclusion=conclusion,

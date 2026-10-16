@@ -2249,6 +2249,8 @@ class LiveWorkflowHandler(BaseHTTPRequestHandler):
             round_number: int | None = None
             if scope == "all":
                 html_text = report_exporter.build_all_rounds_report_html()
+            elif scope == "summary":
+                html_text = report_exporter.build_defense_summary_html()
             elif scope == "round":
                 raw_round = (params.get("round") or [""])[0]
                 if not raw_round.isdigit():
@@ -2257,7 +2259,7 @@ class LiveWorkflowHandler(BaseHTTPRequestHandler):
                 round_number = int(raw_round)
                 html_text = report_exporter.build_round_report_html(round_number)
             else:
-                self._write_json({"message": "scope 仅支持 round 或 all。"}, status=HTTPStatus.BAD_REQUEST)
+                self._write_json({"message": "scope 仅支持 round、all 或 summary。"}, status=HTTPStatus.BAD_REQUEST)
                 return
 
             stem = report_exporter.report_export_filename(scope, round_number or 1)

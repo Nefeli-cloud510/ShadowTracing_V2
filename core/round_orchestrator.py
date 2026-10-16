@@ -648,7 +648,22 @@ class RoundOrchestrator:
                 updated_at=now,
             )
             history.entries.append(entry)
+        previous_entry = next(
+            (item for item in history.entries if item.round_id == previous_round_id),
+            None,
+        )
         entry.source_experiment_id = source_experiment_id
+        entry.source_round_id = previous_round_id
+        entry.source_findings = (
+            list(previous_entry.scientific_findings or [])
+            if previous_entry is not None
+            else []
+        )
+        entry.source_delta_snapshot = (
+            previous_entry.metrics_snapshot.model_dump(mode="json", exclude_none=True)
+            if previous_entry is not None and previous_entry.metrics_snapshot is not None
+            else None
+        )
         entry.iterative_validations = validations
         entry.iteration_input_sources = input_sources
         entry.updated_at = now

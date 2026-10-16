@@ -951,8 +951,8 @@ class HypothesisAssessment(ShadowBaseModel):
     support_before: float = Field(ge=0.0, le=1.0)
     support_after: float = Field(ge=0.0, le=1.0)
     status: HypothesisStatus | Literal["supported", "partially_supported", "weakened"]
-    direction_matched: bool | Literal["partial"]
-    magnitude_matched: bool | Literal["partial"]
+    direction_matched: bool | Literal["partial"] | None = None
+    magnitude_matched: bool | Literal["partial"] | None = None
     reason: str = Field(min_length=1)
     metric: str = "rmse"
     observed_metric_delta: float | None = None
@@ -1511,6 +1511,17 @@ class RoundHistoryEntry(ShadowBaseModel):
     round_id: int = Field(ge=0)
     status: Literal["in_progress", "completed", "failed", "stopped"] = "in_progress"
     source_experiment_id: str | None = None
+    source_round_id: int | None = Field(default=None, ge=0)
+    source_findings: list[str] = Field(default_factory=list)
+    source_delta_snapshot: dict[str, Any] | None = None
+    target_uncertainty_ids: list[str] = Field(default_factory=list)
+    selection_rationale: str | None = None
+    planned_changed_factors: list[str] = Field(default_factory=list)
+    actual_changed_factors: list[str] = Field(default_factory=list)
+    protocol_delta_notes: list[str] = Field(default_factory=list)
+    candidate_id: str | None = None
+    executed_experiment_id: str | None = None
+    actual_config_snapshot: dict[str, Any] | None = None
     approved_candidate_id: str | None = None
     next_round_decision: Literal["continue", "adjust", "stop"] | None = None
     decision_summary: str | None = None

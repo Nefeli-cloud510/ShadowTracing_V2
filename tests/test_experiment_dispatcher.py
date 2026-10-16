@@ -1582,7 +1582,14 @@ class ExperimentDispatcherTest(unittest.TestCase):
             main_question=task.payload.research_question.text,
         )
 
-        self.assertEqual(evaluation.scientific.hypothesis_assessments, [])
+        assessments = evaluation.scientific.hypothesis_assessments
+        self.assertEqual(len(assessments), 1)
+        self.assertFalse(assessments[0].updated)
+        self.assertEqual(assessments[0].support_before, assessments[0].support_after)
+        self.assertIsNone(assessments[0].direction_matched)
+        self.assertIsNone(assessments[0].magnitude_matched)
+        self.assertEqual(assessments[0].evidence_classification, "inconclusive")
+        self.assertTrue(assessments[0].evidence_labels)
         self.assertIn(
             "未检出稳定增益",
             evaluation.scientific.three_layer_conclusion.scientific_layer.answer,
@@ -1677,9 +1684,11 @@ class ExperimentDispatcherTest(unittest.TestCase):
         run_cis: list[list[float] | None] | None = None,
         run_points: list[float] | None = None,
     ) -> "object":
+        protocol = self._base_protocol("model_sensitivity", "E_MS_EVAL")
+        protocol.tested_hypotheses = ["H1"]
         return evaluate_experiment_result(
             self._sensitivity_result(run_cis=run_cis, run_points=run_points),
-            protocol=self._base_protocol("model_sensitivity", "E_MS_EVAL"),
+            protocol=protocol,
         )
 
     def test_model_sensitivity_evaluator_reports_stable_positive_per_family(self) -> None:
@@ -1688,7 +1697,16 @@ class ExperimentDispatcherTest(unittest.TestCase):
         answer = conclusion.scientific_layer.answer
         self.assertIn("稳定正向增益", answer)
         self.assertIn("Ridge", conclusion.data_layer.rmse_attribution)
-        self.assertEqual(evaluation.scientific.hypothesis_assessments, [])
+        assessments = evaluation.scientific.hypothesis_assessments
+        self.assertEqual(len(assessments), 1)
+        self.assertFalse(assessments[0].updated)
+        self.assertEqual(assessments[0].support_before, assessments[0].support_after)
+        self.assertIsNone(assessments[0].direction_matched)
+        self.assertEqual(
+            assessments[0].evidence_classification,
+            "stable_improvement",
+        )
+        self.assertEqual(len(assessments[0].evidence_labels), 2)
         families = conclusion.experiment_layer.model_sensitivity_families
         self.assertEqual([item.family for item in families], ["ridge", "elasticnet"])
         self.assertEqual([item.evaluation for item in families], ["stable_positive", "stable_positive"])

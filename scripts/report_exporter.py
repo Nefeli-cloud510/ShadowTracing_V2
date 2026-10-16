@@ -194,6 +194,25 @@ def _fmt(value: Any, digits: int = 4) -> str:
     return f"{number:.{digits}f}"
 
 
+def _first_not_none(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _match_text(value: Any) -> str:
+    if value is None:
+        return "未判断"
+    if value is True:
+        return "匹配"
+    if value is False:
+        return "偏离"
+    if isinstance(value, str) and value.lower() == "partial":
+        return "部分匹配"
+    return _to_text(value)
+
+
 def _to_text(value: Any, max_len: int = 0) -> str:
     if value is None:
         return "—"
@@ -1470,9 +1489,9 @@ def _four_layer_section(bundle: dict[str, Any]) -> str:
             "<tr>"
             f"<td>{_esc(hypothesis_label)}</td>"
             f"<td>{_esc(direction)}</td><td>{_esc(predicted_range)}</td>"
-            f"<td>{_fmt(row.get('actual_delta') or row.get('delta'))}</td>"
-            f"<td>{'匹配' if row.get('direction_matched') else '偏离'}</td>"
-            f"<td>{'匹配' if row.get('magnitude_matched') else '偏离'}</td>"
+            f"<td>{_fmt(_first_not_none(row.get('observed_metric_delta'), row.get('actual_delta'), row.get('delta')))}</td>"
+            f"<td>{_match_text(row.get('direction_matched'))}</td>"
+            f"<td>{_match_text(row.get('magnitude_matched'))}</td>"
             f"<td>{_esc(row.get('conclusion') or row.get('reason'))}</td>"
             f"<td>{_esc(support_text)}</td>"
             "</tr>"
@@ -1793,6 +1812,189 @@ def build_all_rounds_report_html() -> str:
     return _page_wrap("Shadow Tracing · 全部轮次实验结果报告", "".join(sections))
 
 
+def _round_history_entry(bundle: dict[str, Any], round_number: int) -> dict[str, Any]:
+    entries = bundle.get("round_history", {}).get("entries") or []
+    matches = [item for item in entries if item.get("round_id") == round_number]
+    return matches[-1] if matches else {}
+
+
+def _summary_text(value: Any, limit: int = 220) -> str:
+    return _to_text(value, max_len=limit) if value not in (None, "", [], {}) else "--"
+
+
+def _cross_round_overview_html() -> str:
+    latest = current_round()
+    rows: list[str] = []
+    for round_number in range(1, latest):
+        current_bundle = load_round_bundle(round_number)
+        next_bundle = load_round_bundle(round_number + 1)
+        if not current_bundle.get("available") or not next_bundle.get("available"):
+            continue
+        current_entry = _round_history_entry(current_bundle, round_number)
+        next_entry = _round_history_entry(next_bundle, round_number + 1)
+        findings = current_entry.get("scientific_findings") or []
+        rationale = next_entry.get("selection_rationale")
+        changed = (
+            next_entry.get("planned_changed_factors")
+            or next_entry.get("actual_changed_factors")
+            or []
+        )
+        delta_notes = next_entry.get("protocol_delta_notes") or []
+        new_findings = next_entry.get("scientific_findings") or []
+
+        changed_parts = []
+        if rationale:
+            changed_parts.append(_to_text(rationale, 220))
+        if changed:
+            changed_parts.append("改变：{}".format("；".join(str(item) for item in changed[:4])))
+        if delta_notes:
+            changed_parts.append("协议核对：{}".format("；".join(str(item) for item in delta_notes[:2])))
+        if not changed_parts:
+            changed_parts.append("尚未记录明确的决策差异")
+
+        rows.append(
+            "<tr>"
+            f"<td>{_esc(_summary_text('；'.join(str(item) for item in findings[:2])))}</td>"
+            f"<td>{_esc('；'.join(changed_parts))}</td>"
+            f"<td>{_esc(_summary_text('；'.join(str(item) for item in new_findings[:2])))}</td>"
+            "</tr>"
+        )
+    if not rows:
+        return '<p class="muted">尚无足够的相邻轮次用于跨轮概览。</p>'
+    header = "<tr><th>第一轮发现</th><th>因此改变什么</th><th>新一轮新证据</th></tr>"
+    return f"<table>{header}{''.join(rows)}</table>"
+
+
+def build_defense_summary_html() -> str:
+    """Build the compact six-item defense summary for all completed rounds."""
+
+    latest = current_round()
+    body = [_h2("答辩摘要 · 跨轮实验闭环")]
+    body.append(
+        '<p class="muted">本页只表达：检验谁、疑问来源、为什么选、实际怎么做、'
+        "得到什么、改变什么。完整指标、图与审计链保留在长报告中。</p>"
+    )
+    body.append(_h3("0. 跨轮概览"))
+    body.append(_cross_round_overview_html())
+
+    for round_number in range(1, latest + 1):
+        bundle = load_round_bundle(round_number)
+        if not bundle.get("available"):
+            continue
+        entry = _round_history_entry(bundle, round_number)
+        protocol = bundle.get("protocol", {})
+        evaluation = bundle.get("evaluation", {})
+        raw_mapping = _hypothesis_display_map(bundle)
+        tested = list(
+            dict.fromkeys(
+                entry.get("tested_hypotheses")
+                or protocol.get("tested_hypotheses")
+                or []
+            )
+        )
+        tested_labels = [_short_hypothesis_label(bundle, raw_mapping, str(item)) for item in tested]
+
+        source_parts = []
+        if entry.get("source_round_id") is not None:
+            source_parts.append(f"上一轮：第 {entry['source_round_id']} 轮")
+        source_findings = entry.get("source_findings")
+        if source_findings:
+            source_parts.append("发现：" + _to_text("；".join(str(item) for item in source_findings[:2]), 260))
+        uncertainties = entry.get("target_uncertainty_ids") or entry.get("target_uncertainties") or protocol.get("target_uncertainties") or []
+        if uncertainties:
+            source_parts.append("目标不确定性：" + "、".join(str(item) for item in uncertainties[:5]))
+        if not source_parts:
+            source_parts.append("首轮：问题与不确定性初始化，不依赖上一轮实验")
+
+        why_parts = []
+        rationale = entry.get("selection_rationale") or protocol.get("responded_prior_finding")
+        if rationale:
+            why_parts.append(_to_text(rationale, 260))
+        planned = entry.get("planned_changed_factors") or entry.get("actual_changed_factors") or []
+        if planned:
+            why_parts.append("改变因素：" + "；".join(str(item) for item in planned[:5]))
+        if entry.get("candidate_id"):
+            why_parts.append(f"候选：{entry['candidate_id']}")
+        if not why_parts:
+            why_parts.append("本轮无独立选择记录，需人工补充")
+
+        snapshot = entry.get("actual_config_snapshot") or {}
+        actual_parts = []
+        experiment_type = snapshot.get("experiment_type") or protocol.get("experiment_type") or entry.get("executed_experiment_id") or "--"
+        actual_parts.append(f"实验类型：{experiment_type}")
+        target = snapshot.get("target") or protocol.get("target")
+        if target:
+            actual_parts.append(f"目标：{target}")
+        horizon = snapshot.get("forecast_horizon_days")
+        if horizon is not None:
+            actual_parts.append(f"预测超前期：{int(horizon)} 天")
+        past_lag = snapshot.get("past_lag_days")
+        if past_lag is not None:
+            actual_parts.append(f"历史滞后：{int(past_lag)} 天")
+        window = snapshot.get("window_size")
+        if window is not None:
+            actual_parts.append(f"时间窗口：{int(window)} 天")
+        families = snapshot.get("model_families") or []
+        if families:
+            actual_parts.append("模型：" + "/".join(str(item) for item in families))
+        run_count = snapshot.get("run_count") or len(protocol.get("runs_spec") or [])
+        contrast_count = snapshot.get("contrast_count") or len(protocol.get("contrasts_spec") or [])
+        actual_parts.append(f"运行组数：{run_count or '--'}，对比数：{contrast_count or '--'}")
+        if entry.get("actual_changed_factors"):
+            actual_parts.append("实际执行：" + "；".join(str(item) for item in entry["actual_changed_factors"][:5]))
+        delta_notes = entry.get("protocol_delta_notes") or []
+        if delta_notes:
+            actual_parts.append("协议核对：" + "；".join(str(item) for item in delta_notes[:3]))
+
+        findings = entry.get("scientific_findings") or []
+        result_parts = [_to_text(str(item), 320) for item in findings[:3]] or ["本轮结果未落盘"]
+        assessments = evaluation.get("hypothesis_assessments") or []
+        if assessments:
+            result_parts.append(
+                "结构化判定：" + _to_text(
+                    [
+                        {
+                            "假设": item.get("hypothesis_id"),
+                            "分类": item.get("evidence_classification"),
+                            "标签": item.get("evidence_labels"),
+                            "更新": item.get("updated"),
+                        }
+                        for item in assessments[:3]
+                    ],
+                    320,
+                )
+            )
+
+        commit_decision = _latest_commit_decision(bundle, round_id=round_number)
+        decision_label = _commit_decision_label(commit_decision)
+        change_parts = []
+        if commit_decision and commit_decision.get("decision_type") == "terminate_workflow":
+            change_parts.append("停止工作流（人工或预算决定，不视为科学问题已解决）")
+        elif decision_label not in ("--",):
+            change_parts.append(decision_label)
+        elif entry.get("status") == "stopped":
+            change_parts.append("停止（人工或预算原因，不视为科学收敛）")
+        else:
+            change_parts.append("状态写入完成；依据证据分类决定是否调整支持度")
+        if entry.get("protocol_delta_notes"):
+            change_parts.append("计划与执行差异已记录，后续结论以编译后的实际参数为准")
+        if not change_parts:
+            change_parts.append("待人工决策")
+
+        body.append(_h3(f"第 {round_number} 轮"))
+        body.append(
+            '<table class="kv-table summary-table">'
+            f"<tr><th>检验谁</th><td>{_esc('、'.join(tested_labels) or '--')}</td></tr>"
+            f"<tr><th>疑问来源</th><td>{_esc('；'.join(source_parts))}</td></tr>"
+            f"<tr><th>为什么选</th><td>{_esc('；'.join(why_parts))}</td></tr>"
+            f"<tr><th>实际怎么做</th><td>{_esc('；'.join(actual_parts))}</td></tr>"
+            f"<tr><th>得到什么</th><td>{_esc('；'.join(result_parts))}</td></tr>"
+            f"<tr><th>改变什么</th><td>{_esc('；'.join(change_parts))}</td></tr>"
+            "</table>"
+        )
+    return _page_wrap("Shadow Tracing · 答辩摘要", "".join(body))
+
+
 def _chrome_candidates() -> list[Path]:
     candidates: list[Path] = []
     for env_var in ("CHROME_PATH", "CHROMIUM_PATH", "EDGE_PATH", "BROWSER_PATH"):
@@ -1891,6 +2093,8 @@ def render_report_pdf(html_text: str, file_name_stem: str) -> tuple[bytes | None
 def report_export_filename(scope: str, round_number: int | None = None) -> str:
     if scope == "all":
         return "ShadowTracing_All_Rounds_Report.pdf"
+    if scope == "summary":
+        return "ShadowTracing_Defense_Summary.pdf"
     return f"ShadowTracing_Round_{int(round_number or current_round()):02d}_Report.pdf"
 
 
@@ -1921,6 +2125,7 @@ table.kv-table { table-layout: auto; }
 table.kv-table th { width: 34%; background: transparent; color: #36567E; }
 table.kv-table th, table.kv-table td { border: none; border-bottom: 1px solid #E8E6DE; padding: 7px 8px; }
 table.kv-table tr:nth-child(even) td { background: transparent; }
+table.summary-table th { width: 96px; background: transparent; color: #36567E; font-size: 11.5px; }
 .llm-quote { background: #F4F3EE; border-left: 3px solid #C7A46A; padding: 10px 12px; margin: 10px 0; white-space: pre-wrap; border-radius: 0 8px 8px 0; }
 .quote-label { display: block; font-size: 11px; color: #8A764F; font-weight: 700; margin-bottom: 4px; }
 .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid currentColor; }

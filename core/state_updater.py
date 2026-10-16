@@ -8,6 +8,7 @@ from typing import Any
 
 from core.display_text_cleaner import clean_llm_text
 from core.json_safe import json_dumps
+from core.round_history_helpers import populate_cross_round_fields
 from core.state_repository import UnifiedStateRepository
 from core.support_update_rules import (
     EVIDENCE_INCONCLUSIVE,
@@ -1259,6 +1260,12 @@ class UnifiedStateUpdater:
         )
         entry.failure_reason = _clean(failure_reason) if failure_reason else None
         entry.metrics_snapshot = evaluation.metrics if evaluation is not None else None
+
+        previous_entry = next(
+            (item for item in state.entries if item.round_id == protocol.round_id - 1),
+            None,
+        )
+        populate_cross_round_fields(entry, protocol, previous_entry)
         entry.updated_at = now
 
         state.current_round = max(state.current_round, protocol.round_id)
