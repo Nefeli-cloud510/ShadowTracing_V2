@@ -1,0 +1,109 @@
+{
+  "task": "v4_flat_prediction_diagnosis",
+  "session_root": "D:\\ShadowTracing\\runtime\\live_session\\sessions\\session_20261016_235451_805278",
+  "data_files": {
+    "omni": "D:\\ShadowTracing\\runtime\\live_session\\sessions\\session_20261016_235451_805278\\data\\raw\\omni_2021_full_calendar_v3.csv",
+    "omni_sha256": "96a4afed6ab8948c6e23c3fcbe0d1ab5ef18d3682e249b2986bd79e3cb7ce45d",
+    "lhaaso": "D:\\ShadowTracing\\runtime\\live_session\\sessions\\session_20261016_235451_805278\\data\\raw\\lhaaso_shadow_pfss_2021_full_calendar_v3.csv",
+    "lhaaso_sha256": "d648ec1d1b9b37ace17abe055a72569022c8a68b093a5e8ed848ecbef5fa356e"
+  },
+  "split_label": "dev_backtest",
+  "phase_label": "迭代评估段（已反复查看，不是独立盲测）",
+  "test_start": "2021-08-26",
+  "test_end": "2021-09-29",
+  "horizon_days": 3,
+  "time_definition": "特征在 issue_date 时已可获得；目标 = issue_date + 3 日历天；C 方案复发特征 = target_date - 27 天",
+  "method": "同一冻结日历样本与同一 time-series folds；Ridge/ElasticNet 各自训练内网格选参，scaler 仅在每折训练部分拟合；另加无惩罚 LinearRegression 参照。35 天结果只按 dev_backtest 报告。",
+  "feature_variants": {
+    "A": {
+      "label": "A_3d_raw",
+      "description": "最近3日历天原始风速",
+      "columns": [
+        "vsw_lag0",
+        "vsw_lag1",
+        "vsw_lag2"
+      ]
+    },
+    "B": {
+      "label": "B_3d_plus_7d_shape",
+      "description": "最近3天 + 过去7天形态（均值/波动/趋势）",
+      "columns": [
+        "vsw_lag0",
+        "vsw_lag1",
+        "vsw_lag2",
+        "vsw_mean7",
+        "vsw_std7",
+        "vsw_trend7"
+      ]
+    },
+    "C": {
+      "label": "C_3d_plus_27d_recur",
+      "description": "最近3天 + 目标日前27天重现风速",
+      "columns": [
+        "vsw_lag0",
+        "vsw_lag1",
+        "vsw_lag2",
+        "vsw_recur_target_minus_27d"
+      ]
+    }
+  },
+  "alpha_grid": [
+    0.0001,
+    0.001,
+    0.01,
+    0.1,
+    1.0,
+    10.0,
+    100.0,
+    1000.0
+  ],
+  "l1_ratio_grid": [
+    0.1,
+    0.3,
+    0.5,
+    0.7,
+    0.9
+  ],
+  "common_sample": {
+    "retained_count": 158,
+    "train_count": 120,
+    "test_count": 35,
+    "boundary_excluded_count": 3,
+    "first_issue": "2021-04-14",
+    "last_issue": "2021-09-29"
+  },
+  "bootstrap": {
+    "block_size": 7,
+    "n_draws": 4000,
+    "seed": 20261017,
+    "min_blocks": 2
+  },
+  "conclusion_hints": [
+    "A/ridge: RMSE CI 跨零（未检出稳定增益）",
+    "A/elasticnet: RMSE CI 跨零（未检出稳定增益）",
+    "A/linear_unpenalized: RMSE CI 跨零（未检出稳定增益）",
+    "B/ridge: RMSE CI 跨零（未检出稳定增益）",
+    "B/elasticnet: RMSE CI 跨零（未检出稳定增益）",
+    "B/linear_unpenalized: RMSE CI 跨零（未检出稳定增益）",
+    "C/ridge: RMSE CI 跨零（未检出稳定增益）",
+    "C/elasticnet: RMSE CI 跨零（未检出稳定增益）",
+    "C/linear_unpenalized: RMSE CI 跨零（未检出稳定增益）"
+  ],
+  "summary_files": [
+    "common_sample_audit.csv",
+    "parameter_summary.csv",
+    "segmented_metrics.csv",
+    "parameter_curves.csv",
+    "param_search_all.csv",
+    "cv_fold_metrics.csv",
+    "daily_predictions.csv",
+    "coefficients.csv",
+    "simple_baselines.csv",
+    "eval_comparison.csv",
+    "gain_ci.csv",
+    "parameter_curves.png",
+    "eval_comparison.png",
+    "gain_ci.png"
+  ],
+  "expected_caveat": "dev_backtest 上任何改善都只能支持继续设计区分性实验，不能作为独立最终测试成绩。"
+}

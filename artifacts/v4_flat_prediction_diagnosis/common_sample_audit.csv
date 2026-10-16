@@ -1,0 +1,4 @@
+﻿scheme,candidate_count,retained_with_shadow,dropped_count,retained_common_after_all_schemes,drop_reasons
+A,196,177,19,158,"{""feature_missing"": 16, ""retained"": 177, ""target_unavailable"": 3}"
+B,196,173,23,158,"{""feature_missing"": 20, ""retained"": 173, ""target_unavailable"": 3}"
+C,196,158,38,158,"{""feature_missing"": 35, ""retained"": 158, ""target_unavailable"": 3}"
