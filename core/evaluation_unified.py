@@ -7,6 +7,7 @@ from pathlib import Path
 from core.support_update_rules import (
     EVIDENCE_CLASSIFICATION_LABELS,
     EVIDENCE_INCONCLUSIVE,
+    EVIDENCE_IDENTICAL_PREDICTIONS,
     EVIDENCE_INVALID,
     EVIDENCE_NO_STABLE_GAIN,
     EVIDENCE_NOT_EXECUTED,
@@ -18,6 +19,7 @@ from core.support_update_rules import (
 )
 from core.robustness_diagnostics import summary_to_robustness_report
 from core.hypothesis_identity import CANONICAL_HYPOTHESIS_IDS
+from core.json_safe import json_dumps
 from core.unified_schema import (
     BootstrapReport,
     ConclusionDataLayer,
@@ -152,6 +154,18 @@ def build_minimal_scientific_evaluation(
                 source="experiment_result.validity_status",
             )
         )
+    elif classification == EVIDENCE_IDENTICAL_PREDICTIONS:
+        evidence_for.append(
+            EvidenceClaim(
+                claim=(
+                    "两组预测完全一致（RMSE 增益 CI=[0,0]），"
+                    "未检出任何预测差异；该结果不能直接证明日影无物理作用，"
+                    "需先核查特征是否真正进入模型或系数是否被压缩为零。"
+                ),
+                strength="medium",
+                source="experiment_result.robustness.bootstrap.rmse_ci",
+            )
+        )
     else:
         evidence_for.append(
             EvidenceClaim(
@@ -168,6 +182,24 @@ def build_minimal_scientific_evaluation(
         for hypothesis_id in protocol.tested_hypotheses:
             prediction = protocol.hypothesis_predictions.get(hypothesis_id)
             if prediction is not None:
+                metric = _normalize_metric(prediction.metric)
+                metric_delta = (
+                    _metric_delta_from_result(result, metric)
+                    if metric is not None
+                    else None
+                )
+                metric_ci = (
+                    _metric_ci_from_result(result, metric)
+                    if metric is not None
+                    else None
+                )
+                # 预期区间只允许与同指标的实际增量比较；metric 缺失或取不到
+                # 对应数值时不得拿 RMSE 套用，避免量纲混用。
+                comparable_range = (
+                    prediction.expected_range
+                    if metric is not None and metric_delta is not None
+                    else None
+                )
                 outcome = compute_support_update_from_evidence(
                     current_support=min(
                         max((prior_supports or {}).get(hypothesis_id, 0.5), 0.05),
@@ -176,8 +208,8 @@ def build_minimal_scientific_evaluation(
                     evidence_classification=classification,
                     evidence_labels=evidence.labels,
                     expected_effect=prediction.expected_effect,
-                    expected_range=prediction.expected_range,
-                    observed_delta=rmse_delta,
+                    expected_range=comparable_range,
+                    observed_delta=metric_delta if metric is not None else None,
                 )
                 assessments.append(
                     HypothesisAssessment(
@@ -190,26 +222,28 @@ def build_minimal_scientific_evaluation(
                         reason=_assessment_reason(
                             hypothesis_id,
                             prediction,
-                            observed_delta,
+                            metric_delta,
                             outcome.direction_matched,
                             outcome.magnitude_matched,
                             evidence_classification=classification,
-                            metric_ci=rmse_ci,
+                            metric=metric,
+                            metric_ci=metric_ci,
                         ),
-                        metric="rmse",
-                        observed_metric_delta=rmse_delta,
-                        metric_ci=rmse_ci,
+                        metric=metric or "unknown",
+                        observed_metric_delta=metric_delta,
+                        metric_ci=metric_ci,
                         evidence_classification=classification,
                         evidence_labels=evidence.labels,
                         updated=outcome.updated,
                     )
                 )
             display_label = _display_hypothesis_label(hypothesis_id)
-            target_list = (
-                evidence_for
-                if classification == EVIDENCE_STABLE_IMPROVEMENT
-                else evidence_against
-            )
+            if classification == EVIDENCE_STABLE_IMPROVEMENT:
+                target_list = evidence_for
+            elif classification == EVIDENCE_STABLE_DEGRADATION:
+                target_list = evidence_against
+            else:
+                target_list = evidence_for
             target_list.append(
                 EvidenceClaim(
                     claim=(
@@ -316,7 +350,7 @@ def evaluate_experiment(
 def export_evaluation_result(evaluation: EvaluationResult, file_path: Path) -> None:
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(
-        json.dumps(evaluation.model_dump(mode="json", exclude_none=True), ensure_ascii=False, indent=2),
+        json_dumps(evaluation.model_dump(mode="json", exclude_none=True), indent=2),
         encoding="utf-8",
     )
 
@@ -374,6 +408,11 @@ def _hypothesis_layer_conclusion(
     observed_metric_delta: float | None = None,
 ) -> str:
     display_label = _display_hypothesis_label(hypothesis_id)
+    if evidence_classification == EVIDENCE_IDENTICAL_PREDICTIONS:
+        return (
+            f"{display_label} 本轮两组预测完全一致（CI=[0,0]），"
+            "未检出预测差异，不支持度判定；需先核查特征是否真正参与模型。"
+        )
     if evidence_classification in {EVIDENCE_INCONCLUSIVE, EVIDENCE_NO_STABLE_GAIN}:
         return (
             f"{display_label} 主指标证据不足以稳定判定方向"
@@ -419,7 +458,7 @@ def _build_three_layer_conclusion(
         if first_assessment is not None
         else None
     )
-    metric_ci = first_assessment.metric_ci if first_assessment is not None else None
+    rmse_ci = _rmse_ci_from_result(result)
     evidence_labels = (
         first_assessment.evidence_labels if first_assessment is not None else []
     )
@@ -457,13 +496,18 @@ def _build_three_layer_conclusion(
         predicted_range = prediction.expected_range if prediction is not None else None
         direction_matched = assessment.direction_matched if assessment is not None else None
         magnitude_matched = assessment.magnitude_matched if assessment is not None else None
+        actual_delta = (
+            assessment.observed_metric_delta
+            if assessment is not None
+            else None
+        )
         hypothesis_rows.append(
             ConclusionHypothesisRow(
                 hypothesis_id=hypothesis_id,
                 statement=_display_hypothesis_label(hypothesis_id),
                 predicted_direction=predicted_direction,
                 predicted_range=predicted_range,
-                actual_delta=observed_delta,
+                actual_delta=actual_delta,
                 direction_matched=direction_matched,
                 magnitude_matched=magnitude_matched,
                 conclusion=_hypothesis_layer_conclusion(
@@ -471,13 +515,17 @@ def _build_three_layer_conclusion(
                     direction_matched,
                     magnitude_matched,
                     predicted_direction,
-                    observed_delta,
+                    actual_delta,
                     evidence_classification=(
                         assessment.evidence_classification
                         if assessment is not None
                         else evidence_classification
                     ),
-                    metric_ci=assessment.metric_ci if assessment is not None else metric_ci,
+                    metric_ci=(
+                        assessment.metric_ci
+                        if assessment is not None
+                        else None
+                    ),
                 ),
                 support_after=assessment.support_after if assessment is not None else None,
             )
@@ -491,6 +539,13 @@ def _build_three_layer_conclusion(
         )
     elif evidence_classification == EVIDENCE_STABLE_DEGRADATION:
         answer = "暂不能。本轮检测到稳定负向 RMSE 增量，前置探针假设当前未获得支持。"
+    elif evidence_classification == EVIDENCE_IDENTICAL_PREDICTIONS:
+        answer = (
+            "本轮暂无法回答：两组预测完全一致（RMSE 增益 CI=[0,0]），"
+            "未检出任何预测差异。该结果不构成“日影无物理作用”的证据，"
+            "需先核查特征是否真正进入模型、系数是否被压缩为零，"
+            "或对照组与实验组是否意外使用了相同信息。"
+        )
     elif evidence_classification in {EVIDENCE_INCONCLUSIVE, EVIDENCE_NO_STABLE_GAIN}:
         answer = (
             f"尚不能明确判断：点估计为 {observed_delta:+.4f}，"
@@ -510,6 +565,7 @@ def _build_three_layer_conclusion(
 
     path_question = "该增量信息通过什么物理路径传递？"
     if evidence_classification in {
+        EVIDENCE_IDENTICAL_PREDICTIONS,
         EVIDENCE_INCONCLUSIVE,
         EVIDENCE_NO_STABLE_GAIN,
         EVIDENCE_INVALID,
@@ -539,6 +595,8 @@ def _build_three_layer_conclusion(
         evidence_text = "Pearson r 未取得"
     if baseline_rmse is not None and treatment_rmse is not None:
         evidence_text += f"，RMSE {baseline_rmse:.3f} → {treatment_rmse:.3f}"
+    if evidence_classification == EVIDENCE_IDENTICAL_PREDICTIONS:
+        evidence_text += "，两组预测指标完全一致、未检出预测差异"
     evidence_text += f"，预测超前 {horizon} 天"
 
     return ThreeLayerConclusion(
@@ -580,7 +638,7 @@ def _build_three_layer_conclusion(
             treatment_pearson_r=treatment_pearson_r,
             skill_delta=skill_delta,
             observed_delta=observed_delta,
-            rmse_ci=metric_ci,
+            rmse_ci=rmse_ci,
             evidence_classification=evidence_classification,
             evidence_labels=evidence_labels,
         ),
@@ -620,6 +678,19 @@ def _build_default_data_layer(
             f"RMSE 由 {baseline_rmse:.4f} 变化至 {treatment_rmse:.4f}，"
             f"ΔRMSE={baseline_rmse - treatment_rmse:+.4f}。"
         )
+        if (
+            evidence_classification == EVIDENCE_IDENTICAL_PREDICTIONS
+            and rmse_ci
+            and len(rmse_ci) >= 2
+            and float(rmse_ci[0]) == 0.0
+            and float(rmse_ci[1]) == 0.0
+        ):
+            rmse_text += (
+                "两组预测完全一致（bootstrap RMSE 增益 CI=[0,0]），"
+                "当前未检出任何预测差异；"
+                "这不代表日影没有物理作用，需核查特征是否实际参与模型、"
+                "系数是否被压缩为零。"
+            )
         if rmse_ci:
             rmse_text += (
                 f"bootstrap RMSE 增益 95% CI=[{rmse_ci[0]:+.4f}, {rmse_ci[1]:+.4f}]，"
@@ -674,31 +745,114 @@ def _build_default_data_layer(
 
 
 def _get_run(result: ExperimentResult, run_name: str):
+    expected = str(run_name or "").strip().lower()
     for run in result.runs:
-        if run.name == run_name:
+        if str(run.run_id or "").strip().lower() == expected:
+            return run
+        if str(run.name or "").strip().lower() == expected:
             return run
     return None
 
 
-def _rmse_ci_from_result(result: ExperimentResult) -> list[float] | None:
+_METRIC_ALIASES = {
+    "rmse": "rmse",
+    "root_mean_squared_error": "rmse",
+    "mae": "mae",
+    "mean_absolute_error": "mae",
+    "pearson_r": "pearson_r",
+    "pearson": "pearson_r",
+    "r": "pearson_r",
+    "r2": "r2",
+    "r_squared": "r2",
+    "skill": "skill",
+    "sst": "skill",
+}
+
+
+def _normalize_metric(metric: str | None) -> str | None:
+    if metric is None:
+        return None
+    normalized = str(metric).strip().lower().replace("-", "_").replace(" ", "_")
+    return _METRIC_ALIASES.get(normalized)
+
+
+def _metric_label(metric: str | None) -> str:
+    return {
+        "rmse": "RMSE",
+        "mae": "MAE",
+        "pearson_r": "Pearson r",
+        "r2": "R2",
+        "skill": "Skill",
+    }.get(_normalize_metric(metric) or "", "对应指标")
+
+
+def _is_finite_number(value: float) -> bool:
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _valid_ci(ci) -> bool:
+    if not ci or len(ci) < 2:
+        return False
+    try:
+        lower, upper = float(ci[0]), float(ci[1])
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(lower) and math.isfinite(upper)
+
+
+def _metric_delta_from_result(
+    result: ExperimentResult,
+    metric: str | None,
+) -> float | None:
+    normalized = _normalize_metric(metric)
+    if normalized is None:
+        return None
+    comparison = result.comparison
+    if comparison is None:
+        return None
+    value = getattr(comparison, normalized, None)
+    if value is None or not _is_finite_number(value):
+        return None
+    return float(value)
+
+
+def _metric_ci_from_result(
+    result: ExperimentResult,
+    metric: str | None,
+) -> list[float] | None:
+    normalized = _normalize_metric(metric)
+    if normalized is None:
+        return None
+    field = f"{normalized}_ci"
     bootstrap = result.robustness.bootstrap if result.robustness is not None else None
-    if bootstrap is not None and bootstrap.rmse_ci and len(bootstrap.rmse_ci) >= 2:
-        return bootstrap.rmse_ci[:2]
+    if bootstrap is not None:
+        ci = getattr(bootstrap, field, None)
+        if _valid_ci(ci):
+            return [float(ci[0]), float(ci[1])]
     for contrast in result.contrasts:
-        if contrast.bootstrap_ci is not None and contrast.bootstrap_ci.rmse_ci:
-            ci = contrast.bootstrap_ci.rmse_ci
-            if len(ci) >= 2:
-                return ci[:2]
+        if contrast.bootstrap_ci is None:
+            continue
+        ci = getattr(contrast.bootstrap_ci, field, None)
+        if _valid_ci(ci):
+            return [float(ci[0]), float(ci[1])]
     return None
+
+
+def _rmse_ci_from_result(result: ExperimentResult) -> list[float] | None:
+    return _metric_ci_from_result(result, "rmse")
 
 
 def _assessment_reason(
     hypothesis_id: str,
     prediction: HypothesisPrediction | None,
-    observed_delta: float,
+    observed_delta: float | None,
     direction_matched: bool | str,
     magnitude_matched: bool | str,
     evidence_classification: str | None = None,
+    metric: str | None = None,
     metric_ci: list[float] | None = None,
 ) -> str:
     display_label = _display_hypothesis_label(hypothesis_id)
@@ -706,11 +860,24 @@ def _assessment_reason(
         evidence_classification,
         "未取得明确证据分类",
     )
-    ci_text = (
-        f"bootstrap RMSE 增益 95% CI=[{metric_ci[0]:+.4f}, {metric_ci[1]:+.4f}]"
-        if metric_ci and len(metric_ci) >= 2
-        else "未取得 bootstrap CI"
-    )
+    metric_text = _metric_label(metric)
+    if _valid_ci(metric_ci):
+        ci_text = (
+            f"{metric_text} 指标 bootstrap 95% CI="
+            f"[{metric_ci[0]:+.4f}, {metric_ci[1]:+.4f}]"
+        )
+    elif metric is not None:
+        ci_text = f"未取得 {metric_text} 指标的 bootstrap CI"
+    else:
+        ci_text = "未取得对应指标的 bootstrap CI"
+    if observed_delta is None:
+        delta_text = (
+            f"未取得 {metric_text} 指标的观测增量"
+            if metric is not None
+            else "未取得对应指标的观测增量"
+        )
+    else:
+        delta_text = f"观测到的 {metric_text} 指标增量为 {observed_delta:+.4f}"
     if prediction is None:
         return (
             f"{display_label} 缺少结构化预测范围；{ci_text}，"
@@ -718,10 +885,10 @@ def _assessment_reason(
         )
     return (
         f"{display_label} 预期效应为 {prediction.expected_effect}，"
-        f"观测到的增量为 {observed_delta:.4f}；"
+        f"{delta_text}；"
         f"方向匹配情况为{_matched_label(direction_matched)}，"
         f"幅度匹配情况为{_matched_label(magnitude_matched)}；"
-        f"{ci_text}，证据分类为{classification_text}。"
+        f"{ci_text}，实验主证据分类为{classification_text}。"
     )
 
 
@@ -858,11 +1025,20 @@ def _posterior_information_gain_audit(
     ]
     if len(ranged) < 2:
         return dict(empty)
-    audit_metric = ranged[0][1].metric or "skill"
+    audit_metrics = {
+        _normalize_metric(prediction.metric)
+        for _, prediction in ranged
+    }
+    if any(metric is None for metric in audit_metrics) or len(audit_metrics) != 1:
+        # 区间所属指标缺失或混用单位时，不做正常似然审计，避免量纲混排。
+        return dict(empty)
+    audit_metric = next(iter(audit_metrics))
     observed_delta = _audit_delta_from_comparison(
         result.comparison,
         audit_metric,
     )
+    if observed_delta is None:
+        return dict(empty)
     if prior_supports:
         raw_priors = [prior_supports.get(hypothesis_id, 0.5) for hypothesis_id, _ in ranged]
     else:
@@ -897,17 +1073,14 @@ def _posterior_information_gain_audit(
 def _audit_delta_from_comparison(
     comparison,
     metric: str | None,
-) -> float:
-    normalized = (metric or "").lower().replace("-", "_").replace(" ", "_")
-    if normalized in {"skill", "sst"}:
-        return comparison.skill if comparison.skill is not None else 0.0
-    if normalized in {"pearson_r", "pearson", "r"}:
-        return (
-            comparison.pearson_r
-            if comparison.pearson_r is not None
-            else 0.0
-        )
-    return comparison.rmse if comparison.rmse is not None else 0.0
+) -> float | None:
+    normalized = _normalize_metric(metric)
+    if normalized is None or comparison is None:
+        return None
+    value = getattr(comparison, normalized, None)
+    if value is None or not _is_finite_number(value):
+        return None
+    return float(value)
 
 
 def _normal_density_value(x: float, mean: float, sigma: float) -> float:

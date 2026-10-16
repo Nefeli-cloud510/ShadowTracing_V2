@@ -1,0 +1,1 @@
+LHAASO DeltaDec may provide early information about heliospheric structure. A key uncertainty is whether the predictive gain on Vsw is independent of By or mostly mediated by IMF-related variables.

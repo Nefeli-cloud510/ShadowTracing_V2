@@ -227,12 +227,18 @@ class PredictionRecord(ShadowBaseModel):
 class SupportHistoryEntry(ShadowBaseModel):
     round: int = Field(ge=0)
     score: float = Field(ge=0.0, le=1.0)
+    support_before: float | None = Field(default=None, ge=0.0, le=1.0)
+    support_delta: float | None = None
     event: str = Field(min_length=1)
+    evidence_source: Literal["advisory", "experimental", "human"] | None = None
     experiment_id: str | None = None
     run_id: str | None = None
     contrast_id: str | None = None
     evidence_version: str | None = None
     evidence_key: str | None = None
+    evidence_identity: str | None = None
+    evidence_classification: str | None = None
+    direction_matched: bool | str | None = None
 
 
 class HypothesisSourceSignal(ShadowBaseModel):
@@ -524,6 +530,30 @@ class CandidateExperiment(ShadowBaseModel):
     utility_score: float | None = Field(default=None, ge=0.0, le=1.0)
     requires_human_review: bool = False
     novelty: str | None = None
+    responded_prior_finding: str | None = Field(
+        default=None,
+        description="本轮实验所回应的上一轮发现；没有历史实验时可为当前不确定性说明",
+    )
+    target_uncertainty_focus: str | None = Field(
+        default=None,
+        description="本轮实验试图解决的科学不确定性",
+    )
+    changed_factors: list[str] = Field(
+        default_factory=list,
+        description="相对上一轮实验改变的因素（模型家族、特征集、超前天数、历史长度等）",
+    )
+    held_fixed_factors: list[str] = Field(
+        default_factory=list,
+        description="相对上一轮实验保持固定的条件",
+    )
+    expected_outcome_branches: dict[str, str] = Field(
+        default_factory=dict,
+        description="不同结果对应下一步的预登记判断",
+    )
+    exploratory: bool = Field(
+        default=False,
+        description="同时改变多个因素时标记为探索性实验，不做单因素归因",
+    )
 
     @model_validator(mode="after")
     def resolve_experiment_type(self) -> "CandidateExperiment":
@@ -620,6 +650,7 @@ class RunSpec(ShadowBaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
     retrain: bool = True
     source_experiment_id: str | None = None
+    source_execution_id: str | None = None
     source_prediction_file: str | None = None
 
 
@@ -687,6 +718,30 @@ class ExperimentProtocol(ShadowBaseModel):
     status: ExperimentLifecycleStatus = "proposed"
     requires_human_review: bool = False
     notes: list[str] = Field(default_factory=list)
+    responded_prior_finding: str | None = Field(
+        default=None,
+        description="协议所回应的上一轮发现",
+    )
+    target_uncertainty_focus: str | None = Field(
+        default=None,
+        description="协议试图解决的科学不确定性",
+    )
+    changed_factors: list[str] = Field(
+        default_factory=list,
+        description="相对上一轮实验改变的因素",
+    )
+    held_fixed_factors: list[str] = Field(
+        default_factory=list,
+        description="相对上一轮实验保持固定的条件",
+    )
+    expected_outcome_branches: dict[str, str] = Field(
+        default_factory=dict,
+        description="不同结果对应下一步的预登记判断",
+    )
+    exploratory: bool = Field(
+        default=False,
+        description="是否标记为探索性实验",
+    )
 
 
 class RunMetrics(ShadowBaseModel):
@@ -695,6 +750,10 @@ class RunMetrics(ShadowBaseModel):
     pearson_r: float | None = None
     skill: float | None = None
     r2: float | None = None
+    unavailable_reasons: dict[str, str] = Field(
+        default_factory=dict,
+        description="按指标名记录不可计算的原因，如 constant_prediction",
+    )
 
 
 class ExperimentRun(ShadowBaseModel):
@@ -836,6 +895,12 @@ class BootstrapReport(ShadowBaseModel):
     n_iterations: int | None = Field(default=None, ge=0)
     status: str | None = Field(default=None, description="completed / not_run / failed")
     block_size: int | None = Field(default=None, ge=1)
+    n_nonempty_blocks: int | None = Field(default=None, ge=0)
+    min_blocks: int | None = Field(default=None, ge=1)
+    insufficient_blocks: bool = Field(
+        default=False,
+        description="有效日历块数低于预登记最小块数，不能作出方向性稳定结论",
+    )
     seed: int | None = None
     point_gain_rmse: float | None = None
     point_gain_mae: float | None = None
@@ -844,15 +909,29 @@ class BootstrapReport(ShadowBaseModel):
 
 class TimeSliceFold(ShadowBaseModel):
     fold: int = Field(ge=1)
+    segment: str | None = None
+    date_start: str | None = None
+    date_end: str | None = None
+    n_samples: int | None = Field(default=None, ge=0)
     pearson_r: float | None = None
     rmse: float | None = None
     skill: float | None = None
+    baseline_rmse: float | None = None
+    treatment_rmse: float | None = None
+    baseline_bias: float | None = None
+    treatment_bias: float | None = None
 
 
 class TimeSliceReport(ShadowBaseModel):
     splits: list[TimeSliceFold] = Field(default_factory=list)
     std_pearson_r: float | None = None
     stable: bool
+    status: str | None = Field(
+        default=None,
+        description="not_run / descriptive / stable / inconclusive",
+    )
+    reason: str | None = None
+    metric: str | None = None
 
 
 class RobustnessOverall(ShadowBaseModel):
@@ -924,6 +1003,21 @@ class ConclusionExperimentLayer(ShadowBaseModel):
     runs: list[ExperimentRun] = Field(default_factory=list)
     contrasts: list[ExperimentContrast] = Field(default_factory=list)
     diagnostics: list[ExperimentDiagnostic] = Field(default_factory=list)
+    model_sensitivity_families: list[ModelSensitivityFamilyEvidence] = Field(default_factory=list)
+
+
+class ModelSensitivityFamilyEvidence(ShadowBaseModel):
+    """One model family's shadow-gain point estimate, CI and conservative verdict."""
+
+    family: str = Field(min_length=1)
+    contrast_id: str | None = None
+    point_gain_rmse: float | None = None
+    point_gain_pearson_r: float | None = None
+    rmse_ci: list[float] | None = None
+    pearson_ci: list[float] | None = None
+    crosses_zero: bool | None = None
+    evaluation: str = Field(min_length=1)
+    evaluation_label: str | None = None
 
 
 class ConclusionHypothesisRow(ShadowBaseModel):
@@ -945,6 +1039,7 @@ class ConclusionScientificLayer(ShadowBaseModel):
     path_question: str | None = None
     path_answer: str | None = None
     evidence_text: str | None = None
+    interpretation_source: str = "program_fallback"
 
 
 class ConclusionChartAnalysis(ShadowBaseModel):
@@ -982,6 +1077,7 @@ class ConclusionDataLayer(ShadowBaseModel):
     next_focus: str | None = None
     chart_analyses: list[ConclusionChartAnalysis] = Field(default_factory=list)
     comparison_analysis: str | None = None
+    interpretation_source: str = "program_fallback"
 
 
 class ConclusionTrackingLayer(ShadowBaseModel):

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
+from core.json_safe import json_dumps
 
 
 class RoundManager:
@@ -15,7 +16,7 @@ class RoundManager:
     def save_round(self, result: dict) -> None:
         self.rounds.append(result)
         self.summary_path.write_text(
-            json.dumps({"rounds": self.rounds}, ensure_ascii=False, indent=2),
+            json_dumps({"rounds": self.rounds}, indent=2),
             encoding="utf-8",
         )
 

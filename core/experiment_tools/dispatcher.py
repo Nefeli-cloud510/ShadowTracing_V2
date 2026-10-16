@@ -6,6 +6,7 @@ import hashlib
 import json
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -29,7 +30,16 @@ from core.unified_schema import (
     ExperimentResult,
     ExperimentRun,
     RunSpec,
+    TimeSliceFold,
+    TimeSliceReport,
 )
+
+
+class _PredictionCandidate(NamedTuple):
+    path: Path
+    kind: str
+    execution_id: str | None = None
+    matched_ids: tuple[str, ...] = ()
 
 
 class ExperimentDispatcher:
@@ -161,17 +171,58 @@ class ExperimentDispatcher:
         robustness = summary_to_robustness_report(bootstrap_summary)
 
         if "time_segments" in normalized_specs:
+            time_segment_payload = self._time_segment_diagnostics(
+                base_frame,
+                treat_frame,
+            )
             diagnostics.append(
                 ExperimentDiagnostic(
                     diagnostic_id="time_segments",
                     name=normalized_specs["time_segments"].name,
                     source_run_ids=list(run_ids),
-                    structured=self._time_segment_diagnostics(
-                        base_frame,
-                        treat_frame,
-                    ),
+                    structured=time_segment_payload,
                     status="completed",
                 )
+            )
+            time_slice = TimeSliceReport(
+                splits=[
+                    TimeSliceFold(
+                        fold=index + 1,
+                        segment=segment.get("segment"),
+                        date_start=segment.get("date_start"),
+                        date_end=segment.get("date_end"),
+                        n_samples=segment.get("n_samples"),
+                        baseline_rmse=segment.get("baseline_rmse"),
+                        treatment_rmse=segment.get("treatment_rmse"),
+                        baseline_bias=segment.get("baseline_bias"),
+                        treatment_bias=segment.get("treatment_bias"),
+                    )
+                    for index, segment in enumerate(
+                        time_segment_payload.get("segments") or []
+                    )
+                ],
+                stable=False,
+                status="descriptive",
+                metric="RMSE",
+                reason="已执行 early/middle/late 描述性诊断，未按预登记规则作稳定性判定",
+            )
+            recommendation = robustness.recommendation or ""
+            stale_phrase = "未运行分时段检验，不据此作分时段稳定性结论。"
+            if stale_phrase in recommendation:
+                recommendation = recommendation.replace(
+                    stale_phrase,
+                    "已执行描述性分时段诊断，未按预登记规则作稳定性判定。",
+                )
+            else:
+                recommendation = (
+                    recommendation.rstrip("。；")
+                    + "；已执行描述性分时段诊断，未按预登记规则作稳定性判定。"
+                )
+            robustness = robustness.model_copy(
+                update={
+                    "time_slice": time_slice,
+                    "recommendation": recommendation,
+                }
             )
         if "residual_diagnostics" in normalized_specs:
             diagnostics.append(
@@ -204,6 +255,9 @@ class ExperimentDispatcher:
                     "source_experiment_id": source_meta["frames"][0][
                         "source_experiment_id"
                     ],
+                    "source_execution_id": source_meta["frames"][0].get(
+                        "source_execution_id"
+                    ),
                     "source_round_id": source_meta["frames"][0]["source_round_id"],
                     "source_run_id": source_meta["frames"][0].get("source_run_id"),
                     "prediction_artifact_hash": source_meta["frames"][0][
@@ -227,6 +281,9 @@ class ExperimentDispatcher:
                     "source_experiment_id": source_meta["frames"][1][
                         "source_experiment_id"
                     ],
+                    "source_execution_id": source_meta["frames"][1].get(
+                        "source_execution_id"
+                    ),
                     "source_round_id": source_meta["frames"][1]["source_round_id"],
                     "source_run_id": source_meta["frames"][1].get("source_run_id"),
                     "prediction_artifact_hash": source_meta["frames"][1][
@@ -332,6 +389,8 @@ class ExperimentDispatcher:
                 ref.update(run_spec.parameters)
                 if run_spec.source_experiment_id:
                     ref["source_experiment_id"] = run_spec.source_experiment_id
+                if run_spec.source_execution_id:
+                    ref["source_execution_id"] = run_spec.source_execution_id
                 if run_spec.source_prediction_file:
                     ref["source_prediction_file"] = run_spec.source_prediction_file
             ref["_run_id"] = run_id
@@ -384,11 +443,24 @@ class ExperimentDispatcher:
         return frame, {
             "path": str(path.resolve()),
             "source_experiment_id": source_experiment_id,
+            "source_execution_id": ref.get("source_execution_id")
+            or self._execution_id_from_path(path),
             "source_round_id": source_round_id,
             "source_run_id": ref.get("source_run_id"),
             "prediction_artifact_hash": self._file_sha256(path),
             "run_id": str(ref.get("_run_id") or ""),
         }
+
+    @staticmethod
+    def _execution_id_from_path(path: Path) -> str | None:
+        parts = path.resolve().parts
+        try:
+            index = parts.index("archive")
+        except ValueError:
+            return None
+        if index + 1 < len(parts):
+            return parts[index + 1]
+        return None
 
     @staticmethod
     def _read_prediction_file(path: Path, ref: dict) -> pd.DataFrame:
@@ -440,30 +512,27 @@ class ExperimentDispatcher:
         source_round_id: int,
     ) -> tuple[Path, pd.DataFrame]:
         for round_dir in self._round_dirs(protocol, source_round_id):
-            candidates = self._direct_prediction_candidates(
-                round_dir,
-                source_experiment_id,
-                ref,
-            )
-            candidates.extend(
-                self._archive_prediction_candidates(
+            candidates = [
+                *self._direct_prediction_candidates(
                     round_dir,
                     source_experiment_id,
                     ref,
-                )
-            )
-            existing = [path for path in candidates if path.exists()]
+                ),
+                *self._archive_prediction_candidates(
+                    round_dir,
+                    source_experiment_id,
+                    ref,
+                ),
+            ]
+            existing = [candidate for candidate in candidates if candidate.path.exists()]
             if not existing:
                 continue
-            if len(existing) > 1:
-                raise ValueError(
-                    "来源实验定位存在歧义，匹配到多个预测文件："
-                    + "；".join(str(path) for path in existing)
-                    + "。请用 source_round_id / source_run_id / "
-                    "prediction_artifact_hash 精确指定。"
-                )
-            path = existing[0]
-            return path, self._read_prediction_file(path, ref)
+            candidate = self._resolve_unique_prediction_candidate(
+                existing,
+                round_dir,
+                ref,
+            )
+            return candidate.path, self._read_prediction_file(candidate.path, ref)
         raise FileNotFoundError(
             f"robustness_diagnostic 找不到来源实验 {source_experiment_id!r} 的预测文件"
             f"（source_round_id={source_round_id or protocol.round_id}），"
@@ -491,7 +560,7 @@ class ExperimentDispatcher:
         round_dir: Path,
         source_experiment_id: str,
         ref: dict,
-    ) -> list[Path]:
+    ) -> list[_PredictionCandidate]:
         names = list(
             dict.fromkeys(
                 str(item)
@@ -517,18 +586,21 @@ class ExperimentDispatcher:
                     round_dir / f"{source_experiment_id}_{name}.csv",
                 ]
             )
-        return candidates
+        return [
+            _PredictionCandidate(path=path, kind="direct")
+            for path in candidates
+        ]
 
     def _archive_prediction_candidates(
         self,
         round_dir: Path,
         source_experiment_id: str,
         ref: dict,
-    ) -> list[Path]:
+    ) -> list[_PredictionCandidate]:
         archive_root = round_dir / "archive"
         if not archive_root.exists():
             return []
-        matches: list[Path] = []
+        matches: list[_PredictionCandidate] = []
         for archive_dir in sorted(archive_root.iterdir()):
             if not archive_dir.is_dir():
                 continue
@@ -539,9 +611,17 @@ class ExperimentDispatcher:
                 source_experiment_id,
             ):
                 continue
-            if not self._archive_matches_run(archive_dir, ref):
+            info = self._archive_info(archive_dir)
+            if not self._archive_matches_ref(info, ref):
                 continue
-            matches.append(archive_dir / "predictions.csv")
+            matches.append(
+                _PredictionCandidate(
+                    path=archive_dir / "predictions.csv",
+                    kind="archive",
+                    execution_id=str(info["execution_id"]),
+                    matched_ids=tuple(sorted(str(item) for item in info["run_ids"])),
+                )
+            )
         return matches
 
     @staticmethod
@@ -562,31 +642,44 @@ class ExperimentDispatcher:
         return False
 
     @staticmethod
-    def _archive_matches_run(archive_dir: Path, ref: dict) -> bool:
+    def _archive_info(archive_dir: Path) -> dict[str, object]:
         run_ids: set[str] = set()
+        execution_id = archive_dir.name
         metrics_path = archive_dir / "metrics.json"
         if metrics_path.exists():
             try:
                 metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 metrics = {}
-            if metrics.get("run_id"):
-                run_ids.add(str(metrics["run_id"]))
+            metric_run_id = metrics.get("run_id")
+            if metric_run_id:
+                execution_id = str(metric_run_id)
+                run_ids.add(str(metric_run_id))
             for run in metrics.get("runs") or []:
                 if run.get("run_id"):
                     run_ids.add(str(run["run_id"]))
 
-        arm_values: set[str] = set()
         frame_path = archive_dir / "predictions.csv"
         if frame_path.exists():
             try:
                 arms = pd.read_csv(frame_path, usecols=["arm"])
-                arm_values = {
-                    str(item) for item in arms["arm"].dropna().unique()
-                }
+                run_ids.update(str(item) for item in arms["arm"].dropna().unique())
             except (ValueError, OSError):
                 pass
 
+        return {
+            "execution_id": execution_id,
+            "run_ids": run_ids,
+        }
+
+    @staticmethod
+    def _archive_matches_ref(info: dict[str, object], ref: dict) -> bool:
+        run_ids = set(info["run_ids"])
+        requested_execution = ref.get("source_execution_id")
+        if requested_execution and str(info["execution_id"]) != str(
+            requested_execution
+        ):
+            return False
         requested = [
             str(item)
             for item in (
@@ -596,9 +689,147 @@ class ExperimentDispatcher:
             )
             if item is not None
         ]
-        return any(
-            item in run_ids or item in arm_values for item in requested
+        return any(item in run_ids for item in requested)
+
+    def _resolve_unique_prediction_candidate(
+        self,
+        candidates: list[_PredictionCandidate],
+        round_dir: Path,
+        ref: dict,
+    ) -> _PredictionCandidate:
+        selected = self._filter_execution_candidates(candidates, ref)
+        selected = self._filter_hash_candidates(selected, ref)
+        if len(selected) == 1:
+            return selected[0]
+
+        by_sha: dict[str, list[_PredictionCandidate]] = {}
+        for candidate in selected:
+            by_sha.setdefault(self._file_sha256(candidate.path), []).append(
+                candidate
+            )
+        if len(by_sha) == 1:
+            return self._prefer_canonical_candidate(
+                next(iter(by_sha.values())),
+                round_dir,
+            )
+
+        by_content: dict[str, list[_PredictionCandidate]] = {}
+        for candidate in selected:
+            by_content.setdefault(
+                self._prediction_content_digest(candidate.path, ref),
+                [],
+            ).append(candidate)
+        if len(by_content) == 1:
+            return self._prefer_canonical_candidate(
+                next(iter(by_content.values())),
+                round_dir,
+            )
+
+        detail = "；".join(
+            (
+                f"{candidate.path}（kind={candidate.kind}, "
+                f"execution_id={candidate.execution_id or '--'}, "
+                f"sha256={self._file_sha256(candidate.path)}）"
+            )
+            for candidate in selected
         )
+        raise ValueError(
+            "来源实验定位存在歧义，匹配到多个科学上不同的预测文件版本："
+            + detail
+            + "。请用 source_execution_id 或 prediction_artifact_hash 精确指定。"
+        )
+
+    def _filter_execution_candidates(
+        self,
+        candidates: list[_PredictionCandidate],
+        ref: dict,
+    ) -> list[_PredictionCandidate]:
+        requested = ref.get("source_execution_id")
+        if not requested:
+            return list(candidates)
+        matched = [
+            candidate
+            for candidate in candidates
+            if candidate.kind == "archive"
+            and candidate.execution_id == str(requested)
+        ]
+        if matched:
+            return matched
+        available = sorted(
+            {
+                str(candidate.execution_id)
+                for candidate in candidates
+                if candidate.execution_id
+            }
+        )
+        hint = (
+            "；可用 execution_id：" + ", ".join(available)
+            if available
+            else "未找到任何 archive"
+        )
+        raise ValueError(
+            f"来源实验定位失败：source_execution_id={requested} 未匹配任何 "
+            f"archive（{hint}）。"
+        )
+
+    def _filter_hash_candidates(
+        self,
+        candidates: list[_PredictionCandidate],
+        ref: dict,
+    ) -> list[_PredictionCandidate]:
+        expected_raw = ref.get("prediction_artifact_hash")
+        if not expected_raw:
+            return list(candidates)
+        expected = str(expected_raw).strip().lower()
+        if expected.startswith("sha256:"):
+            expected = expected[len("sha256:") :]
+        matched = [
+            candidate
+            for candidate in candidates
+            if self._file_sha256(candidate.path) == expected
+        ]
+        if matched:
+            return matched
+        detail = "；".join(
+            f"{candidate.path}（实际 {self._file_sha256(candidate.path)}）"
+            for candidate in candidates
+        )
+        raise ValueError(
+            "来源预测文件 SHA-256 与 prediction_artifact_hash 不一致："
+            f"期望 {expected}；候选：{detail}。"
+        )
+
+    def _prefer_canonical_candidate(
+        self,
+        candidates: list[_PredictionCandidate],
+        round_dir: Path,
+    ) -> _PredictionCandidate:
+        archives = [candidate for candidate in candidates if candidate.kind == "archive"]
+        if not archives:
+            return candidates[0]
+        latest_path = round_dir / "archive" / "latest_run.json"
+        if latest_path.exists():
+            try:
+                latest = json.loads(latest_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                latest = {}
+            latest_run_id = str(latest.get("run_id") or "")
+            for candidate in archives:
+                if candidate.execution_id == latest_run_id:
+                    return candidate
+        return archives[0]
+
+    @classmethod
+    def _prediction_content_digest(cls, path: Path, ref: dict) -> str:
+        frame = cls._read_prediction_file(path, ref).copy()
+        frame = frame.sort_values("sample_id", kind="stable", ignore_index=True)
+        columns = ["sample_id", "issue_date", "target_date", "y_true", "y_pred"]
+        payload = frame.loc[:, columns].to_csv(
+            index=False,
+            encoding="utf-8",
+            float_format="%.12g",
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _file_sha256(path: Path) -> str:

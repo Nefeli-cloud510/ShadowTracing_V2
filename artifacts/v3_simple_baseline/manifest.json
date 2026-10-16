@@ -1,0 +1,19 @@
+{
+  "source_run": "E_R02_03_r1",
+  "data_version": "shadow-calendar-v1",
+  "split_label": "dev_backtest",
+  "phase_label": "迭代评估段",
+  "test_start": "2021-08-26",
+  "test_end": "2021-09-29",
+  "n_test": 35,
+  "time_definition": "features and persistence use issue-date information; target date = issue date + 3 calendar days",
+  "method": "simple zero-parameter references plus already-fitted fixed-parameter arms; no hyper-parameter tuning against the dev segment; no closed-loop state update",
+  "persistence_fallback_count": 0,
+  "expected_caveat": "35-day dev evidence only, not a sealed final test",
+  "summary_files": [
+    "simple_baseline_metrics.csv",
+    "simple_baseline_gain_ci.csv",
+    "simple_baseline_rmse.png"
+  ],
+  "updated_at": "2026-10-16T18:00:00+08:00"
+}

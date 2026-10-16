@@ -1,0 +1,88 @@
+{
+  "audit_id": "knowledge_chain_20261014",
+  "audited_at": "2026-10-14T11:20:00+08:00",
+  "session_root": "runtime/live_session/sessions/session_20261013_202258_798542",
+  "summary": {
+    "breakpoint_before_fix": "PDF uploads wrote only placeholder text; literature search could not return real article content.",
+    "fix_applied": "PDF extraction via pdfplumber with pypdf fallback; legacy session re-extracted.",
+    "local_retrieval_after_fix": "ok",
+    "remote_bailian_after_fix": "not_configured",
+    "live_rag_telemetry_persisted": false
+  },
+  "files": [
+    {
+      "file_name": "2013-ICRC-HAWC_and_Solar_Energetic_Transient_Events.pdf",
+      "size_bytes": 1117353,
+      "page_count": 3,
+      "character_count": 12277,
+      "extraction_engine": "pdfplumber",
+      "extraction_status": "extracted"
+    },
+    {
+      "file_name": "2015-ICRC_Solar_Event_Simulations_using_the_HAWC_Scaler_System.pdf",
+      "size_bytes": 203114,
+      "page_count": 7,
+      "character_count": 15191,
+      "extraction_engine": "pdfplumber",
+      "extraction_status": "extracted"
+    },
+    {
+      "file_name": "2015-VAMOS-_A_pathfinder_for_the_HAWC_gamma-ray_observatory.pdf",
+      "size_bytes": 1985448,
+      "page_count": 9,
+      "character_count": 40354,
+      "extraction_engine": "pdfplumber",
+      "extraction_status": "extracted"
+    },
+    {
+      "file_name": "LHAASO-the_Inovation-Monitoring-daily_variation_of_IMF_1_.pdf",
+      "size_bytes": 4233570,
+      "page_count": 7,
+      "character_count": 37560,
+      "extraction_engine": "pdfplumber",
+      "extraction_status": "extracted"
+    },
+    {
+      "file_name": "Solar_and_Wind_Power_Forecasting.pdf",
+      "size_bytes": 470222,
+      "page_count": 9,
+      "character_count": 19220,
+      "extraction_engine": "pdfplumber",
+      "extraction_status": "extracted"
+    },
+    {
+      "file_name": "南云程-利用LHAASO实验的宇宙线日影研究太阳及日地空间磁场_1_.pdf",
+      "size_bytes": 8024800,
+      "page_count": 162,
+      "character_count": 132251,
+      "extraction_engine": "pdfplumber",
+      "extraction_status": "extracted"
+    }
+  ],
+  "verification": {
+    "query": "LHAASO 宇宙线 日影 太阳风 行星际磁场",
+    "local_results": 2,
+    "top_hit_file": "南云程-利用LHAASO实验的宇宙线日影研究太阳及日地空间磁场_1_.txt",
+    "top_hit_score": 1.0
+  },
+  "env_summary": {
+    "configured": [
+      "DASHSCOPE_API_KEY",
+      "DASHSCOPE_BASE_URL",
+      "BAILIAN_MODEL"
+    ],
+    "missing_for_remote_knowledge": [
+      "BAILIAN_WORKSPACE_ID",
+      "BAILIAN_KNOWLEDGE_AGENT_ID",
+      "BAILIAN_KNOWLEDGE_AGENT_VERSION",
+      "BAILIAN_KNOWLEDGE_SEARCH_ENDPOINT"
+    ]
+  },
+  "recommendations": [
+    "restart live backend so new uploads use real PDF extraction",
+    "refresh placeholder evidence items in existing hypothesis trees with real literature snippets",
+    "persist live RAG telemetry to session artifacts",
+    "add OCR fallback for scanned PDFs",
+    "configure Bailian knowledge base explicitly before claiming remote evidence support"
+  ]
+}

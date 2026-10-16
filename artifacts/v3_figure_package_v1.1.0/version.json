@@ -1,0 +1,140 @@
+{
+  "package_version": "1.1.0",
+  "figure_format_version": "v3-fig/1.0",
+  "generated_at": "2026-10-16T15:08:45+08:00",
+  "experiment": {
+    "session_root": "D:\\ShadowTracing\\runtime\\live_session\\sessions\\session_20261015_132955_705440",
+    "round_id": "round_02",
+    "experiment_id": "E_R02_03",
+    "run_id": "E_R02_03_r1",
+    "test_start": "2021-08-26",
+    "test_end": "2021-09-29",
+    "split_label": "dev_backtest"
+  },
+  "figure_format_spec": {
+    "dpi": 200,
+    "background": "white",
+    "font_family": [
+      "Microsoft YaHei",
+      "SimHei",
+      "Microsoft JhengHei"
+    ],
+    "date_axis": "真实日历日期，缺失日期不压缩",
+    "no_smoothing": true,
+    "no_interpolation": true,
+    "no_uncomputed_prediction_error_bars": true,
+    "series_style": {
+      "truth": "深灰实线/圆点 (#374151)",
+      "baseline": "蓝色虚线 (#1d4ed8)",
+      "shadow_treatment": "橙色实线 (#ea580c)"
+    },
+    "positive_delta_meaning": "加入日影后指标改善"
+  },
+  "figures": [
+    {
+      "file": "figures/v3_appendix_full_calendar_overview.png",
+      "sha256": "3520311b937e08e5c3fce43316c2a901bf8d5980e5eb23e6abe7c29555dfa30a",
+      "role": "附录：完整日历经览"
+    },
+    {
+      "file": "figures/v3_appendix_parameters.png",
+      "sha256": "c93d8a54813dd72027b1c009554e9b9d983446935ce1b0c20b8812feae27da55",
+      "role": "附录：参数与诊断"
+    },
+    {
+      "file": "figures/v3_appendix_training_quality.png",
+      "sha256": "4573f448498039e98b362f3e607afd1a274c3bba1f4d7711e8351f5ee646c2eb",
+      "role": "附录：训练拟合与质量审计"
+    },
+    {
+      "file": "figures/v3_combined_overview.png",
+      "sha256": "2cebae767d8101c9d0a3664c3c9fbd7fd6ca42e478db6922f896e390e12fb144",
+      "role": "组合版：2x2 核心图总览"
+    },
+    {
+      "file": "figures/v3_daily_abs_error_delta.png",
+      "sha256": "dd9b64156dbccfebcab608c028f747c577bd4617d5d76a72deaa51f6ee4583a4",
+      "role": "新增：逐日绝对误差变化"
+    },
+    {
+      "file": "figures/v3_gain_ci.png",
+      "sha256": "61ffac245ccc6f771d2178497294acc5802008541131bd71c3684ceb5784d5f3",
+      "role": "主图：迭代评估段 RMSE 增益与 95% CI"
+    },
+    {
+      "file": "figures/v3_test_prediction_comparison.png",
+      "sha256": "39e7baa472074bd60411dc9f3e148ba0c1cfde87e588d2db999f843abdef4b26",
+      "role": "主图：迭代评估段预测与真实值"
+    }
+  ],
+  "daily_abs_error_delta": {
+    "file": "v3_daily_abs_error_delta.csv",
+    "formula": "|y_true - y_pred_baseline| - |y_true - y_pred_shadow|",
+    "positive_meaning": "当日加入日影后绝对误差更小",
+    "sha256": "c133a0c78d8353f333d30c6fd3f6007c5472cec7c90b8ef09a6709478c44d56d"
+  },
+  "model_parameters": {
+    "ridge_baseline": {
+      "model_family": "Ridge",
+      "alpha": 1000.0,
+      "l1_ratio": null,
+      "param_search_mode": "auto",
+      "search_completed": "是",
+      "boundary_hit": "是",
+      "solver_converged": "不适用（SVD 封闭解）",
+      "n_train": 139,
+      "n_test": 35,
+      "feature_columns": [
+        "ss_br_mean",
+        "BX, nT (GSE, GSM)"
+      ]
+    },
+    "ridge_treatment": {
+      "model_family": "Ridge",
+      "alpha": 1000.0,
+      "l1_ratio": null,
+      "param_search_mode": "auto",
+      "search_completed": "是",
+      "boundary_hit": "是",
+      "solver_converged": "不适用（SVD 封闭解）",
+      "n_train": 139,
+      "n_test": 35,
+      "feature_columns": [
+        "ss_br_mean",
+        "BX, nT (GSE, GSM)",
+        "p2_y中心值"
+      ]
+    },
+    "elasticnet_baseline": {
+      "model_family": "ElasticNet",
+      "alpha": 10.0,
+      "l1_ratio": 0.3,
+      "param_search_mode": "auto",
+      "search_completed": "是",
+      "boundary_hit": "否",
+      "solver_converged": "是",
+      "n_train": 139,
+      "n_test": 35,
+      "feature_columns": [
+        "ss_br_mean",
+        "BX, nT (GSE, GSM)"
+      ]
+    },
+    "elasticnet_treatment": {
+      "model_family": "ElasticNet",
+      "alpha": 10.0,
+      "l1_ratio": 0.1,
+      "param_search_mode": "auto",
+      "search_completed": "是",
+      "boundary_hit": "是",
+      "solver_converged": "是",
+      "n_train": 139,
+      "n_test": 35,
+      "feature_columns": [
+        "ss_br_mean",
+        "BX, nT (GSE, GSM)",
+        "p2_y中心值"
+      ]
+    }
+  }
+}

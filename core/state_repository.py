@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, TypeVar
 
+from core.json_safe import json_dumps
 from core.unified_schema import (
     CandidateExperimentSet,
     DataDictionary,
@@ -393,7 +394,7 @@ class UnifiedStateRepository:
         path = self.round_snapshot_path(round_id)
         self._write_atomic_text(
             path,
-            json.dumps(snapshot, ensure_ascii=False, indent=2),
+            json_dumps(snapshot, indent=2),
         )
         return path
 
@@ -416,7 +417,7 @@ class UnifiedStateRepository:
         payload = getattr(model, "model_dump")(mode="json", exclude_none=True)
         self._write_atomic_text(
             file_path,
-            json.dumps(payload, ensure_ascii=False, indent=2),
+            json_dumps(payload, indent=2),
         )
 
     @staticmethod
@@ -487,7 +488,7 @@ class UnifiedStateRepository:
         experiments[experiment_id] = entry
         self._write_atomic_text(
             self.paths.update_commit,
-            json.dumps(payload, ensure_ascii=False, indent=2),
+            json_dumps(payload, indent=2),
         )
 
     def _load_model(self, file_path: Path, model_cls: type[SchemaModelT]) -> SchemaModelT:

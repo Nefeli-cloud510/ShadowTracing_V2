@@ -1,0 +1,5 @@
+﻿run_id,n_train,n_test,archived_test_max_abs_diff,validated
+ridge_baseline,139,35,5.684341886080802e-14,True
+ridge_treatment,139,35,5.684341886080802e-14,True
+elasticnet_baseline,139,35,5.684341886080802e-14,True
+elasticnet_treatment,139,35,5.684341886080802e-14,True

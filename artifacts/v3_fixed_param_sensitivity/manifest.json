@@ -1,0 +1,29 @@
+{
+  "source_run": "E_R02_03_r1",
+  "data_version": "shadow-calendar-v1",
+  "split_label": "dev_backtest",
+  "phase_label": "迭代评估段",
+  "test_start": "2021-08-26",
+  "test_end": "2021-10-02",
+  "sample": {
+    "retained_count": 177,
+    "n_train": 139,
+    "n_test": 35
+  },
+  "time_definition": "features use issue-date history; target date = issue date + 3 calendar days",
+  "method": "fixed-parameter arms only; both families use the same frozen calendars, folds, scaling policy and 35-day dev_backtest segment; no closed-loop state update was performed",
+  "expected_caveat": "zero gain here is still 35-day dev evidence, not a sealed final test",
+  "summary_files": [
+    "fixed_param_bootstrap_ci.csv",
+    "fixed_param_coefficients.csv",
+    "fixed_param_daily.csv",
+    "fixed_param_gain_ci.png",
+    "fixed_param_gain_comparison.csv",
+    "fixed_param_pearson.csv",
+    "fixed_param_pearson_gain_ci.png",
+    "fixed_param_pearson_time_slices.csv",
+    "fixed_param_summary.csv"
+  ],
+  "updated_at": "2026-10-16T16:00:00+08:00",
+  "audit_note": "fixed_param_pearson.csv uses the same paired 7-day block bootstrap (n_draws=4000, seed=20261008, min_blocks=2); Pearson gain is shadow - baseline inside the 35-day dev_backtest segment only."
+}

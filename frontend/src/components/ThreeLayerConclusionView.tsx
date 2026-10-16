@@ -1,4 +1,9 @@
-import type { ThreeLayerConclusionViewModel } from '../types/timeline'
+import type {
+  ExperimentContrastViewModel,
+  ModelSensitivityFamilyEvidenceViewModel,
+  ThreeLayerConclusionExperimentLayer,
+  ThreeLayerConclusionViewModel,
+} from '../types/timeline'
 import { getVisualizationPreviewUrl } from '../data/realStateLoader'
 import { ContrastRows, RunMetricsGrid, experimentTypeLabel } from './ExperimentMetrics'
 
@@ -88,6 +93,115 @@ function classForMatch(value?: boolean | string): string {
   return ''
 }
 
+function familyEvaluationLabel(evaluation: string): string {
+  const labels: Record<string, string> = {
+    stable_positive: '稳定正向增益',
+    stable_negative: '稳定负向增益',
+    no_stable_gain: '未检出稳定增益（CI 跨零）',
+    insufficient_blocks: 'CI 不可用 / 有效时间块不足',
+    point_positive: '点估计正向，无稳定证据',
+    point_negative: '点估计负向，无稳定证据',
+    point_zero: '点估计接近零',
+    not_evaluated: '未评估',
+  }
+  return labels[evaluation] ?? evaluation
+}
+
+function classifyFamilyGain(point?: number, rmseCi?: number[] | null): string {
+  const ci = Array.isArray(rmseCi) && rmseCi.length >= 2 ? rmseCi : undefined
+  const lower = ci ? Number(ci[0]) : Number.NaN
+  const upper = ci ? Number(ci[1]) : Number.NaN
+  if (ci && Number.isFinite(lower) && Number.isFinite(upper)) {
+    if ((lower < 0 && upper > 0) || lower === 0 || upper === 0) {
+      return 'no_stable_gain'
+    }
+    if (lower > 0) {
+      return 'stable_positive'
+    }
+    if (upper < 0) {
+      return 'stable_negative'
+    }
+    return 'insufficient_blocks'
+  }
+  if (point === undefined || point === null || !Number.isFinite(point)) {
+    return 'not_evaluated'
+  }
+  return point > 0 ? 'point_positive' : point < 0 ? 'point_negative' : 'point_zero'
+}
+
+function deriveFamilySensitivityRows(
+  experiment: ThreeLayerConclusionExperimentLayer,
+): ModelSensitivityFamilyEvidenceViewModel[] {
+  const runs = experiment.runs ?? []
+  const runById = new Map(runs.map((run) => [run.runId, run]))
+  const byFamily = new Map<string, ExperimentContrastViewModel>()
+  for (const contrast of experiment.contrasts ?? []) {
+    let family = 'unknown'
+    for (const runId of contrast.runIds ?? []) {
+      const run = runById.get(runId)
+      if (run?.modelFamily) {
+        family = run.modelFamily
+        break
+      }
+    }
+    if (!byFamily.has(family)) {
+      byFamily.set(family, contrast)
+    }
+  }
+  return Array.from(byFamily.entries()).map(([family, contrast]) => {
+    const evaluation = classifyFamilyGain(contrast.deltaRmse, contrast.rmseCi)
+    return {
+      family,
+      contrastId: contrast.contrastId,
+      pointGainRmse: contrast.deltaRmse,
+      pointGainPearsonR: contrast.deltaPearsonR,
+      rmseCi: contrast.rmseCi,
+      pearsonCi: contrast.pearsonCi,
+      crossesZero:
+        Array.isArray(contrast.rmseCi) && contrast.rmseCi.length >= 2
+          ? contrast.rmseCi[0] <= 0 && contrast.rmseCi[1] >= 0
+          : null,
+      evaluation,
+      evaluationLabel: familyEvaluationLabel(evaluation),
+    }
+  })
+}
+
+function sensitivityOverallLabel(
+  rows: ModelSensitivityFamilyEvidenceViewModel[],
+): string {
+  if (!rows || rows.length === 0) {
+    return '未评估'
+  }
+  const statuses = rows.map((row) => row.evaluation)
+  if (
+    statuses.some((status) =>
+      ['no_stable_gain', 'insufficient_blocks', 'not_evaluated'].includes(status),
+    )
+  ) {
+    return '未检出稳定增益'
+  }
+  const stablePositive = statuses.filter((status) => status === 'stable_positive').length
+  const stableNegative = statuses.filter((status) => status === 'stable_negative').length
+  if (stablePositive > 0 && stableNegative > 0) {
+    return '混合方向（需先核查数据与执行）'
+  }
+  if (stablePositive === rows.length) {
+    return '稳定正向增益'
+  }
+  if (stableNegative === rows.length) {
+    return '稳定负向增益'
+  }
+  return '未检出稳定增益'
+}
+
+function formatCi(ci?: number[] | null): string {
+  if (!Array.isArray(ci) || ci.length < 2 || !ci.every((value) => Number.isFinite(value))) {
+    return '--'
+  }
+  return `${Number(ci[0]).toFixed(4)} ~ ${Number(ci[1]).toFixed(4)}`
+}
+
 function hypothesisGroup(
   row: ThreeLayerConclusionViewModel['hypothesisLayer'][number],
 ): 'supported' | 'partial' | 'weakened' | 'untested' {
@@ -138,6 +252,11 @@ export function ThreeLayerConclusionView({
   const dataLayer = conclusion.dataLayer
   const trackingLayer = conclusion.trackingLayer
   const chartAnalyses = dataLayer?.chartAnalyses ?? []
+  const familyRows =
+    experiment.modelSensitivityFamilies && experiment.modelSensitivityFamilies.length > 0
+      ? experiment.modelSensitivityFamilies
+      : deriveFamilySensitivityRows(experiment)
+  const familyOverallLabel = sensitivityOverallLabel(familyRows)
   const groupedRows = conclusion.hypothesisLayer.reduce<
     Record<'supported' | 'partial' | 'weakened' | 'untested', typeof conclusion.hypothesisLayer>
   >(
@@ -187,6 +306,44 @@ export function ThreeLayerConclusionView({
                     </div>
                   </div>
                   <ContrastRows contrasts={experiment.contrasts ?? []} />
+                  {experiment.experimentType === 'model_sensitivity' && familyRows.length > 0 ? (
+                    <div className="model-sensitivity-families">
+                      <div className="model-sensitivity-families__head">
+                        <strong>各模型家族日影增量与 CI</strong>
+                        <span>总体判定：{familyOverallLabel}</span>
+                      </div>
+                      <div className="model-sensitivity-families__table-wrap">
+                        <table className="model-sensitivity-families__table">
+                          <thead>
+                            <tr>
+                              <th>模型家族</th>
+                              <th>ΔRMSE</th>
+                              <th>95% CI（RMSE）</th>
+                              <th>ΔPearson r</th>
+                              <th>95% CI（Pearson r）</th>
+                              <th>判定</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {familyRows.map((row) => (
+                              <tr key={`${row.family}-${row.contrastId ?? 'contrast'}`}>
+                                <td>{row.family}</td>
+                                <td>{formatNumber(row.pointGainRmse, 4)}</td>
+                                <td>{formatCi(row.rmseCi)}</td>
+                                <td>{formatNumber(row.pointGainPearsonR, 4)}</td>
+                                <td>{formatCi(row.pearsonCi)}</td>
+                                <td>{row.evaluationLabel ?? familyEvaluationLabel(row.evaluation)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="model-sensitivity-families__note">
+                        点估计方向与稳定证据分开判断；任一家族 CI 跨零或有效时间块不足时，
+                        整体结论固定为“未检出稳定增益”，本轮不自动改变假设支持度。
+                      </p>
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <div className="three-layer-conclusion__metrics">

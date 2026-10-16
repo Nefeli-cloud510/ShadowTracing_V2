@@ -189,6 +189,7 @@ class PlannerOutputApplier:
                             round=planner_output.next_round_id,
                             score=support_outcome.support_after,
                             event=f"planner_interpretation:{enhancement.enhancement_id}",
+                            evidence_source="advisory",
                         )
                     )
                     node.updated_at_round = planner_output.next_round_id

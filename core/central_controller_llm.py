@@ -209,7 +209,14 @@ uncertainty_id；你只能在给定候选计划范围内聚焦、解释与细化
         valid_hypothesis_ids = {item.hypothesis_id for item in planner_input.active_hypotheses}
         valid_uncertainty_ids = {item.uncertainty_id for item in planner_input.unresolved_uncertainties}
         semantic = VariableSemanticService.from_summary(planner_input.data_dictionary_summary)
-        feature_focus_raw = semantic.raw_list(llm_response.feature_focus)
+        known_raw_names = set(semantic.raw_names())
+        # LLM 的 feature_focus 可能是散文而不是变量名；只有字典中存在真实
+        # raw 名称的条目才能进入变量字段，其余只作为审计上下文保留。
+        feature_focus_raw = [
+            item
+            for item in semantic.raw_list(llm_response.feature_focus)
+            if item in known_raw_names
+        ]
 
         focused_candidates = [
             candidate_index[candidate_id]
@@ -223,17 +230,31 @@ uncertainty_id；你只能在给定候选计划范围内聚焦、解释与细化
         else:
             focused_candidates = [candidate.model_copy(deep=True) for candidate in focused_candidates[:2]]
 
-        primary_x = (
-            focused_candidates[0].design.design_focus
-            if focused_candidates
-            else (
-                planner_input.data_dictionary_summary.feature_candidates[0]
-                if planner_input.data_dictionary_summary.feature_candidates
-                else None
+        primary_candidates: list[str] = []
+        if focused_candidates:
+            focused_design = focused_candidates[0].design
+            primary_candidates.extend(
+                [
+                    focused_design.design_focus or "",
+                    *(focused_design.treatment or []),
+                    *(focused_design.control or []),
+                ]
             )
+        if planner_input.data_dictionary_summary.feature_candidates:
+            primary_candidates.append(
+                planner_input.data_dictionary_summary.feature_candidates[0]
+            )
+        primary_x = next(
+            (item for item in primary_candidates if item in known_raw_names),
+            None,
         )
         candidate_supplements: list[PlannerCandidateSupplement] = []
         for index, candidate in enumerate(focused_candidates, start=1):
+            _sanitize_candidate_variables(
+                candidate,
+                known_raw_names=known_raw_names,
+                semantic=semantic,
+            )
             _rewrite_candidate_design_focus(
                 candidate=candidate,
                 feature_focus_raw=feature_focus_raw,
@@ -323,6 +344,32 @@ uncertainty_id；你只能在给定候选计划范围内聚焦、解释与细化
             protocol_refinements=protocol_refinements,
             summary=llm_response.summary,
         )
+
+
+def _sanitize_candidate_variables(
+    candidate,
+    *,
+    known_raw_names: set[str],
+    semantic: VariableSemanticService,
+) -> None:
+    """Remove prose that leaked into variable fields before rewriting focus."""
+    design = candidate.design
+    control = list(dict.fromkeys(item for item in design.control if item in known_raw_names))
+    treatment = list(dict.fromkeys(item for item in design.treatment if item in known_raw_names))
+    if set(control) != set(design.control) or set(treatment) != set(design.treatment):
+        design.control = control
+        design.treatment = treatment
+        design.display_control = semantic.display_list(control)
+        design.display_treatment = semantic.display_list(treatment)
+        design.notes.append("llm_controller_sanitized:removed_unmapped_prose")
+    if design.design_focus not in known_raw_names:
+        fallback = next(
+            (item for item in [*treatment, *control] if item in known_raw_names),
+            None,
+        )
+        if fallback is not None:
+            design.design_focus = fallback
+            design.display_design_focus = semantic.to_display(fallback)
 
 
 def _rewrite_candidate_design_focus(

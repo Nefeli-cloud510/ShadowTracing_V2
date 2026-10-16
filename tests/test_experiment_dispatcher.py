@@ -21,10 +21,12 @@ from core.protocol_bridge import ElasticNetDataSourceConfig
 from core.state_repository import UnifiedStateRepository
 from core.state_updater import UnifiedStateUpdater
 from core.unified_schema import (
+    BootstrapReport,
     CandidateExperiment,
     ContrastSpec,
     DiagnosticSpec,
     EvaluationSpec,
+    ExperimentContrast,
     ExecutionSummary,
     ExperimentDesign,
     ExperimentProtocol,
@@ -735,6 +737,95 @@ class ExperimentDispatcherTest(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertIn("同一预处理/选参规则", "；".join(result.warnings))
 
+    def test_unknown_model_name_rejected_not_fallback(self) -> None:
+        base_params = dict(
+            self._base_protocol(
+                "incremental_prediction",
+                "E_X",
+            ).model.parameters
+        )
+        for name in ("XGBoost", "RandomForest", "ElasticNetX"):
+            with self.subTest(name=name):
+                protocol = self._base_protocol(
+                    "incremental_prediction",
+                    f"E_UNKNOWN_MODEL_{name}",
+                    model=ModelSpec(name=name, parameters=base_params),
+                )
+                validation = validate_experiment_protocol(protocol)
+                self.assertFalse(validation.valid)
+                self.assertIn(
+                    "默认模型家族必须是 Ridge 或 ElasticNet",
+                    "；".join(validation.reasons),
+                )
+
+    def test_model_aliases_compile_to_registered_family(self) -> None:
+        base_params = dict(
+            self._base_protocol(
+                "incremental_prediction",
+                "E_X",
+            ).model.parameters
+        )
+        for name, expected_family in (
+            ("enet", "elasticnet"),
+            ("elastic_net", "elasticnet"),
+            ("Ridge", "ridge"),
+        ):
+            with self.subTest(name=name):
+                protocol = self._base_protocol(
+                    "incremental_prediction",
+                    f"E_ALIAS_{expected_family}_{name}",
+                    model=ModelSpec(name=name, parameters=base_params),
+                )
+                validation = validate_experiment_protocol(protocol)
+                self.assertTrue(validation.valid, "；".join(validation.reasons))
+                self.assertEqual(
+                    {run.model_family for run in validation.compiled_runs},
+                    {expected_family},
+                )
+
+    def test_unknown_run_model_family_rejected(self) -> None:
+        protocol = self._base_protocol(
+            "incremental_prediction",
+            "E_RUN_XGB",
+            runs_spec=[
+                RunSpec(
+                    run_id="baseline",
+                    label="对照组",
+                    feature_columns=["By", "Bz"],
+                    model_family="XGBoost",
+                ),
+                RunSpec(
+                    run_id="treatment",
+                    label="实验组",
+                    feature_columns=["By", "Bz", "DeltaDec"],
+                    model_family="XGBoost",
+                ),
+            ],
+        )
+        validation = validate_experiment_protocol(protocol)
+        self.assertFalse(validation.valid)
+        self.assertIn("XGBoost", "；".join(validation.reasons))
+
+    def test_model_sensitivity_rejects_unknown_family(self) -> None:
+        params = dict(
+            self._base_protocol(
+                "incremental_prediction",
+                "E_X",
+            ).model.parameters
+        )
+        params["model_families"] = ["XGBoost", "elasticnet"]
+        protocol = self._base_protocol(
+            "model_sensitivity",
+            "E_MS_UNKNOWN",
+            model=ModelSpec(name="ElasticNet", parameters=params),
+        )
+        validation = validate_experiment_protocol(protocol)
+        self.assertFalse(validation.valid)
+        self.assertIn(
+            "不支持的模型家族 'XGBoost'",
+            "；".join(validation.reasons),
+        )
+
     def test_conflicting_duplicate_time_parameters_rejected(self) -> None:
         params = dict(
             self._base_protocol(
@@ -956,6 +1047,16 @@ class ExperimentDispatcherTest(unittest.TestCase):
         self.assertEqual(bootstrap.structured["block_size"], 2)
         self.assertEqual(bootstrap.structured["n_valid_pearson_draws"], 100)
 
+        self.assertIsNotNone(result.robustness)
+        self.assertIsNotNone(result.robustness.time_slice)
+        self.assertEqual(result.robustness.time_slice.status, "descriptive")
+        self.assertEqual(result.robustness.time_slice.metric, "RMSE")
+        self.assertGreaterEqual(len(result.robustness.time_slice.splits), 1)
+        self.assertIn(
+            "已执行描述性分时段诊断",
+            result.robustness.recommendation or "",
+        )
+
     def test_robustness_diagnostic_resolves_previous_round_archive(self) -> None:
         dates = pd.date_range("2021-02-01", periods=28, freq="D")
         frame = pd.DataFrame(
@@ -1034,6 +1135,406 @@ class ExperimentDispatcherTest(unittest.TestCase):
                 ),
             )
 
+    def _make_predictions_frame(
+        self,
+        *,
+        base_pred_offset: float = 2.0,
+        treatment_pred_offset: float = 4.0,
+    ) -> pd.DataFrame:
+        dates = pd.date_range("2021-02-01", periods=28, freq="D")
+        base = pd.DataFrame(
+            {
+                "sample_id": [f"s{i}" for i in range(28)],
+                "issue_date": dates.strftime("%Y-%m-%d"),
+                "target_date": (dates + pd.Timedelta(days=1)).strftime(
+                    "%Y-%m-%d"
+                ),
+                "y_true": [400 + 3 * i for i in range(28)],
+                "y_pred": [
+                    round(402 + 3 * i + base_pred_offset, 4)
+                    for i in range(28)
+                ],
+                "arm": "baseline",
+            }
+        )
+        treatment = base.assign(
+            y_pred=[
+                round(402 + 3 * i + treatment_pred_offset, 4)
+                for i in range(28)
+            ],
+            arm="treatment",
+        )
+        return pd.concat([base, treatment], ignore_index=True)
+
+    def _write_prediction_archive(
+        self,
+        *,
+        execution_id: str,
+        experiment_id: str,
+        predictions: pd.DataFrame,
+    ) -> Path:
+        archive_dir = (
+            self.root
+            / "results"
+            / "round_01"
+            / "archive"
+            / execution_id
+        )
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        predictions.to_csv(archive_dir / "predictions.csv", index=False)
+        (archive_dir / "experiment_protocol.json").write_text(
+            json.dumps(
+                {
+                    "experiment_id": experiment_id,
+                    "round_id": 1,
+                    "target": "Vsw",
+                    "model": {
+                        "parameters": {"forecast_horizon_days": 1},
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (archive_dir / "metrics.json").write_text(
+            json.dumps(
+                {
+                    "run_id": execution_id,
+                    "experiment_id": experiment_id,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return archive_dir
+
+    def _robustness_protocol(
+        self,
+        *,
+        experiment_id: str,
+        source_experiment_id: str,
+        runs_spec: tuple[RunSpec, RunSpec],
+        source_execution_id: str | None = None,
+    ) -> ExperimentProtocol:
+        if source_execution_id:
+            runs_spec = tuple(
+                RunSpec(
+                    run_id=spec.run_id,
+                    label=spec.label,
+                    retrain=spec.retrain,
+                    parameters={
+                        **spec.parameters,
+                        "source_execution_id": source_execution_id,
+                    },
+                )
+                for spec in runs_spec
+            )
+        return self._base_protocol(
+            "robustness_diagnostic",
+            experiment_id,
+            round_id=2,
+            model=ModelSpec(
+                name="reused",
+                parameters={
+                    "source_experiment_id": source_experiment_id,
+                    "source_round_id": 1,
+                    "forecast_horizon_days": 1,
+                },
+            ),
+            runs_spec=list(runs_spec),
+            diagnostics_spec=[
+                DiagnosticSpec(
+                    diagnostic_id="paired_bootstrap",
+                    name="配对日历块 bootstrap",
+                    parameters={"n_draws": 100, "block_size": 2, "seed": 9},
+                )
+            ],
+        )
+
+    def test_source_direct_plus_archive_duplicate_resolves_to_archive(
+        self,
+    ) -> None:
+        predictions = self._make_predictions_frame()
+        self._write_prediction_archive(
+            execution_id="E_SRC_02_batch",
+            experiment_id="E_SRC_02",
+            predictions=predictions,
+        )
+        direct = predictions[predictions["arm"] == "baseline"].drop(
+            columns=["arm"]
+        )
+        direct_path = self.root / "results" / "round_01" / "E_SRC_02_baseline.csv"
+        direct.to_csv(direct_path, index=False)
+
+        protocol = self._robustness_protocol(
+            experiment_id="E_RD_DUP_01",
+            source_experiment_id="E_SRC_02",
+            runs_spec=(
+                RunSpec(
+                    run_id="baseline",
+                    label="对照组",
+                    retrain=False,
+                    parameters={"source_run_id": "baseline"},
+                ),
+                RunSpec(
+                    run_id="treatment",
+                    label="实验组",
+                    retrain=False,
+                    parameters={"source_run_id": "treatment"},
+                ),
+            ),
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "completed")
+        archive_path = (
+            self.root
+            / "results"
+            / "round_01"
+            / "archive"
+            / "E_SRC_02_batch"
+            / "predictions.csv"
+        )
+        for run in result.runs:
+            self.assertEqual(run.prediction_artifact, str(archive_path.resolve()))
+            self.assertEqual(run.parameters["source_execution_id"], "E_SRC_02_batch")
+            self.assertEqual(
+                run.parameters["prediction_artifact_hash"],
+                ExperimentDispatcher._file_sha256(archive_path),
+            )
+
+    def test_source_two_reruns_differ_requires_execution_id(self) -> None:
+        run_1 = self._make_predictions_frame(base_pred_offset=2.0)
+        run_2 = self._make_predictions_frame(base_pred_offset=2.5)
+        self._write_prediction_archive(
+            execution_id="E_SRC_03_r1",
+            experiment_id="E_SRC_03",
+            predictions=run_1,
+        )
+        self._write_prediction_archive(
+            execution_id="E_SRC_03_r2",
+            experiment_id="E_SRC_03",
+            predictions=run_2,
+        )
+
+        protocol = self._robustness_protocol(
+            experiment_id="E_RD_RERUN_AMB",
+            source_experiment_id="E_SRC_03",
+            runs_spec=(
+                RunSpec(
+                    run_id="baseline",
+                    label="对照组",
+                    retrain=False,
+                    parameters={"source_run_id": "baseline"},
+                ),
+                RunSpec(
+                    run_id="treatment",
+                    label="实验组",
+                    retrain=False,
+                    parameters={"source_run_id": "treatment"},
+                ),
+            ),
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn(
+            "多个科学上不同的预测文件版本",
+            "; ".join(result.warnings),
+        )
+
+    def test_source_two_reruns_resolves_with_execution_id_or_hash(
+        self,
+    ) -> None:
+        run_1 = self._make_predictions_frame(base_pred_offset=2.0)
+        run_2 = self._make_predictions_frame(base_pred_offset=2.5)
+        self._write_prediction_archive(
+            execution_id="E_SRC_03_r1",
+            experiment_id="E_SRC_03",
+            predictions=run_1,
+        )
+        self._write_prediction_archive(
+            execution_id="E_SRC_03_r2",
+            experiment_id="E_SRC_03",
+            predictions=run_2,
+        )
+        archive_1 = (
+            self.root
+            / "results"
+            / "round_01"
+            / "archive"
+            / "E_SRC_03_r1"
+            / "predictions.csv"
+        )
+        hash_1 = ExperimentDispatcher._file_sha256(archive_1)
+
+        with self.subTest("by source_execution_id"):
+            protocol = self._robustness_protocol(
+                experiment_id="E_RD_RERUN_EXEC",
+                source_experiment_id="E_SRC_03",
+                source_execution_id="E_SRC_03_r1",
+                runs_spec=(
+                    RunSpec(
+                        run_id="baseline",
+                        label="对照组",
+                        retrain=False,
+                        parameters={"source_run_id": "baseline"},
+                    ),
+                    RunSpec(
+                        run_id="treatment",
+                        label="实验组",
+                        retrain=False,
+                        parameters={"source_run_id": "treatment"},
+                    ),
+                ),
+            )
+            result = ExperimentDispatcher(self._harness()).execute(protocol)
+            self.assertEqual(result.status, "completed")
+            for run in result.runs:
+                self.assertEqual(
+                    run.parameters["source_execution_id"],
+                    "E_SRC_03_r1",
+                )
+                self.assertEqual(
+                    run.parameters["prediction_artifact_hash"],
+                    hash_1,
+                )
+
+        with self.subTest("by prediction_artifact_hash"):
+            protocol = self._robustness_protocol(
+                experiment_id="E_RD_RERUN_HASH",
+                source_experiment_id="E_SRC_03",
+                runs_spec=(
+                    RunSpec(
+                        run_id="baseline",
+                        label="对照组",
+                        retrain=False,
+                        parameters={
+                            "source_run_id": "baseline",
+                            "prediction_artifact_hash": hash_1,
+                        },
+                    ),
+                    RunSpec(
+                        run_id="treatment",
+                        label="实验组",
+                        retrain=False,
+                        parameters={
+                            "source_run_id": "treatment",
+                            "prediction_artifact_hash": hash_1,
+                        },
+                    ),
+                ),
+            )
+            result = ExperimentDispatcher(self._harness()).execute(protocol)
+            self.assertEqual(result.status, "completed")
+            for run in result.runs:
+                self.assertEqual(
+                    run.prediction_artifact,
+                    str(archive_1.resolve()),
+                )
+                self.assertEqual(
+                    run.parameters["prediction_artifact_hash"],
+                    hash_1,
+                )
+
+    def test_source_multi_model_archive_resolves_each_arm(self) -> None:
+        archive_base = self._make_predictions_frame()
+        archive_multimodel = pd.concat(
+            [
+                archive_base[archive_base["arm"] == "baseline"].assign(
+                    arm="ridge_baseline"
+                ),
+                archive_base[archive_base["arm"] == "treatment"].assign(
+                    arm="ridge_treatment"
+                ),
+            ],
+            ignore_index=True,
+        )
+        self._write_prediction_archive(
+            execution_id="E_SRC_04_ridge_batch",
+            experiment_id="E_SRC_04",
+            predictions=archive_multimodel,
+        )
+
+        protocol = self._robustness_protocol(
+            experiment_id="E_RD_MULTI_ARM",
+            source_experiment_id="E_SRC_04",
+            runs_spec=(
+                RunSpec(
+                    run_id="baseline",
+                    label="Ridge 对照组",
+                    retrain=False,
+                    parameters={"source_run_id": "ridge_baseline"},
+                ),
+                RunSpec(
+                    run_id="treatment",
+                    label="Ridge 实验组",
+                    retrain=False,
+                    parameters={"source_run_id": "ridge_treatment"},
+                ),
+            ),
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "completed")
+        archive_path = (
+            self.root
+            / "results"
+            / "round_01"
+            / "archive"
+            / "E_SRC_04_ridge_batch"
+            / "predictions.csv"
+        )
+        for run in result.runs:
+            self.assertEqual(run.prediction_artifact, str(archive_path.resolve()))
+            self.assertEqual(
+                run.parameters["prediction_artifact_hash"],
+                ExperimentDispatcher._file_sha256(archive_path),
+            )
+        self.assertEqual(
+            [run.parameters.get("source_run_id") for run in result.runs],
+            ["ridge_baseline", "ridge_treatment"],
+        )
+
+    def test_source_wrong_artifact_hash_rejected(self) -> None:
+        predictions = self._make_predictions_frame()
+        self._write_prediction_archive(
+            execution_id="E_SRC_05_batch",
+            experiment_id="E_SRC_05",
+            predictions=predictions,
+        )
+
+        protocol = self._robustness_protocol(
+            experiment_id="E_RD_BAD_HASH",
+            source_experiment_id="E_SRC_05",
+            runs_spec=(
+                RunSpec(
+                    run_id="baseline",
+                    label="对照组",
+                    retrain=False,
+                    parameters={
+                        "source_run_id": "baseline",
+                        "prediction_artifact_hash": "0" * 64,
+                    },
+                ),
+                RunSpec(
+                    run_id="treatment",
+                    label="实验组",
+                    retrain=False,
+                    parameters={
+                        "source_run_id": "treatment",
+                        "prediction_artifact_hash": "0" * 64,
+                    },
+                ),
+            ),
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn(
+            "SHA-256 与 prediction_artifact_hash 不一致",
+            "; ".join(result.warnings),
+        )
+
     def test_new_type_evaluation_does_not_auto_update_support(self) -> None:
         repository = UnifiedStateRepository(self.root)
         task = ScientificTask(
@@ -1083,8 +1584,8 @@ class ExperimentDispatcherTest(unittest.TestCase):
 
         self.assertEqual(evaluation.scientific.hypothesis_assessments, [])
         self.assertIn(
-            "待科学评价",
-            evaluation.scientific.three_layer_conclusion.data_layer.rmse_attribution,
+            "未检出稳定增益",
+            evaluation.scientific.three_layer_conclusion.scientific_layer.answer,
         )
 
         updated = UnifiedStateUpdater(repository).apply_evaluation(
@@ -1104,6 +1605,124 @@ class ExperimentDispatcherTest(unittest.TestCase):
             )
         )
         self.assertEqual(node.evidence_items[-1].support_weight, 0.0)
+
+    def _sensitivity_result(
+        self,
+        *,
+        run_cis: list[list[float] | None] | None = None,
+        run_points: list[float] | None = None,
+    ) -> ExperimentResult:
+        run_cis = run_cis or [[0.20, 0.30], [0.15, 0.25]]
+        run_points = run_points or [0.25, 0.20]
+        result = ExperimentResult(
+            experiment_id="E_MS_EVAL",
+            round_id=1,
+            status="completed",
+            experiment_type="model_sensitivity",
+            execution=ExecutionSummary(status="completed"),
+            runs=[
+                ExperimentRun(
+                    run_id="ridge_baseline",
+                    name="Ridge 对照组",
+                    model_family="ridge",
+                ),
+                ExperimentRun(
+                    run_id="ridge_treatment",
+                    name="Ridge 实验组",
+                    model_family="ridge",
+                ),
+                ExperimentRun(
+                    run_id="elasticnet_baseline",
+                    name="ElasticNet 对照组",
+                    model_family="elasticnet",
+                ),
+                ExperimentRun(
+                    run_id="elasticnet_treatment",
+                    name="ElasticNet 实验组",
+                    model_family="elasticnet",
+                ),
+            ],
+            contrasts=[
+                ExperimentContrast(
+                    contrast_id="gain_ridge",
+                    name="Ridge 日影增量",
+                    kind="incremental_gain",
+                    run_ids=["ridge_baseline", "ridge_treatment"],
+                    metrics_delta={"rmse": run_points[0]},
+                    bootstrap_ci=BootstrapReport(
+                        stable=True,
+                        rmse_ci=run_cis[0],
+                        point_gain_rmse=run_points[0],
+                    ),
+                ),
+                ExperimentContrast(
+                    contrast_id="gain_elasticnet",
+                    name="ElasticNet 日影增量",
+                    kind="incremental_gain",
+                    run_ids=["elasticnet_baseline", "elasticnet_treatment"],
+                    metrics_delta={"rmse": run_points[1]},
+                    bootstrap_ci=BootstrapReport(
+                        stable=True,
+                        rmse_ci=run_cis[1],
+                        point_gain_rmse=run_points[1],
+                    ),
+                ),
+            ],
+        )
+        return result
+
+    def _evaluate_sensitivity(
+        self,
+        *,
+        run_cis: list[list[float] | None] | None = None,
+        run_points: list[float] | None = None,
+    ) -> "object":
+        return evaluate_experiment_result(
+            self._sensitivity_result(run_cis=run_cis, run_points=run_points),
+            protocol=self._base_protocol("model_sensitivity", "E_MS_EVAL"),
+        )
+
+    def test_model_sensitivity_evaluator_reports_stable_positive_per_family(self) -> None:
+        evaluation = self._evaluate_sensitivity()
+        conclusion = evaluation.scientific.three_layer_conclusion
+        answer = conclusion.scientific_layer.answer
+        self.assertIn("稳定正向增益", answer)
+        self.assertIn("Ridge", conclusion.data_layer.rmse_attribution)
+        self.assertEqual(evaluation.scientific.hypothesis_assessments, [])
+        families = conclusion.experiment_layer.model_sensitivity_families
+        self.assertEqual([item.family for item in families], ["ridge", "elasticnet"])
+        self.assertEqual([item.evaluation for item in families], ["stable_positive", "stable_positive"])
+        self.assertIn("稳定正向增益", families[0].evaluation_label)
+
+    def test_model_sensitivity_evaluator_reports_stable_negative(self) -> None:
+        evaluation = self._evaluate_sensitivity(
+            run_cis=[[-0.30, -0.20], [-0.25, -0.15]],
+            run_points=[-0.25, -0.20],
+        )
+        answer = evaluation.scientific.three_layer_conclusion.scientific_layer.answer
+        self.assertIn("稳定负向增益", answer)
+
+    def test_model_sensitivity_evaluator_marks_ci_crossing_zero_as_no_stable_gain(self) -> None:
+        evaluation = self._evaluate_sensitivity(
+            run_cis=[[-0.10, 0.20], [0.10, 0.30]],
+            run_points=[0.05, 0.20],
+        )
+        conclusion = evaluation.scientific.three_layer_conclusion
+        answer = conclusion.scientific_layer.answer
+        self.assertIn("未检出稳定增益", answer)
+        self.assertIn("点估计方向一致", answer)
+        self.assertEqual(
+            [item.evaluation for item in conclusion.experiment_layer.model_sensitivity_families],
+            ["no_stable_gain", "stable_positive"],
+        )
+
+    def test_model_sensitivity_evaluator_handles_missing_ci_without_auto_support(self) -> None:
+        evaluation = self._evaluate_sensitivity(
+            run_cis=[[0.10, 0.20], None],
+            run_points=[0.15, 0.10],
+        )
+        answer = evaluation.scientific.three_layer_conclusion.scientific_layer.answer
+        self.assertIn("未检出稳定增益", answer)
 
 
 if __name__ == "__main__":

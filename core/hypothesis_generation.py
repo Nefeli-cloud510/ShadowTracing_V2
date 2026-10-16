@@ -172,6 +172,7 @@ class HypothesisGenerationService:
                     round=current_round,
                     score=0.40,
                     event="llm_supplemental_generated",
+                    evidence_source="advisory",
                 )
             ],
             activation_condition=(
@@ -438,6 +439,7 @@ def _nodes_from_llm_proposals(
                     round=current_round,
                     score=initial_support,
                     event="round_continuation",
+                    evidence_source="advisory",
                 )
             )
             questioning_records = [
@@ -476,6 +478,7 @@ def _nodes_from_llm_proposals(
                     round=current_round,
                     score=round(initial_support, 3),
                     event="llm_hypothesis_generated",
+                    evidence_source="advisory",
                 )
             ]
             questioning_records = []

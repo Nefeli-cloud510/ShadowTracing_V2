@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "message_type": "scientific_task",
+  "task_id": "ST_REAL_API_20261013_135231",
+  "producer": "human_pi",
+  "created_at": "2026-10-13T13:52:31.195950",
+  "updated_at": "2026-10-13T13:52:31.195950",
+  "payload": {
+    "research_question": {
+      "text": "DeltaDec 是否提供可重复验证的 Vsw 预测增量信息",
+      "target": "Vsw",
+      "question_type": "forecasting",
+      "variables": {
+        "x": "DeltaDec",
+        "y": "Vsw",
+        "m_candidates": [
+          "By",
+          "Bz",
+          "Np"
+        ]
+      },
+      "keywords": [
+        "DeltaDec",
+        "Vsw",
+        "By",
+        "Np"
+      ],
+      "clarified": true
+    },
+    "evaluation": {
+      "primary_metric": "Pearson_r",
+      "secondary_metrics": [
+        "RMSE",
+        "MAE"
+      ],
+      "visual_analysis": [
+        "prediction_vs_truth",
+        "scatter_plot"
+      ]
+    },
+    "constraints": {
+      "no_future_information": true,
+      "validation_feedback_allowed": true,
+      "final_test_blind": true,
+      "max_rounds": 10,
+      "max_experiments_per_round": 3,
+      "resource_budget": {
+        "token_budget": 100000,
+        "max_time_seconds_per_round": 300,
+        "max_candidates": 3
+      },
+      "notes": []
+    },
+    "data_sources": {
+      "omni": {
+        "path": "data/raw/omni.csv",
+        "time_column": "TIME",
+        "target_column": "Vsw"
+      },
+      "lhaaso": {
+        "path": "data/raw/lhaaso.csv",
+        "time_column": "TIME",
+        "target_column": "DeltaDec"
+      }
+    }
+  }
+}

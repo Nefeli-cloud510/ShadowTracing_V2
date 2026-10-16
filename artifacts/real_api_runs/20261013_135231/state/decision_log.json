@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0",
+  "message_type": "decision_log",
+  "task_id": "ST_REAL_API_20261013_135231",
+  "created_at": "2026-10-13T13:52:31.196421",
+  "decisions": [],
+  "human_feedback": [],
+  "stop_history": []
+}

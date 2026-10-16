@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from core.evaluation_unified import recover_three_layer_conclusion
+from core.json_safe import json_dumps
 from core.state_repository import UnifiedStateRepository
 from core.state_updater import translate_three_layer_conclusion
 from core.unified_schema import (
@@ -97,9 +98,8 @@ def backfill_three_layer_conclusion(live_root: str | Path) -> list[dict[str, Any
         translate_three_layer_conclusion(repository, evaluation)
         evaluation_path = round_dir / "evaluation_unified.json"
         evaluation_path.write_text(
-            json.dumps(
+            json_dumps(
                 evaluation.model_dump(mode="json", exclude_none=True),
-                ensure_ascii=False,
                 indent=2,
             ),
             encoding="utf-8",
@@ -128,7 +128,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     results = backfill_three_layer_conclusion(args.live_root)
-    print(json.dumps(results, ensure_ascii=False, indent=2))
+    print(json_dumps(results, indent=2))
 
 
 if __name__ == "__main__":

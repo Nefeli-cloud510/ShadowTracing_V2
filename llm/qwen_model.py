@@ -67,9 +67,9 @@ def generate_next_plan(previous_result: dict) -> str:
 - l1_ratio: {config.get('l1_ratio', 'N/A')}
 
 评估指标：
-- 测试集 RMSE: {metrics.get('test_rmse', 'N/A')}
-- 测试集 R²: {metrics.get('test_r2', 'N/A')}
-- 测试集 Pearson r: {metrics.get('test_pearson_r', 'N/A')}
+- 迭代评估段 RMSE: {metrics.get('test_rmse', 'N/A')}
+- 迭代评估段 R²: {metrics.get('test_r2', 'N/A')}
+- 迭代评估段 Pearson r: {metrics.get('test_pearson_r', 'N/A')}
 - 对照组 RMSE: {metrics.get('baseline_test_rmse', 'N/A')}
 - 特征数量: {metrics.get('n_features', 'N/A')}
 

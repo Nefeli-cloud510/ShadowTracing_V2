@@ -67,7 +67,14 @@ class AdvisoryQuestioningRulesTest(unittest.TestCase):
 
     def test_advisory_cannot_converge_but_experimental_can(self) -> None:
         history = [
-            SupportHistoryEntry(round=1, score=0.75, event="experiment"),
+            SupportHistoryEntry(
+                round=1,
+                score=0.75,
+                event="evaluation_writeback:E1",
+                evidence_source="experimental",
+                evidence_classification="stable_improvement",
+                direction_matched=True,
+            ),
         ]
         advisory_status = resolve_status(
             previous_status="active",
@@ -75,6 +82,8 @@ class AdvisoryQuestioningRulesTest(unittest.TestCase):
             support_history=history,
             current_round=2,
             evidence_source="advisory",
+            evidence_classification="stable_improvement",
+            direction_matched=True,
         )
         self.assertEqual(advisory_status, "active")
 
@@ -84,6 +93,8 @@ class AdvisoryQuestioningRulesTest(unittest.TestCase):
             support_history=history,
             current_round=2,
             evidence_source="experimental",
+            evidence_classification="stable_improvement",
+            direction_matched=True,
         )
         self.assertEqual(experimental_status, "converged")
 

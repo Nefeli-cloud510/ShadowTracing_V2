@@ -1,0 +1,36 @@
+{
+  "calendar_days": 196,
+  "date_start": "2021-03-21",
+  "date_end": "2021-10-02",
+  "shadow": {
+    "valid_days": 188,
+    "source_missing_days": 8,
+    "quality_unavailable_days": 0
+  },
+  "target": {
+    "valid_days": 196,
+    "source_missing_days": 0,
+    "quality_unavailable_days": 0
+  },
+  "sample": {
+    "candidate_count": 196,
+    "retained_count": 177,
+    "drop_reasons": {
+      "历史特征缺失": 14,
+      "目标日不可用": 3,
+      "历史缺口": 2
+    },
+    "split_counts": {
+      "train": 139,
+      "test": 35,
+      "excluded": 19,
+      "boundary_excluded": 3
+    },
+    "drop_detail": {
+      "source_missing_issue_days": 8,
+      "lag_induced_issue_days": 6,
+      "history_gap_days": 2,
+      "target_unavailable_days": 3
+    }
+  }
+}

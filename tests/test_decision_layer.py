@@ -1,3 +1,4 @@
+import re
 import tempfile
 import unittest
 from datetime import datetime
@@ -19,6 +20,7 @@ from core.unified_schema import (
     EvaluationSpec,
     ExperimentDesign,
     ExperimentMemoryEntry,
+    ExperimentRun,
     FieldDescriptor,
     HypothesisGenerationRationale,
     HypothesisNode,
@@ -614,6 +616,86 @@ class DecisionLayerTest(unittest.TestCase):
         ]
         self.assertTrue(positive_gain_candidates)
         self.assertIn("PG_expected(E)", positive_gain_candidates[0].estimated_performance_gain.rationale)
+
+    def test_candidate_traceability_fields_are_pre_registered(self) -> None:
+        experiment_memory = self.repository.load_experiment_memory()
+        experiment_memory.entries.append(
+            ExperimentMemoryEntry(
+                experiment_id="E_HIST_01",
+                round_id=1,
+                status="completed",
+                tested_hypotheses=["H1"],
+                key_findings=["日影增量点估计为正但 CI 跨零"],
+                metrics_snapshot=PerformanceMetrics(
+                    experiment_id="E_HIST_01",
+                    round_id=1,
+                    runs=[
+                        ExperimentRun(
+                            run_id="E_HIST_01_control",
+                            name="control",
+                            model_family="elasticnet",
+                            feature_columns=["By"],
+                            parameters={
+                                "forecast_horizon_days": 3,
+                                "past_lag_days": 3,
+                                "window_size": 14,
+                            },
+                        ),
+                        ExperimentRun(
+                            run_id="E_HIST_01_treatment",
+                            name="treatment",
+                            model_family="elasticnet",
+                            feature_columns=["By", "DeltaDec"],
+                            parameters={
+                                "forecast_horizon_days": 3,
+                                "past_lag_days": 3,
+                                "window_size": 14,
+                            },
+                        ),
+                    ],
+                ),
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+            )
+        )
+        self.repository.save_experiment_memory(experiment_memory)
+
+        tree = self.repository.load_hypothesis_tree()
+        uncertainties = self.repository.load_uncertainties()
+        uncertainties.current_round = 1
+        UncertaintyPrioritizer().prioritize(uncertainties, tree)
+        candidates = CandidateExperimentGenerator().generate(
+            task=self.task,
+            data_dictionary=self.dictionary,
+            hypothesis_tree=tree,
+            uncertainty_state=uncertainties,
+            experiment_memory=experiment_memory,
+            target_round=2,
+        )
+        candidate = candidates.candidates[0]
+
+        self.assertIn("E_HIST_01", candidate.responded_prior_finding or "")
+        self.assertIn("CI 跨零", candidate.responded_prior_finding or "")
+        self.assertTrue(candidate.changed_factors)
+        self.assertTrue(candidate.held_fixed_factors)
+        self.assertTrue(
+            any(
+                re.match(r"^历史长度（3 天 → \d+ 天）$", item)
+                for item in candidate.changed_factors
+            ),
+            candidate.changed_factors,
+        )
+        self.assertTrue(
+            any(
+                re.match(r"^时间窗口（14 天 → \d+ 天）$", item)
+                for item in candidate.changed_factors
+            ),
+            candidate.changed_factors,
+        )
+        self.assertIn("CI 全部落在正区间", candidate.expected_outcome_branches)
+        branch_values = list(candidate.expected_outcome_branches.values())
+        self.assertTrue(all(isinstance(item, str) and item for item in branch_values))
+        self.assertTrue(candidate.exploratory)
 
     def test_utility_scorer_demotes_candidates_duplicating_executed_history(self) -> None:
         experiment_memory = self.repository.load_experiment_memory()

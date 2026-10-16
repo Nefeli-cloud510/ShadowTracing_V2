@@ -7,12 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from core.display_text_cleaner import clean_llm_text
+from core.json_safe import json_dumps
 from core.state_repository import UnifiedStateRepository
 from core.support_update_rules import (
     EVIDENCE_INCONCLUSIVE,
+    EVIDENCE_IDENTICAL_PREDICTIONS,
     EVIDENCE_NO_STABLE_GAIN,
+    EVIDENCE_STABLE_DEGRADATION,
+    EVIDENCE_STABLE_IMPROVEMENT,
     compute_support_update_from_evidence,
-    compute_support_update_from_reasoning,
     priority_after_action,
 )
 from core.hypothesis_linkage import build_predictions_for_nodes
@@ -256,6 +259,7 @@ class UnifiedStateUpdater:
                 experiment_memory=experiment_memory,
                 protocol=protocol,
                 result=result,
+                evaluation=evaluation,
                 interpretation_enhancements=interpretation_enhancements,
                 interpreter_source=interpreter_source,
             )
@@ -491,7 +495,7 @@ class UnifiedStateUpdater:
             ),
             **outputs,
         }
-        text = json.dumps(payload, ensure_ascii=False, indent=2)
+        text = json_dumps(payload, indent=2)
         config_path = (
             self.repository.project_root
             / "config"
@@ -522,10 +526,15 @@ class UnifiedStateUpdater:
         experiment_memory: ExperimentMemoryState,
         protocol: ExperimentProtocol,
         result: ExperimentResult | None = None,
+        evaluation: EvaluationResult,
         interpretation_enhancements: list[InterpretationEnhancement],
         interpreter_source: str,
     ) -> tuple[HypothesisTreeState, UncertaintyState, ExperimentMemoryState]:
         node_index = tree.node_index()
+        assessment_index = {
+            item.hypothesis_id: item
+            for item in evaluation.scientific.hypothesis_assessments
+        }
         uncertainty_index = uncertainties.record_index()
         memory_entry = experiment_memory.entry_index().get(protocol.experiment_id)
         now = datetime.now()
@@ -551,48 +560,24 @@ class UnifiedStateUpdater:
                 tree=tree,
                 uncertainty_records=uncertainties.records,
             )
-            support_outcome = None
+            numeric_support_delta = 0.0
             if enhancement.target_hypothesis_id:
                 node = node_index.get(enhancement.target_hypothesis_id)
                 if node is not None:
-                    support_key = f"{enhancement_key}:support"
-                    existing_support = next(
-                        (
-                            item
-                            for item in node.support_history
-                            if getattr(item, "evidence_key", None) == support_key
-                        ),
-                        None,
+                    measurement_assessment = assessment_index.get(
+                        enhancement.target_hypothesis_id
                     )
-                    if existing_support is not None and existing_support.evidence_version == evidence_version:
-                        continue
-                    before_support = node.support_score
-                    support_outcome = compute_support_update_from_reasoning(
-                        current_support=before_support,
-                        impact_direction=enhancement.impact_direction,
-                        impact_strength=enhancement.impact_strength,
-                        confidence=enhancement.confidence,
-                        previous_status=node.status,
-                        support_history=node.support_history,
-                        current_round=protocol.round_id,
-                    )
-                    node.support_score = support_outcome.support_after
-                    node.status = support_outcome.status
-                    node.updated_at_round = protocol.round_id
-                    _replace_or_append(
-                        node.support_history,
-                        support_key,
-                        SupportHistoryEntry(
-                            round=protocol.round_id,
-                            score=support_outcome.support_after,
-                            event=f"scientific_interpreter:{enhancement.enhancement_id}",
-                            experiment_id=protocol.experiment_id,
-                            run_id=run_id,
-                            contrast_id=contrast_id,
-                            evidence_version=evidence_version,
-                            evidence_key=support_key,
-                        ),
-                    )
+                    if (
+                        measurement_assessment is not None
+                        and measurement_assessment.evidence_classification
+                        in {
+                            EVIDENCE_STABLE_IMPROVEMENT,
+                            EVIDENCE_STABLE_DEGRADATION,
+                        }
+                    ):
+                        numeric_support_delta = (
+                            node.support_score - measurement_assessment.support_before
+                        )
                     _replace_or_append(
                         node.evidence_items,
                         f"{enhancement_key}:evidence",
@@ -602,7 +587,7 @@ class UnifiedStateUpdater:
                             description=cleaned_interpretation,
                             source=interpreter_source,
                             added_at_round=protocol.round_id,
-                            support_weight=min(max(abs(support_outcome.support_delta), 0.03), 0.2),
+                            support_weight=0.0,
                             experiment_id=protocol.experiment_id,
                             run_id=run_id,
                             contrast_id=contrast_id,
@@ -625,6 +610,7 @@ class UnifiedStateUpdater:
                             evidence_key=f"{enhancement_key}:critique",
                         ),
                     )
+                    _append_unique_text(node.alternative_explanations, cleaned_interpretation)
                     if enhancement.suggested_state_note:
                         _append_unique_text(node.alternative_explanations, cleaned_state_note)
 
@@ -684,11 +670,7 @@ class UnifiedStateUpdater:
                         summary=cleaned_interpretation,
                         related_hypotheses=[enhancement.target_hypothesis_id] if enhancement.target_hypothesis_id else [],
                         related_uncertainties=enhancement.related_uncertainties,
-                        support_delta=(
-                            getattr(support_outcome, "support_delta", None)
-                            if enhancement.target_hypothesis_id and support_outcome is not None
-                            else None
-                        ),
+                        support_delta=numeric_support_delta,
                         priority_delta=round(total_priority_delta, 4) if enhancement.related_uncertainties else None,
                         experiment_id=protocol.experiment_id,
                         run_id=run_id,
@@ -790,7 +772,40 @@ class UnifiedStateUpdater:
             if existing_support is not None and existing_support.evidence_version == evidence_version:
                 continue
 
-            before = node.support_score
+            evidence_identity = _scientific_evidence_identity(
+                protocol=protocol,
+                result=result,
+                evaluation=evaluation,
+                hypothesis_id=hypothesis_id,
+            )
+            if existing_support is not None:
+                if existing_support.evidence_identity == evidence_identity:
+                    # 同一科学证据只刷新审计版本，不重复累计支持度。
+                    existing_support.evidence_version = evidence_version
+                    existing_evidence = next(
+                        (
+                            item
+                            for item in node.evidence_items
+                            if getattr(item, "evidence_key", None) == evidence_key
+                        ),
+                        None,
+                    )
+                    if existing_evidence is not None:
+                        existing_evidence.evidence_version = evidence_version
+                    continue
+                old_delta = existing_support.support_delta
+                if old_delta is None and existing_support.support_before is not None:
+                    old_delta = round(
+                        existing_support.score - existing_support.support_before,
+                        4,
+                    )
+                before = (
+                    round(node.support_score - old_delta, 4)
+                    if old_delta is not None
+                    else node.support_score
+                )
+            else:
+                before = node.support_score
             if pending_review:
                 after = before
                 reason = "该实验类型结果待科学评价，仅记录证据，不自动调整支持度。"
@@ -809,6 +824,7 @@ class UnifiedStateUpdater:
                         "缺少结构化支持度判定；"
                         "仅 bootstrap CI 稳定的方向可做小幅保守更新。"
                     )
+            support_delta = round(after - before, 4)
 
             node.support_score = after
             if not pending_review:
@@ -822,6 +838,16 @@ class UnifiedStateUpdater:
                         if node.parent_id and node.parent_id in node_index
                         else None
                     ),
+                    evidence_classification=(
+                        getattr(assessment, "evidence_classification", None)
+                        if assessment is not None
+                        else None
+                    ),
+                    direction_matched=(
+                        getattr(assessment, "direction_matched", None)
+                        if assessment is not None
+                        else None
+                    ),
                 )
             node.updated_at_round = protocol.round_id
             _replace_or_append(
@@ -830,6 +856,9 @@ class UnifiedStateUpdater:
                 SupportHistoryEntry(
                     round=protocol.round_id,
                     score=after,
+                    support_before=before,
+                    support_delta=support_delta,
+                    evidence_source="experimental",
                     event=(
                         f"pending_scientific_review:{protocol.experiment_id}"
                         if pending_review
@@ -840,6 +869,17 @@ class UnifiedStateUpdater:
                     contrast_id=contrast_id,
                     evidence_version=evidence_version,
                     evidence_key=support_key,
+                    evidence_identity=evidence_identity,
+                    evidence_classification=(
+                        getattr(assessment, "evidence_classification", None)
+                        if assessment is not None
+                        else None
+                    ),
+                    direction_matched=(
+                        getattr(assessment, "direction_matched", None)
+                        if assessment is not None
+                        else None
+                    ),
                 ),
             )
             _replace_or_append(
@@ -1072,6 +1112,7 @@ class UnifiedStateUpdater:
                 _build_vsw_performance_summary(
                     target=protocol.target,
                     metrics=evaluation.metrics,
+                    evaluation=evaluation,
                 )
             )
         )
@@ -1349,6 +1390,76 @@ def _resolve_evidence_version(
     return _content_digest(protocol, result)
 
 
+def _scientific_evidence_identity(
+    *,
+    protocol: ExperimentProtocol,
+    result: ExperimentResult | None,
+    evaluation: EvaluationResult,
+    hypothesis_id: str,
+) -> str:
+    """Per-hypothesis identity of the numeric evidence, excluding audit text."""
+    assessment = next(
+        (
+            item
+            for item in evaluation.scientific.hypothesis_assessments
+            if item.hypothesis_id == hypothesis_id
+        ),
+        None,
+    )
+    prediction = protocol.hypothesis_predictions.get(hypothesis_id)
+    robustness = result.robustness if result is not None else None
+    payload: dict[str, Any] = {
+        "hypothesis_id": hypothesis_id,
+        "experiment_type": protocol.experiment_type,
+        "target": protocol.target,
+        "features": protocol.features.model_dump(mode="json", exclude_none=True),
+        "forecast_horizon_days": protocol.forecast_horizon_days,
+        "prediction": (
+            prediction.model_dump(mode="json", exclude_none=True)
+            if prediction is not None
+            else None
+        ),
+        "execution_status": None if result is None else result.status,
+        "validity_status": None if result is None else result.validity_status,
+        "comparison": (
+            result.comparison.model_dump(mode="json", exclude_none=True)
+            if result is not None
+            else None
+        ),
+        "robustness": (
+            {
+                "bootstrap": (
+                    robustness.bootstrap.model_dump(mode="json", exclude_none=True)
+                    if robustness.bootstrap is not None
+                    else None
+                ),
+                "time_slice": (
+                    robustness.time_slice.model_dump(mode="json", exclude_none=True)
+                    if robustness.time_slice is not None
+                    else None
+                ),
+                "overall_stable": (
+                    robustness.overall.stable if robustness.overall is not None else None
+                ),
+            }
+            if robustness is not None
+            else None
+        ),
+        "assessment": (
+            {
+                "metric": assessment.metric,
+                "observed_metric_delta": assessment.observed_metric_delta,
+                "metric_ci": assessment.metric_ci,
+                "evidence_classification": assessment.evidence_classification,
+                "updated": assessment.updated,
+            }
+            if assessment is not None
+            else None
+        ),
+    }
+    return _content_digest(payload)
+
+
 def _record_key(
     experiment_id: str,
     slot: str,
@@ -1444,8 +1555,37 @@ def _infer_target_uncertainties(
     return _unique_preserve_order(inferred)
 
 
-def _build_vsw_performance_summary(*, target: str, metrics: PerformanceMetrics) -> str:
+def _build_vsw_performance_summary(
+    *,
+    target: str,
+    metrics: PerformanceMetrics,
+    evaluation: EvaluationResult | None = None,
+) -> str:
     target_label = target or "目标变量"
+    if evaluation is not None and evaluation.metrics.experiment_type == "model_sensitivity":
+        conclusion = evaluation.scientific.three_layer_conclusion
+        families = (
+            conclusion.experiment_layer.model_sensitivity_families
+            if conclusion is not None and conclusion.experiment_layer is not None
+            else []
+        )
+        if families:
+            parts = []
+            for item in families:
+                point = item.point_gain_rmse
+                point_text = "--" if point is None else f"{point:.4f}"
+                ci = item.rmse_ci
+                ci_text = (
+                    f"CI=[{ci[0]:.4f}, {ci[1]:.4f}]"
+                    if ci and len(ci) >= 2
+                    else "CI 不可用"
+                )
+                parts.append(f"{item.family} ΔRMSE={point_text}（{ci_text}）")
+            return (
+                f"{target_label} 预测效果专项分析：模型敏感性实验共 {len(metrics.runs)} 组运行、"
+                f"{len(metrics.contrasts)} 个家族内对比；" + "；".join(parts)
+                + "。CI 跨零时按保守规则判定为未检出稳定增益，不自动改变假设支持度。"
+            )
     baseline_r = metrics.baseline_pearson_r
     treatment_r = metrics.treatment_pearson_r
     delta_r = metrics.delta.pearson_r
@@ -1582,20 +1722,65 @@ def _support_after_from_assessment(
     observed_delta: float,
 ) -> float:
     classification = getattr(assessment, "evidence_classification", None) or EVIDENCE_NO_STABLE_GAIN
-    if classification in {EVIDENCE_INCONCLUSIVE, EVIDENCE_NO_STABLE_GAIN}:
+    if classification in {
+        EVIDENCE_INCONCLUSIVE,
+        EVIDENCE_NO_STABLE_GAIN,
+        EVIDENCE_IDENTICAL_PREDICTIONS,
+    }:
         return round(min(max(before, 0.05), 0.95), 4)
+    assessment_metric = _normalize_assessment_metric(
+        getattr(assessment, "metric", None)
+    )
+    prediction_metric = (
+        _normalize_assessment_metric(getattr(prediction, "metric", None))
+        if prediction is not None
+        else None
+    )
+    metric_delta = getattr(assessment, "observed_metric_delta", None)
+    expected_range = (
+        getattr(prediction, "expected_range", None)
+        if prediction is not None
+        else None
+    )
+    if assessment_metric is None or prediction_metric != assessment_metric:
+        # metric 缺失或指标不一致时，不拿 RMSE 增量匹配预期区间。
+        expected_range = None
+        metric_delta = None
+    elif metric_delta is None and assessment_metric == "rmse":
+        # 兼容旧评估记录：RMSE 主证据缺失时沿用全局 RMSE 增量。
+        metric_delta = observed_delta
+    elif metric_delta is None:
+        expected_range = None
     outcome = compute_support_update_from_evidence(
         current_support=before,
         evidence_classification=classification,
         expected_effect=getattr(prediction, "expected_effect", None)
         if prediction is not None
         else None,
-        expected_range=getattr(prediction, "expected_range", None)
-        if prediction is not None
-        else None,
-        observed_delta=observed_delta,
+        expected_range=expected_range,
+        observed_delta=metric_delta,
     )
     return outcome.support_after
+
+
+def _normalize_assessment_metric(metric: str | None) -> str | None:
+    if metric is None:
+        return None
+    normalized = str(metric).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "rmse": "rmse",
+        "root_mean_squared_error": "rmse",
+        "mae": "mae",
+        "mean_absolute_error": "mae",
+        "pearson_r": "pearson_r",
+        "pearson": "pearson_r",
+        "r": "pearson_r",
+        "r2": "r2",
+        "r_squared": "r2",
+        "skill": "skill",
+        "sst": "skill",
+    }
+    return aliases.get(normalized)
 
 
 def _observed_delta_from_evaluation(evaluation: EvaluationResult) -> float:

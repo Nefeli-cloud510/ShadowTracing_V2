@@ -116,6 +116,191 @@ def _is_baseline_candidate(candidate: CandidateExperiment) -> bool:
     )
 
 
+def _entry_model_families(entry) -> list[str]:
+    raw = list(getattr(entry, "model_families", None) or [])
+    if raw:
+        return [name for name in (normalize_model_family(str(item)) for item in raw) if name]
+    metrics = getattr(entry, "metrics_snapshot", None)
+    if metrics is not None:
+        return list(
+            dict.fromkeys(
+                name
+                for run in getattr(metrics, "runs", []) or []
+                for name in [normalize_model_family(getattr(run, "model_family", None) or "")]
+                if name
+            )
+        )
+    return []
+
+
+def _entry_design_params(entry) -> dict[str, Any]:
+    """Recover forecast horizon / history length from a completed memory entry."""
+
+    params: dict[str, Any] = {}
+    metrics = getattr(entry, "metrics_snapshot", None)
+    if metrics is None:
+        return params
+    for run in getattr(metrics, "runs", []) or []:
+        run_params = getattr(run, "parameters", None) or {}
+        if not isinstance(run_params, dict):
+            continue
+        for key in ("forecast_horizon_days", "forecast_horizon", "horizon_days"):
+            try:
+                params["forecast_horizon_days"] = int(run_params[key])
+                break
+            except (KeyError, TypeError, ValueError):
+                continue
+        for key in ("past_lag_days", "past_lag"):
+            try:
+                params["past_lag_days"] = int(run_params[key])
+                break
+            except (KeyError, TypeError, ValueError):
+                continue
+        for key in ("window_size", "window"):
+            try:
+                params["window_size"] = int(run_params[key])
+                break
+            except (KeyError, TypeError, ValueError):
+                continue
+    if getattr(entry, "metrics_snapshot", None) is not None and getattr(metrics, "runs", None):
+        feature_set: list[str] = []
+        for run in metrics.runs:
+            columns = list(getattr(run, "feature_columns", None) or [])
+            if not columns:
+                columns = list(getattr(run, "feature_labels", None) or [])
+            feature_set = list(dict.fromkeys([*feature_set, *columns]))
+        if feature_set:
+            params["feature_set"] = feature_set
+    return params
+
+
+def _candidate_traceability(
+    *,
+    record: UncertaintyRecord,
+    design: ExperimentDesign,
+    experiment_type: str,
+    experiment_memory: ExperimentMemoryState | None,
+    next_round: int,
+) -> dict[str, Any]:
+    """Pre-register what this candidate responds to and which factors it alters."""
+
+    held_fixed: list[str] = ["目标变量", "评价指标与日历对齐规则", "训练/评价时间划分"]
+    changed: list[str] = []
+    prior_finding = None
+    completed = (
+        [entry for entry in experiment_memory.entries if entry.status == "completed"]
+        if experiment_memory
+        else []
+    )
+    latest_entry = completed[-1] if completed else None
+    if latest_entry is not None:
+        prior_entry_id = latest_entry.experiment_id
+        findings = list(getattr(latest_entry, "key_findings", None) or [])
+        prior_finding = (
+            f"实验 {prior_entry_id} 的上一轮发现"
+            + (f"：{'；'.join(findings[:2])}" if findings else "（以最新完成实验为重点）")
+        )
+        prior_params = _entry_design_params(latest_entry)
+        prior_horizon = prior_params.get("forecast_horizon_days")
+        prior_lag = prior_params.get("past_lag_days")
+        prior_window = prior_params.get("window_size")
+        prior_features = {str(item) for item in prior_params.get("feature_set", [])}
+        prior_families = _entry_model_families(latest_entry)
+        if prior_horizon is None or design.forecast_horizon_days is None or int(design.forecast_horizon_days) != int(prior_horizon):
+            if design.forecast_horizon_days is not None and prior_horizon is not None:
+                changed.append(
+                    f"预测超前天数（{int(prior_horizon)} 天 → {int(design.forecast_horizon_days)} 天）"
+                )
+            else:
+                changed.append("预测超前天数")
+        elif design.forecast_horizon_days is not None:
+            held_fixed.append(f"预测超前 {int(design.forecast_horizon_days)} 天")
+        if prior_lag is None or design.past_lag_days is None or int(design.past_lag_days) != int(prior_lag):
+            if design.past_lag_days is not None and prior_lag is not None:
+                changed.append(f"历史长度（{int(prior_lag)} 天 → {int(design.past_lag_days)} 天）")
+            else:
+                changed.append("历史长度")
+        elif design.past_lag_days is not None:
+            held_fixed.append(f"历史长度 {int(design.past_lag_days)} 天")
+        if prior_window is None or design.window_size is None or int(design.window_size) != int(prior_window):
+            if design.window_size is not None and prior_window is not None:
+                changed.append(f"时间窗口（{int(prior_window)} 天 → {int(design.window_size)} 天）")
+            else:
+                changed.append("时间窗口")
+        elif design.window_size is not None:
+            held_fixed.append(f"时间窗口 {int(design.window_size)} 天")
+        current_features = {str(item) for item in [*design.control, *design.treatment]}
+        if prior_features and current_features != prior_features:
+            changed.append("自变量特征集")
+        elif prior_features:
+            held_fixed.append("自变量特征集")
+        current_families = [
+            name
+            for name in (normalize_model_family(str(item)) for item in design.model_families)
+            if name
+        ]
+        if current_families and prior_families and current_families != prior_families:
+            changed.append("模型家族")
+        elif current_families and prior_families:
+            held_fixed.append("模型家族")
+    else:
+        prior_finding = "本轮为首轮实验：以当前科学不确定性为基线，回答其能否被实验证据区分。"
+        held_fixed.extend(
+            [
+                item
+                for item in [
+                    (
+                        f"预测超前 {design.forecast_horizon_days} 天"
+                        if design.forecast_horizon_days
+                        else None
+                    ),
+                    (
+                        f"历史长度 {design.past_lag_days} 天"
+                        if design.past_lag_days
+                        else None
+                    ),
+                    (
+                        f"时间窗口 {design.window_size} 天"
+                        if design.window_size
+                        else None
+                    ),
+                ]
+                if item
+            ]
+        )
+    if not changed:
+        changed.append("在本轮固定条件下验证/复测与上一轮相关的不确定性")
+    exploratory = False
+    meaningful_changed = [item for item in changed if item != "在本轮固定条件下验证/复测与上一轮相关的不确定性"]
+    if len(meaningful_changed) > 1:
+        exploratory = True
+
+    type_key = experiment_type or "incremental_prediction"
+    branches: dict[str, str] = {}
+    if type_key == "model_sensitivity":
+        branches = {
+            "两个模型家族均检出稳定正向日影增益": "把稳定性作为下一轮核心结论的暂定支持证据，继续做固定任务下的正则化敏感性核查。",
+            "两个模型家族均检出稳定负向增益": "系统性地加入日影反而带来一致退化，先检查数据对齐、缺失掩码与样本范围，再决定是否调整特征构造。",
+            "两个模型家族方向相反或点估计方向一致但 CI 跨零": "先认定“未检出稳定增益”，区分模型设置依赖与数据质量问题，不把点估计方向当作假设支持。",
+            "部分家族出现系数被筛零或常数预测": "核查正则会否掩盖信号，并检查预测文件与共同样本，必要时固定任务做单因素敏感性实验。",
+        }
+    else:
+        branches = {
+            "CI 全部落在正区间": "把“稳定改善”作为暂定证据，下一轮只变更一个因素复核其稳健性。",
+            "CI 全部落在负区间": "把当前方向视为退化证据，下一轮检查数据质量或改回上一轮条件。",
+            "CI 跨零": "结论写“未检出稳定增益”，下一轮优先核验跨零原因而不是继续加分。",
+        }
+
+    return {
+        "responded_prior_finding": prior_finding,
+        "target_uncertainty_focus": record.question,
+        "changed_factors": list(dict.fromkeys(changed)),
+        "held_fixed_factors": list(dict.fromkeys(held_fixed)),
+        "expected_outcome_branches": branches,
+        "exploratory": exploratory,
+    }
+
+
 def _normalize_design_features(features: list[str]) -> list[str]:
     return _unique_preserve_order([item.strip() for item in features if item and item.strip()])
 
@@ -261,7 +446,23 @@ class CandidateExperimentGenerator:
         target = task.payload.research_question.target
         primary_x = variables.x if variables else (data_dictionary.feature_candidates[0] if data_dictionary.feature_candidates else target)
         mediator_candidates = variables.m_candidates if variables else []
-        feature_pool = [item for item in data_dictionary.feature_candidates if item != primary_x]
+        # feature_candidates may contain only the user-selected x variable.
+        # Build the programmatic baseline from all real feature fields so the
+        # first draft can still provide a 对照组 when no secondary candidates
+        # were pre-selected.
+        feature_pool = _unique_preserve_order(
+            [
+                *data_dictionary.feature_candidates,
+                *[
+                    item.field_name
+                    for item in data_dictionary.fields
+                    if not item.is_target
+                    and item.field_name != data_dictionary.time_column
+                    and item.physical_meaning not in {"time", "弃用字段"}
+                ],
+            ]
+        )
+        feature_pool = [item for item in feature_pool if item != primary_x]
         control_base = _unique_preserve_order(mediator_candidates or feature_pool[:3])
         queue = uncertainty_state.priority_queue or UncertaintyPriorityQueue(
             last_updated=datetime.now(),
@@ -520,6 +721,19 @@ class CandidateExperimentGenerator:
             candidate.design.notes.append(window_note)
             if experiment_type == "model_sensitivity":
                 _apply_model_sensitivity_design(candidate.design)
+            traceability = _candidate_traceability(
+                record=record,
+                design=candidate.design,
+                experiment_type=experiment_type,
+                experiment_memory=experiment_memory,
+                next_round=next_round,
+            )
+            candidate.responded_prior_finding = traceability["responded_prior_finding"]
+            candidate.target_uncertainty_focus = traceability["target_uncertainty_focus"]
+            candidate.changed_factors = traceability["changed_factors"]
+            candidate.held_fixed_factors = traceability["held_fixed_factors"]
+            candidate.expected_outcome_branches = traceability["expected_outcome_branches"]
+            candidate.exploratory = traceability["exploratory"]
             try:
                 _validate_candidate_design(candidate)
             except ValueError as exc:

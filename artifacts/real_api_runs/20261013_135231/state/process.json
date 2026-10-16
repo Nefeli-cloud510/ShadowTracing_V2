@@ -1,0 +1,80 @@
+{
+  "task_id": "ST_REAL_API_20261013_135231",
+  "current_round": 0,
+  "current_stage": "state_initialized",
+  "current_phase": "task_definition",
+  "current_step": "confirmation",
+  "progress_percentage": 5,
+  "started_at": "2026-10-13T13:52:31.195950",
+  "phase_sequence": [
+    "task_definition",
+    "hypothesis_generation",
+    "experiment_planning",
+    "experiment_execution",
+    "result_analysis",
+    "decision_making",
+    "next_round"
+  ],
+  "phases": {
+    "task_definition": {
+      "status": "completed",
+      "completed_at": "2026-10-13T13:52:31.195950",
+      "notes": "scientific task saved and confirmed",
+      "steps": {
+        "confirmation": {
+          "name": "confirmation",
+          "status": "completed",
+          "requires_user_approval": true
+        }
+      }
+    },
+    "hypothesis_generation": {
+      "status": "pending",
+      "steps": {}
+    },
+    "experiment_planning": {
+      "status": "pending",
+      "steps": {}
+    },
+    "experiment_execution": {
+      "status": "pending",
+      "steps": {}
+    },
+    "result_analysis": {
+      "status": "pending",
+      "steps": {}
+    },
+    "decision_making": {
+      "status": "pending",
+      "steps": {}
+    },
+    "next_round": {
+      "status": "pending",
+      "steps": {}
+    }
+  },
+  "steps": {
+    "task_definition": {
+      "name": "task_definition",
+      "status": "completed",
+      "requires_user_approval": false
+    },
+    "state_bootstrap": {
+      "name": "state_bootstrap",
+      "status": "completed",
+      "requires_user_approval": false
+    }
+  },
+  "user_settings": {
+    "auto_continue": false,
+    "stop_at_each_step": true,
+    "approval_required": [
+      "experiment_selection",
+      "protocol_validation",
+      "round_completion"
+    ]
+  },
+  "user_requests": {
+    "stop_requested": false
+  }
+}

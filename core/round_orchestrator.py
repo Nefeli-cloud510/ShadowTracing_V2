@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.decision_unified import DecisionLayerService
 from core.display_text_cleaner import clean_llm_text
+from core.json_safe import json_dumps
 from core.multi_source_uncertainty_miner import MIN_UNCERTAINTIES
 from core.planner_output_applier import PlannerOutputApplier
 from core.planner_unified import ReasoningPlannerInputBuilder
@@ -404,9 +405,8 @@ class RoundOrchestrator:
             tree=tree,
             uncertainties=uncertainties,
         )
-        protocol_payload = json.dumps(
+        protocol_payload = json_dumps(
             protocol.model_dump(mode="json", exclude_none=True),
-            ensure_ascii=False,
             indent=2,
         )
         protocol_path.write_text(protocol_payload, encoding="utf-8")
@@ -746,7 +746,8 @@ class RoundOrchestrator:
 
     def _build_input_sources(self, *, snapshot: dict[str, Any], human_feedback: str | None) -> list[str]:
         closure = snapshot.get("closure") or {}
-        sources = [f"round_archive:R{snapshot.get('round_id', 0):02d}"]
+        raw_round_id = snapshot.get("round_id", 0) or 0
+        sources = [f"round_archive:R{int(raw_round_id):02d}"]
         sources.extend(f"tested_hypothesis:{item}" for item in closure.get("tested_hypotheses", [])[:8])
         sources.extend(f"target_uncertainty:{item}" for item in closure.get("target_uncertainties", [])[:8])
         sources.extend(f"scientific_finding:{item}" for item in closure.get("scientific_findings", [])[:5])

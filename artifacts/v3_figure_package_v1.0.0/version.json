@@ -1,0 +1,131 @@
+{
+  "package_version": "1.0.0",
+  "figure_format_version": "v3-fig/1.0",
+  "generated_at": "2026-10-16T14:12:10+08:00",
+  "experiment": {
+    "session_root": "D:\\ShadowTracing\\runtime\\live_session\\sessions\\session_20261015_132955_705440",
+    "round_id": "round_02",
+    "experiment_id": "E_R02_03",
+    "run_id": "E_R02_03_r1",
+    "test_start": "2021-08-26",
+    "test_end": "2021-09-29"
+  },
+  "figure_format_spec": {
+    "dpi": 200,
+    "background": "white",
+    "font_family": [
+      "Microsoft YaHei",
+      "SimHei",
+      "Microsoft JhengHei"
+    ],
+    "date_axis": "真实日历日期，缺失日期不压缩",
+    "no_smoothing": true,
+    "no_interpolation": true,
+    "no_uncomputed_prediction_error_bars": true,
+    "series_style": {
+      "truth": "深灰实线/圆点 (#374151)",
+      "baseline": "蓝色虚线 (#1d4ed8)",
+      "shadow_treatment": "橙色实线 (#ea580c)"
+    },
+    "positive_delta_meaning": "加入日影后指标改善"
+  },
+  "figures": [
+    {
+      "file": "figures/v3_appendix_full_calendar_overview.png",
+      "sha256": "2ef56d9796f05229e58cd49a3c8291ba668a2498c8202505e35e8865a4a8a305",
+      "role": "附录：完整日历经览"
+    },
+    {
+      "file": "figures/v3_appendix_parameters.png",
+      "sha256": "73c234db75107097fb988b4c7887e389e7abbba8fa51fb75b2d7256df2510a3d",
+      "role": "附录：参数与诊断"
+    },
+    {
+      "file": "figures/v3_appendix_training_quality.png",
+      "sha256": "0e087c568dadcad9b602a474f82fc07b10d868e01b7198af3285cf31a5d14cd7",
+      "role": "附录：训练拟合与质量审计"
+    },
+    {
+      "file": "figures/v3_combined_overview.png",
+      "sha256": "c0ce35900d909100a1f729ac7af9fa5e12e4b97370033b6e1764507338bf9782",
+      "role": "组合版：2x2 核心图总览"
+    },
+    {
+      "file": "figures/v3_daily_abs_error_delta.png",
+      "sha256": "7a99f0472cd6369d0516903f8257cff95dff52ab338bbb3265aee74148e6f146",
+      "role": "新增：逐日绝对误差变化"
+    },
+    {
+      "file": "figures/v3_gain_ci.png",
+      "sha256": "ede6da9b0806cbc7c943e72f304071112263c9db6ea4e72f6189212b09005c61",
+      "role": "主图：RMSE 增益与 95% CI"
+    },
+    {
+      "file": "figures/v3_test_prediction_comparison.png",
+      "sha256": "2978b01f080b21a289d53d4ca1683b55ffd99fa41314c839f3621a0d630a9067",
+      "role": "主图：测试期预测与真实值"
+    }
+  ],
+  "daily_abs_error_delta": {
+    "file": "v3_daily_abs_error_delta.csv",
+    "formula": "|y_true - y_pred_baseline| - |y_true - y_pred_shadow|",
+    "positive_meaning": "当日加入日影后绝对误差更小",
+    "sha256": "c133a0c78d8353f333d30c6fd3f6007c5472cec7c90b8ef09a6709478c44d56d"
+  },
+  "model_parameters": {
+    "ridge_baseline": {
+      "model_family": "Ridge",
+      "alpha": 1000.0,
+      "l1_ratio": null,
+      "param_search_mode": "auto",
+      "converged": false,
+      "n_train": 139,
+      "n_test": 35,
+      "feature_columns": [
+        "ss_br_mean",
+        "BX, nT (GSE, GSM)"
+      ]
+    },
+    "ridge_treatment": {
+      "model_family": "Ridge",
+      "alpha": 1000.0,
+      "l1_ratio": null,
+      "param_search_mode": "auto",
+      "converged": false,
+      "n_train": 139,
+      "n_test": 35,
+      "feature_columns": [
+        "ss_br_mean",
+        "BX, nT (GSE, GSM)",
+        "p2_y中心值"
+      ]
+    },
+    "elasticnet_baseline": {
+      "model_family": "ElasticNet",
+      "alpha": 10.0,
+      "l1_ratio": 0.3,
+      "param_search_mode": "auto",
+      "converged": true,
+      "n_train": 139,
+      "n_test": 35,
+      "feature_columns": [
+        "ss_br_mean",
+        "BX, nT (GSE, GSM)"
+      ]
+    },
+    "elasticnet_treatment": {
+      "model_family": "ElasticNet",
+      "alpha": 10.0,
+      "l1_ratio": 0.1,
+      "param_search_mode": "auto",
+      "converged": true,
+      "n_train": 139,
+      "n_test": 35,
+      "feature_columns": [
+        "ss_br_mean",
+        "BX, nT (GSE, GSM)",
+        "p2_y中心值"
+      ]
+    }
+  }
+}

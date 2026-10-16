@@ -1,0 +1,234 @@
+{
+  "omni_v3_vs_calendar": [
+    {
+      "field": "Scalar B, nT",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "BX, nT (GSE, GSM)",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "BY, nT (GSE)",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "BZ, nT (GSE)",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "BY, nT (GSM)",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "BZ, nT (GSM)",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "SW Plasma Temperature, K",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "SW Proton Density, N/cm^3",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "SW Plasma Speed, km/s",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "Kp index",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "Dst-index, nT",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "ap_index, nT",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    }
+  ],
+  "omni_v3_core_vs_raw_xlsx": [
+    {
+      "field": "Scalar B, nT",
+      "n": 182,
+      "n_match_exact": 182,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "SW Plasma Temperature, K",
+      "n": 182,
+      "n_match_exact": 173,
+      "max_abs_diff": 54466.0
+    },
+    {
+      "field": "SW Proton Density, N/cm^3",
+      "n": 182,
+      "n_match_exact": 173,
+      "max_abs_diff": 9.4
+    },
+    {
+      "field": "SW Plasma Speed, km/s",
+      "n": 182,
+      "n_match_exact": 182,
+      "max_abs_diff": 0.0
+    }
+  ],
+  "shadow_v3_vs_calendar": [
+    {
+      "field": "p2_y中心值",
+      "n": 188,
+      "n_match_exact": 188,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "p2_y中心值误差",
+      "n": 188,
+      "n_match_exact": 188,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "p1_x中心值",
+      "n": 188,
+      "n_match_exact": 188,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "p1_x中心值误差",
+      "n": 188,
+      "n_match_exact": 188,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "p3 sigma_宽度",
+      "n": 188,
+      "n_match_exact": 188,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "_llf 最优卡方值",
+      "n": 188,
+      "n_match_exact": 188,
+      "max_abs_diff": 0.0
+    }
+  ],
+  "shadow_v3_vs_raw_xlsx": [
+    {
+      "field": "p2_y中心值",
+      "n": 182,
+      "n_match_exact": 182,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "p2_y中心值误差",
+      "n": 182,
+      "n_match_exact": 182,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "p1_x中心值",
+      "n": 182,
+      "n_match_exact": 182,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "p1_x中心值误差",
+      "n": 182,
+      "n_match_exact": 182,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "p3 sigma_宽度",
+      "n": 182,
+      "n_match_exact": 181,
+      "max_abs_diff": 0.00030999999999997696
+    },
+    {
+      "field": "_llf 最优卡方值",
+      "n": 182,
+      "n_match_exact": 182,
+      "max_abs_diff": 0.0
+    }
+  ],
+  "shadow_v3_pfss_vs_pfss_v1": [
+    {
+      "field": "l0_04utc_deg",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "photo_br_mean",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "photo_br_absmean",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "photo_n_lat",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "photo_n_lon",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "ss_br_mean",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "ss_br_absmean",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "ss_n_lat",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    },
+    {
+      "field": "ss_n_lon",
+      "n": 196,
+      "n_match_exact": 196,
+      "max_abs_diff": 0.0
+    }
+  ]
+}

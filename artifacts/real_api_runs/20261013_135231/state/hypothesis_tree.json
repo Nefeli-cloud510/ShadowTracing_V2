@@ -1,0 +1,21 @@
+{
+  "tree_id": "ST_REAL_API_20261013_135231_tree",
+  "task_id": "ST_REAL_API_20261013_135231",
+  "current_round": 0,
+  "root_question": "DeltaDec 是否提供可重复验证的 Vsw 预测增量信息",
+  "nodes": [],
+  "active_hypotheses": [],
+  "pruned_hypotheses": [],
+  "pending_hypotheses": [],
+  "latest_update": {
+    "round": 0,
+    "event": "initialized",
+    "description": "knowledge memory skeleton created"
+  },
+  "tree_summary": {
+    "total_nodes": 0,
+    "active_count": 0,
+    "pruned_count": 0,
+    "pending_count": 0
+  }
+}

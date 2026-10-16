@@ -10,6 +10,8 @@ from typing import Any, ClassVar
 import numpy as np
 import pandas as pd
 
+from core.json_safe import json_dumps
+
 
 @dataclass(frozen=True)
 class FeatureSpec:
@@ -319,7 +321,7 @@ def freeze_evaluation_plan(
 ) -> FrozenEvaluationPlan:
     path = evaluation_plan_path(project_root)
     path.write_text(
-        json.dumps(plan.to_dict(), ensure_ascii=False, indent=2),
+        json_dumps(plan.to_dict(), indent=2),
         encoding="utf-8",
     )
     return plan

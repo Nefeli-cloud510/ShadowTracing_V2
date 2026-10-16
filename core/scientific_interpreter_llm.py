@@ -410,7 +410,7 @@ class ScientificInterpreterLLM:
             rmse_attribution=(
                 f"RMSE 变化需要结合数据覆盖、特征覆盖与过拟合风险继续归因："
                 f"当前 ΔRMSE={_format_delta(planner_input.evaluation_summary.delta_rmse)}，"
-                "若训练集与测试集差异明显，指标变化更可能来自覆盖范围而非新增特征。"
+                "若训练段与迭代评估段差异明显，指标变化更可能来自覆盖范围而非新增特征。"
             ),
             pearson_attribution=(
                 f"Pearson r 反映整体趋势捕捉能力："

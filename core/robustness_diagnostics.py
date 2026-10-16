@@ -78,13 +78,16 @@ def paired_calendar_block_bootstrap(
     seed: int = 20261008,
     ci_level: float = 95.0,
     verify_pearson: bool = False,
+    min_blocks: int = 2,
 ) -> dict[str, Any]:
     """Paired calendar-block bootstrap for the common-sample test set.
 
     Blocks are anchored to the first day of each calendar year (verified
     reference scripts use fixed January-1 anchors). Each draw resamples whole
     issue-date blocks with replacement; metrics are recomputed with block
-    counts as weights, never by deduplicating repeated rows.
+    counts as weights, never by deduplicating repeated rows. When the number
+    of non-empty calendar blocks is below ``min_blocks``, no directional
+    stability conclusion is made.
     """
 
     if len(baseline) != len(treatment):
@@ -95,6 +98,8 @@ def paired_calendar_block_bootstrap(
         raise ValueError("配对 bootstrap 要求两组 y_true 完全一致")
     if n_draws < 100:
         raise ValueError("n_draws 至少为 100")
+    if min_blocks < 1:
+        raise ValueError("min_blocks 至少为 1")
 
     y_true = baseline["y_true"].to_numpy(dtype=float)
     yp_base = baseline["y_pred"].to_numpy(dtype=float)
@@ -102,6 +107,8 @@ def paired_calendar_block_bootstrap(
     block_ids = _block_ids(baseline["issue_date"], block_size)
     nonempty = np.unique(block_ids)
     n_total_blocks = int(block_ids.max()) + 1
+    n_nonempty_blocks = int(len(nonempty))
+    insufficient_blocks = n_nonempty_blocks < int(min_blocks)
 
     rng = np.random.default_rng(seed)
     chosen = rng.integers(0, len(nonempty), size=(n_draws, len(nonempty)))
@@ -178,15 +185,22 @@ def paired_calendar_block_bootstrap(
         lower, upper = np.nanpercentile(finite, [lo, hi])
         return [float(lower), float(upper)]
 
+    stable_rmse = bool(
+        np.isfinite(gain_rmse).all()
+        and (float(np.nanpercentile(gain_rmse, 100 - (100.0 - ci_level) / 2.0)) < 0
+             or float(np.nanpercentile(gain_rmse, (100.0 - ci_level) / 2.0)) > 0)
+    )
     return {
         "method": "paired_calendar_block_bootstrap",
         "status": "completed",
         "n_iterations": int(n_draws),
         "block_size": int(block_size),
+        "min_blocks": int(min_blocks),
         "seed": int(seed),
         "ci_level": float(ci_level),
         "n_test_samples": int(len(baseline)),
-        "n_nonempty_blocks": int(len(nonempty)),
+        "n_nonempty_blocks": n_nonempty_blocks,
+        "insufficient_blocks": insufficient_blocks,
         "n_valid_pearson_draws": n_valid_pearson_draws,
         "point_gain_rmse": weighted_rmse(y_true, yp_base, np.ones_like(y_true))
         - weighted_rmse(y_true, yp_treat, np.ones_like(y_true)),
@@ -197,11 +211,7 @@ def paired_calendar_block_bootstrap(
         "rmse_ci": _ci(gain_rmse),
         "mae_ci": _ci(gain_mae),
         "pearson_r_ci": _ci(gain_r),
-        "stable_rmse": bool(
-            np.isfinite(gain_rmse).all()
-            and (float(np.nanpercentile(gain_rmse, 100 - (100.0 - ci_level) / 2.0)) < 0
-                 or float(np.nanpercentile(gain_rmse, (100.0 - ci_level) / 2.0)) > 0)
-        ),
+        "stable_rmse": stable_rmse and not insufficient_blocks,
     }
 
 
@@ -211,6 +221,9 @@ def empty_bootstrap_summary(reason: str) -> dict[str, Any]:
         "status": "not_run",
         "n_iterations": 0,
         "block_size": None,
+        "min_blocks": None,
+        "n_nonempty_blocks": None,
+        "insufficient_blocks": False,
         "seed": None,
         "reason": reason,
     }
@@ -223,6 +236,11 @@ def summary_to_robustness_report(summary: dict[str, Any] | None) -> RobustnessRe
             stable=False,
             n_iterations=0,
             status="not_run",
+            min_blocks=(
+                int(summary["min_blocks"])
+                if summary is not None and summary.get("min_blocks") is not None
+                else None
+            ),
         )
         return RobustnessReport(
             bootstrap=bootstrap,
@@ -235,22 +253,59 @@ def summary_to_robustness_report(summary: dict[str, Any] | None) -> RobustnessRe
         )
 
     stable_rmse = bool(summary.get("stable_rmse"))
+    insufficient_blocks = bool(summary.get("insufficient_blocks"))
+    n_nonempty_blocks = summary.get("n_nonempty_blocks")
+    min_blocks = summary.get("min_blocks")
     rmse_ci = summary.get("rmse_ci")
+    point_gain_rmse = summary.get("point_gain_rmse")
+    identical_predictions = bool(
+        isinstance(rmse_ci, (list, tuple))
+        and len(rmse_ci) >= 2
+        and float(rmse_ci[0]) == 0.0
+        and float(rmse_ci[1]) == 0.0
+        and (point_gain_rmse is None or abs(float(point_gain_rmse)) < 1e-9)
+    )
     if rmse_ci is not None:
         ci_text = f"RMSE 增益 95% CI=[{rmse_ci[0]:+.3f}, {rmse_ci[1]:+.3f}]"
     else:
         ci_text = "RMSE 增益 CI 不可用"
-    concern = (
-        None
-        if stable_rmse
-        else f"配对 bootstrap 的 {ci_text} 跨越零，主增益方向尚不稳定。"
-    )
+    if identical_predictions:
+        concern = (
+            "两组预测完全一致：RMSE 增益点估计与 bootstrap CI 均为 [0,0]，"
+            "未检出任何预测差异；该结果不能直接证明日影没有物理作用，"
+            "需先检查特征是否真正进入模型、系数是否被压缩为零，"
+            "或对照组与实验组是否意外使用了相同信息。"
+        )
+    elif insufficient_blocks:
+        concern = (
+            f"配对 bootstrap 有效日历块数为 {n_nonempty_blocks}，"
+            f"低于预登记最小块数 {min_blocks}，无法作出方向性稳定判断。"
+        )
+    else:
+        concern = (
+            None
+            if stable_rmse
+            else f"配对 bootstrap 的 {ci_text} 跨越零，主增益方向尚不稳定。"
+        )
     block_text = f"{summary.get('block_size', 7)} 天块"
-    recommendation = (
-        f"配对块 bootstrap（{summary.get('n_iterations', 0)} 次、{block_text}）"
-        f"{'支持主增益方向' if stable_rmse else '不支持稳定增益方向'}；"
-        "未运行分时段检验，不据此作分时段稳定性结论。"
-    )
+    if identical_predictions:
+        recommendation = (
+            f"配对块 bootstrap（{summary.get('n_iterations', 0)} 次、{block_text}）"
+            "确认了两组预测完全一致；下一步应核对实际运行的对照/实验特征、"
+            "模型系数与预测文件，确认日影变量是否真正参与建模后再作方向性实验。"
+        )
+    elif insufficient_blocks:
+        recommendation = (
+            f"配对块 bootstrap（{summary.get('n_iterations', 0)} 次、{block_text}）"
+            f"仅有 {n_nonempty_blocks} 个非空日历块，低于 min_blocks={min_blocks}，"
+            "不能据此作方向性稳定结论；需扩大共同测试日历范围或降低最小块门槛预登记后重跑。"
+        )
+    else:
+        recommendation = (
+            f"配对块 bootstrap（{summary.get('n_iterations', 0)} 次、{block_text}）"
+            f"{'支持主增益方向' if stable_rmse else '不支持稳定增益方向'}；"
+            "未运行分时段检验，不据此作分时段稳定性结论。"
+        )
     return RobustnessReport(
         bootstrap=BootstrapReport(
             pearson_r_ci=summary.get("pearson_r_ci"),
@@ -260,6 +315,11 @@ def summary_to_robustness_report(summary: dict[str, Any] | None) -> RobustnessRe
             n_iterations=int(summary.get("n_iterations") or 0),
             status="completed",
             block_size=int(summary["block_size"]) if summary.get("block_size") is not None else None,
+            n_nonempty_blocks=(
+                int(n_nonempty_blocks) if n_nonempty_blocks is not None else None
+            ),
+            min_blocks=int(min_blocks) if min_blocks is not None else None,
+            insufficient_blocks=insufficient_blocks,
             seed=int(summary["seed"]) if summary.get("seed") is not None else None,
             point_gain_rmse=summary.get("point_gain_rmse"),
             point_gain_mae=summary.get("point_gain_mae"),

@@ -1,0 +1,5 @@
+﻿run_id,模型家族,alpha,l1_ratio,选参模式,搜索完整,边界命中,求解器收敛,n_train,n_test,特征列
+ridge_baseline,Ridge,1000,—,auto,是,是,未记录,139,35,"ss_br_mean、BX, nT (GSE, GSM)"
+ridge_treatment,Ridge,1000,—,auto,是,是,未记录,139,35,"ss_br_mean、BX, nT (GSE, GSM)、p2_y中心值"
+elasticnet_baseline,ElasticNet,10,0.3,auto,是,否,未记录,139,35,"ss_br_mean、BX, nT (GSE, GSM)"
+elasticnet_treatment,ElasticNet,10,0.1,auto,是,是,未记录,139,35,"ss_br_mean、BX, nT (GSE, GSM)、p2_y中心值"

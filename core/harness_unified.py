@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import json
 import time
 import hashlib
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from core.json_safe import json_dumps
 
 from core.calendar_samples import (
     FrozenEvaluationPlan,
@@ -428,6 +429,7 @@ class UnifiedExperimentHarness:
                 block_size=7,
                 n_draws=4000,
                 seed=20261008,
+                min_blocks=2,
             )
             if robustness is None:
                 robustness = summary_to_robustness_report(bootstrap_summary)
@@ -567,25 +569,24 @@ class UnifiedExperimentHarness:
         archive_dir = round_dir / "archive" / run_id
         archive_dir.mkdir(parents=True, exist_ok=True)
         (archive_dir / "evaluation_plan.json").write_text(
-            json.dumps(evaluation_plan.to_dict(), ensure_ascii=False, indent=2),
+            json_dumps(evaluation_plan.to_dict(), indent=2),
             encoding="utf-8",
         )
 
         protocol_payload = protocol.model_dump(mode="json", exclude_none=True)
         (archive_dir / "experiment_protocol.json").write_text(
-            json.dumps(protocol_payload, ensure_ascii=False, indent=2),
+            json_dumps(protocol_payload, indent=2),
             encoding="utf-8",
         )
         (archive_dir / "compiled_plan.json").write_text(
-            json.dumps(
+            json_dumps(
                 compiled_plan.to_dict(),
-                ensure_ascii=False,
                 indent=2,
             ),
             encoding="utf-8",
         )
         (archive_dir / "prediction_protocol.json").write_text(
-            json.dumps(protocol_payload, ensure_ascii=False, indent=2),
+            json_dumps(protocol_payload, indent=2),
             encoding="utf-8",
         )
         self._write_data_manifest(
@@ -627,11 +628,15 @@ class UnifiedExperimentHarness:
         )
         bootstrap_summary = None
         if result.robustness is not None and result.robustness.bootstrap is not None:
+            bootstrap = result.robustness.bootstrap
             bootstrap_summary = {
-                "status": result.robustness.bootstrap.status,
-                "n_iterations": result.robustness.bootstrap.n_iterations,
-                "block_size": result.robustness.bootstrap.block_size,
-                "seed": result.robustness.bootstrap.seed,
+                "status": bootstrap.status,
+                "n_iterations": bootstrap.n_iterations,
+                "block_size": bootstrap.block_size,
+                "seed": bootstrap.seed,
+                "n_nonempty_blocks": bootstrap.n_nonempty_blocks,
+                "min_blocks": bootstrap.min_blocks,
+                "insufficient_blocks": bootstrap.insufficient_blocks,
             }
         self._write_run_notes(
             archive_dir,
@@ -647,7 +652,7 @@ class UnifiedExperimentHarness:
             run_archive_dir.mkdir(parents=True, exist_ok=True)
             output = outputs[spec.run_id]
             (run_archive_dir / "config.json").write_text(
-                json.dumps(output.get("config", {}), ensure_ascii=False, indent=2),
+                json_dumps(output.get("config", {}), indent=2),
                 encoding="utf-8",
             )
             coefficients = output.get("coefficients")
@@ -680,7 +685,7 @@ class UnifiedExperimentHarness:
             "prediction_protocol.json": "prediction_protocol.json",
         }
         (round_dir / "archive" / "latest_run.json").write_text(
-            json.dumps(latest_entry, ensure_ascii=False, indent=2),
+            json_dumps(latest_entry, indent=2),
             encoding="utf-8",
         )
         (round_dir / "latest_run_id.txt").write_text(run_id, encoding="utf-8")
@@ -709,6 +714,15 @@ class UnifiedExperimentHarness:
                         "selected_l1_ratio": output.get("selected_l1_ratio"),
                         "search_mode": (output.get("param_search") or {}).get("search_mode"),
                         "converged": (output.get("param_search") or {}).get("converged"),
+                        "search_completed": (output.get("param_search") or {}).get(
+                            "search_completed"
+                        ),
+                        "boundary_hit": (output.get("param_search") or {}).get(
+                            "boundary_hit"
+                        ),
+                        "solver_converged": (output.get("param_search") or {}).get(
+                            "solver_converged"
+                        ),
                     }
                 )
             rows.extend(fold_rows)
@@ -718,6 +732,15 @@ class UnifiedExperimentHarness:
                 merged["run_id"] = run_label
                 merged["order"] = index
                 merged["row_type"] = "param_search"
+                merged["search_completed"] = (output.get("param_search") or {}).get(
+                    "search_completed"
+                )
+                merged["boundary_hit"] = (output.get("param_search") or {}).get(
+                    "boundary_hit"
+                )
+                merged["solver_converged"] = (output.get("param_search") or {}).get(
+                    "solver_converged"
+                )
                 for fold in split_dict["cv_folds"]:
                     merged[f"fold_{fold['fold']}_train_count"] = fold["train_count"]
                     merged[f"fold_{fold['fold']}_eval_count"] = fold["eval_count"]
@@ -791,7 +814,7 @@ class UnifiedExperimentHarness:
             payload["baseline"] = result.runs[0].metrics.model_dump(exclude_none=True)
             payload["treatment"] = result.runs[1].metrics.model_dump(exclude_none=True)
         (archive_dir / "metrics.json").write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
+            json_dumps(payload, indent=2),
             encoding="utf-8",
         )
 
@@ -830,7 +853,7 @@ class UnifiedExperimentHarness:
             "arms": arms,
         }
         (archive_dir / "diagnostics.json").write_text(
-            json.dumps(diagnostics, ensure_ascii=False, indent=2),
+            json_dumps(diagnostics, indent=2),
             encoding="utf-8",
         )
 
@@ -961,8 +984,13 @@ class UnifiedExperimentHarness:
         x_limits = (full_time.min(), full_time.max()) if len(full_time) > 0 else None
         split_time = split.time_test[0] if len(split.time_test) > 0 else None
         chart_label = f"{protocol.experiment_id} / {label}"
+        chart_model_family = runner_config.elasticnet_config.model_family
         figure_paths = {
-            "coefficients": runner.plot_feature_coefficients(coef_df, output_dir),
+            "coefficients": runner.plot_feature_coefficients(
+                coef_df,
+                output_dir,
+                model_family=chart_model_family,
+            ),
             "scatter": runner.plot_prediction_scatter(
                 split.y_test,
                 yte_pred,
@@ -971,6 +999,7 @@ class UnifiedExperimentHarness:
                 experiment_label=chart_label,
                 train_true=split.y_train,
                 train_pred=ytr_pred,
+                model_family=chart_model_family,
             ),
             "timeseries": runner.plot_prediction_series(
                 split.time_test,
@@ -983,22 +1012,31 @@ class UnifiedExperimentHarness:
                 train_pred=ytr_pred,
                 x_limits=x_limits,
                 split_time=split_time,
+                model_family=chart_model_family,
             ),
             "residual_scatter": runner.plot_residual_scatter(
                 yte_pred,
                 split.y_test - yte_pred,
                 output_dir,
+                model_family=chart_model_family,
             ),
             "residual_hist": runner.plot_residual_histogram(
                 split.y_test - yte_pred,
                 output_dir,
+                model_family=chart_model_family,
             ),
         }
 
         shap_paths: dict[str, str] = {}
         shap_importance = None
         if self.run_shap:
-            shap_result = runner.run_shap_analysis(model, split.X_train, split.X_test, output_dir)
+            shap_result = runner.run_shap_analysis(
+                model,
+                split.X_train,
+                split.X_test,
+                output_dir,
+                model_family=chart_model_family,
+            )
             shap_importance = shap_result["importance"]
             shap_paths = {
                 "summary": str(shap_result["summary_path"]),
@@ -1143,7 +1181,7 @@ class UnifiedExperimentHarness:
             "merged_sources": list(merged.merged_sources),
         }
         (archive_dir / "data_manifest.json").write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2),
+            json_dumps(manifest, indent=2),
             encoding="utf-8",
         )
 
@@ -1237,6 +1275,17 @@ class UnifiedExperimentHarness:
                 "status": (bootstrap_summary or {}).get("status"),
                 "n_iterations": (bootstrap_summary or {}).get("n_iterations"),
                 "block_size": (bootstrap_summary or {}).get("block_size"),
+                "n_nonempty_blocks": (bootstrap_summary or {}).get(
+                    "n_nonempty_blocks"
+                ),
+                "min_blocks": (bootstrap_summary or {}).get("min_blocks"),
+                "insufficient_blocks": (bootstrap_summary or {}).get(
+                    "insufficient_blocks"
+                ),
+                "boundary_note": (
+                    "训练入口 bootstrap 固定使用 7 天块、4000 次抽样、"
+                    "min_blocks=2；单独 robustness 诊断按 diagnostics_spec 配置执行。"
+                ),
             },
             "verified_items": [
                 "日期纪元按 dataset_id 解析，TIME 列未被使用",
@@ -1251,7 +1300,7 @@ class UnifiedExperimentHarness:
             "user_notes": list(protocol.notes or []),
         }
         (archive_dir / "run_notes.json").write_text(
-            json.dumps(notes, ensure_ascii=False, indent=2),
+            json_dumps(notes, indent=2),
             encoding="utf-8",
         )
 

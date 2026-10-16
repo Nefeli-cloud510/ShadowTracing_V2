@@ -17,7 +17,7 @@ PARAMETER_LABELS: dict[str, str] = {
     "past_lag_days": "样本滞后（天）",
     "forecast_horizon_days": "预测视野（天）",
     "max_lag_day": "最大滞后构造（天）",
-    "test_split_ratio": "测试集比例",
+    "test_split_ratio": "迭代评估段比例",
     "alpha": "正则强度 alpha",
     "l1_ratio": "L1 占比 l1_ratio",
     "use_lag_feature": "是否启用滞后特征",
@@ -151,7 +151,7 @@ class TuningNarrativeService:
             setting_parts.append(f"最多构造 {merged['max_lag_day']} 天滞后特征")
         if "test_split_ratio" in merged and merged["test_split_ratio"] is not None:
             ratio = float(merged["test_split_ratio"])
-            setting_parts.append(f"测试集占比 {int(round(ratio * 100))}%")
+            setting_parts.append(f"迭代评估段占比 {int(round(ratio * 100))}%")
         if "alpha" in merged or "l1_ratio" in merged:
             alpha_text = str(merged.get("alpha"))
             l1_text = str(merged.get("l1_ratio"))
@@ -186,7 +186,7 @@ class TuningNarrativeService:
 
         parameter_text = (
             "窗口大小决定模型一次看到多少天历史样本，样本滞后与预测视野共同定义输入相对预测目标的时间差；"
-            "测试集比例用于防止滚动评估样本过少，正则强度则用于抑制高相关物理变量的过拟合。"
+            "迭代评估段比例用于防止滚动评估样本过少，正则强度则用于抑制高相关物理变量的过拟合。"
         )
         return TuningNarrativeResponse(
             narrative=narrative,

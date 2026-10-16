@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "status": "evidence_invalidated",
+  "invalidated_at": "2026-10-14T00:08:44+08:00",
+  "root_cause": "v2 OMNI 与 LHAASO CSV 存在系统性整列错位，旧承诺的实验目标列并非真实太阳风速度",
+  "root_cause_evidence": [
+    "v2 OMNI 的 SW Plasma Speed, km/s 列实际为 SW Proton Density, N/cm^3",
+    "v2 OMNI 的 Scalar B, nT 全为 0",
+    "v2 LHAASO 的 p2_y中心值 等 6 列整体错位",
+    "预测 CSV 中的 y_true 量级为 6-10 /cm^3，对应质子密度而非 300-900 km/s 的风速"
+  ],
+  "affected_session": {
+    "session_id": "session_20261013_202258_798542",
+    "declared_task_id": "ST_LIVE_20261013_202258",
+    "current_round": 2,
+    "data_source_paths": [
+      "runtime/live_session/sessions/session_20261013_202258_798542/data/raw/omni_2021_full_calendar_v2.csv",
+      "runtime/live_session/sessions/session_20261013_202258_798542/data/raw/lhaaso_shadow_pfss_2021_full_calendar_v2.csv"
+    ]
+  },
+  "affected_experiments": [
+    {
+      "experiment_id": "E_R01_05",
+      "round_id": 1,
+      "declared_target": "SW Plasma Speed, km/s",
+      "actual_prediction_target": "SW Proton Density, N/cm^3",
+      "status": "invalidated_for_wind_speed_evidence",
+      "keep_original": true,
+      "instruction": "不得再作为太阳风速度预测或假设支持度证据"
+    },
+    {
+      "experiment_id": "E_R02_03",
+      "round_id": 2,
+      "declared_target": "SW Plasma Speed, km/s",
+      "actual_prediction_target": "SW Proton Density, N/cm^3",
+      "status": "invalidated_for_wind_speed_evidence",
+      "keep_original": true,
+      "instruction": "不得再作为太阳风速度预测或假设支持度证据"
+    }
+  ],
+  "downstream_state_impact": [
+    "由 E_R01_05、E_R02_03 写入的假设支持度、已解决不确定性、下一轮规划依据均不再有效",
+    "旧会话原始快照保留备查，但下一轮应从新 v3 会话重新开始实验记忆",
+    "全量重跑前可复用假设树文本内容，但不得复用基于错位标签计算的结论"
+  ],
+  "correction_files": {
+    "omni": "runtime/live_run_input/omni_2021_full_calendar_v3.csv",
+    "lhaaso_shadow_pfss": "runtime/live_run_input/lhaaso_shadow_pfss_2021_full_calendar_v3.csv"
+  },
+  "acceptance_report": "artifacts/data_issue_scan/v3_acceptance_report.json"
+}

@@ -32,6 +32,7 @@ from core.hypothesis_generation import (
     refresh_tree_metadata,
 )
 from core.hypothesis_state_machine import ACTIVE_LIKE
+from core.json_safe import json_dumps
 from core.llm_gateway import LLMGateway
 from core.multi_source_uncertainty_miner import (
     MiningContext,
@@ -48,7 +49,11 @@ from core.scientific_interpreter_llm import InterpreterRoundAnalysis, Scientific
 from core.scientific_questioner_llm import ProposedUncertainty, ScientificQuestionerLLM
 from core.state_repository import UnifiedStateRepository
 from core.state_updater import UnifiedStateUpdater
-from core.support_update_rules import compute_support_update_from_reasoning
+from core.support_update_rules import (
+    EVIDENCE_STABLE_DEGRADATION,
+    EVIDENCE_STABLE_IMPROVEMENT,
+    compute_support_update_from_reasoning,
+)
 from core.tuning_narrative_llm import TuningNarrativeService
 from core.unified_schema import (
     CandidateExperiment,
@@ -237,6 +242,33 @@ class CandidateProtocolMapper:
         past_lag_days = control_lag
         window_size = final_window
 
+        # 审批参数可能与候选设计默认值不同（例如 PI 把 5/7/21 覆写为
+        # 3/3/14）。协议校验要求所有时间源一致，因此必须把最终值同步回
+        # design 快照，不能只写 model.parameters / arm_time_windows。
+        final_design = design.model_copy(
+            update={
+                "forecast_horizon_days": final_horizon,
+                "past_lag_days": control_lag,
+                "window_size": final_window,
+                "control_lag_days": control_lag,
+                "treatment_lag_days": treatment_lag,
+                "control_forecast_horizon_days": final_horizon,
+                "treatment_forecast_horizon_days": final_horizon,
+            }
+        )
+        design = final_design
+        parameters["candidate_design_snapshot"].update(
+            {
+                "forecast_horizon_days": final_horizon,
+                "past_lag_days": control_lag,
+                "window_size": final_window,
+                "control_lag_days": control_lag,
+                "treatment_lag_days": treatment_lag,
+                "control_forecast_horizon_days": final_horizon,
+                "treatment_forecast_horizon_days": final_horizon,
+            }
+        )
+
         base_steps = [ExperimentStep(step=1, action="data_quality_check")]
         if is_baseline_experiment:
             base_steps.append(
@@ -321,15 +353,15 @@ class CandidateProtocolMapper:
             experiment_id=candidate.experiment_id,
             round_id=round_id,
             task_id=task.task_id,
-            target=candidate.design.target,
+            target=design.target,
             experiment_type=effective_experiment_type,
             scientific_objective=candidate.scientific_question or candidate.purpose,
             forecast_horizon_days=forecast_horizon_days,
-            features=candidate.design,
-            runs_spec=list(candidate.design.runs_spec or []),
-            contrasts_spec=list(candidate.design.contrasts_spec or []),
-            diagnostics_spec=list(candidate.design.diagnostics_spec or []),
-            alignment=candidate.design.alignment,
+            features=design,
+            runs_spec=list(design.runs_spec or []),
+            contrasts_spec=list(design.contrasts_spec or []),
+            diagnostics_spec=list(design.diagnostics_spec or []),
+            alignment=design.alignment,
             model={
                 "name": model_name,
                 "parameters": parameters,
@@ -347,6 +379,12 @@ class CandidateProtocolMapper:
             ),
             source_candidate_id=candidate.experiment_id,
             requires_human_review=candidate.requires_human_review,
+            responded_prior_finding=candidate.responded_prior_finding,
+            target_uncertainty_focus=candidate.target_uncertainty_focus,
+            changed_factors=list(candidate.changed_factors or []),
+            held_fixed_factors=list(candidate.held_fixed_factors or []),
+            expected_outcome_branches=dict(candidate.expected_outcome_branches or {}),
+            exploratory=bool(candidate.exploratory),
             notes=deep_clean_text(
                 protocol_notes + refinement_notes,
                 tree=tree,
@@ -1047,6 +1085,7 @@ class HumanControlService:
                         round=round_id,
                         score=outcome.support_after,
                         event="scientific_questioning",
+                        evidence_source="advisory",
                     )
                 )
             node.questioning_records.append(
@@ -1297,10 +1336,15 @@ class HumanControlService:
         human_notes: str | None = None,
         auto_continue: bool | None = None,
         model_parameters: dict[str, Any] | None = None,
+        retry_failed: bool = False,
     ) -> ExperimentProtocol:
         task = self.repository.load_task()
         candidate_set = self.repository.load_candidate_experiments()
-        candidate = self._select_candidate(candidate_set, candidate_id)
+        candidate = self._select_candidate(
+            candidate_set,
+            candidate_id,
+            allow_failed_retry=retry_failed,
+        )
         self._repair_candidate_hypothesis_links(candidate)
         try:
             tree_for_display = self.repository.load_hypothesis_tree()
@@ -1476,12 +1520,14 @@ class HumanControlService:
         auto_continue: bool | None = None,
         model_parameters: dict[str, Any] | None = None,
         remaining_uncertainties: list[dict[str, Any]] | None = None,
+        retry_failed: bool = False,
     ) -> dict[str, Any]:
         protocol = self.approve_candidate(
             candidate_id=candidate_id,
             human_notes=human_notes,
             auto_continue=auto_continue,
             model_parameters=model_parameters,
+            retry_failed=retry_failed,
         )
         process_state = self.repository.load_process_state()
         process_state.current_round = max(process_state.current_round, protocol.round_id)
@@ -1585,6 +1631,46 @@ class HumanControlService:
             "failure": str(error),
         }
 
+    def retry_failed_experiment(
+        self,
+        *,
+        candidate_id: str | None = None,
+        human_notes: str | None = None,
+        model_parameters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Re-execute one failed experiment from the round-decision stage."""
+        process_state = self.repository.load_process_state()
+        if process_state.current_stage != "awaiting_round_decision":
+            raise ValueError("当前未处于整轮反馈阶段，无法重试失败实验。")
+        candidate_set = self.repository.load_candidate_experiments()
+        target_candidate = (
+            candidate_set.top_candidate()
+            if candidate_id is None
+            else next(
+                (item for item in candidate_set.candidates if item.experiment_id == candidate_id),
+                None,
+            )
+        )
+        if target_candidate is None:
+            raise KeyError(f"找不到可重试的候选实验: {candidate_id}")
+        failure_history = self.repository.load_failure_history()
+        recoverable = any(
+            item.experiment_id == target_candidate.experiment_id and item.can_continue
+            for item in failure_history.records
+        )
+        if not recoverable:
+            raise ValueError(
+                f"候选实验 {target_candidate.experiment_id} 没有可重试的失败记录，"
+                "不能重复执行已成功或已终止的实验。"
+            )
+        return self.approve_and_execute_candidate(
+            candidate_id=target_candidate.experiment_id,
+            human_notes=human_notes,
+            auto_continue=False,
+            model_parameters=model_parameters,
+            retry_failed=True,
+        )
+
     def _run_result_analysis(
         self,
         *,
@@ -1654,7 +1740,11 @@ class HumanControlService:
                 protocol=protocol,
                 evaluation=evaluation,
             )
-        self._apply_interpreter_analysis_to_conclusion(evaluation, interpreter_analysis)
+        self._apply_interpreter_analysis_to_conclusion(
+            evaluation,
+            interpreter_analysis,
+            protocol=protocol,
+        )
         round_dir = self.project_root / "results" / f"round_{protocol.round_id:02d}"
         evaluation_path = round_dir / "evaluation_unified.json"
         export_evaluation_result(evaluation, evaluation_path)
@@ -1932,6 +2022,12 @@ class HumanControlService:
             status="pending" if decision != "stop" else "skipped",
             notes="waiting for next-round planning" if decision != "stop" else "workflow terminated by human_pi",
         )
+        if decision == "stop":
+            process_state.user_requests.stop_requested = True
+            process_state.user_requests.stop_at_phase = "decision_making"
+            process_state.user_requests.pause_reason = (
+                human_feedback or summary or "人工 PI 选择停止实验"
+            )
         self.repository.save_process_state(process_state)
 
         decision_log = self.repository.load_decision_log()
@@ -1966,6 +2062,16 @@ class HumanControlService:
                     related_experiment_id=review_context.get("experiment_id"),
                     linked_reasoning_trace_ids=review_context.get("reasoning_trace_ids", []),
                     context_summary=review_context.get("context_summary"),
+                )
+            )
+        if decision == "stop":
+            decision_log.stop_history.append(
+                StopHistoryEntry(
+                    stop_id=f"S{len(decision_log.stop_history) + 1:03d}",
+                    timestamp=datetime.now(),
+                    type="stop",
+                    phase="decision_making",
+                    reason=human_feedback or summary or "人工 PI 选择停止实验",
                 )
             )
         self.repository.save_decision_log(decision_log)
@@ -2020,7 +2126,7 @@ class HumanControlService:
 
     def _save_protocol(self, protocol: ExperimentProtocol) -> None:
         self.protocol_path.write_text(
-            json.dumps(protocol.model_dump(mode="json", exclude_none=True), ensure_ascii=False, indent=2),
+            json_dumps(protocol.model_dump(mode="json", exclude_none=True), indent=2),
             encoding="utf-8",
         )
 
@@ -2342,9 +2448,15 @@ class HumanControlService:
             "next_review": review,
         }
 
-    def _select_candidate(self, candidate_set, candidate_id: str | None) -> CandidateExperiment:
+    def _select_candidate(
+        self,
+        candidate_set,
+        candidate_id: str | None,
+        *,
+        allow_failed_retry: bool = False,
+    ) -> CandidateExperiment:
         process_state = self.repository.load_process_state()
-        if process_state.current_stage == "awaiting_round_decision":
+        if process_state.current_stage == "awaiting_round_decision" and not allow_failed_retry:
             raise ValueError(
                 "当前轮次已进入整轮反馈阶段，不能继续审批旧轮候选实验；请先提交轮次决策。"
             )
@@ -2499,7 +2611,7 @@ class HumanControlService:
         }
         stats_path = self.config_dir / "llm_gateway_stats.json"
         stats_path.write_text(
-            json.dumps(snapshot, ensure_ascii=False, indent=2),
+            json_dumps(snapshot, indent=2),
             encoding="utf-8",
         )
 
@@ -2602,16 +2714,38 @@ class HumanControlService:
     def _apply_interpreter_analysis_to_conclusion(
         evaluation: EvaluationResult,
         analysis: InterpreterRoundAnalysis | None,
+        *,
+        protocol: ExperimentProtocol | None = None,
     ) -> None:
         if analysis is None or evaluation.scientific.three_layer_conclusion is None:
             return
         conclusion = evaluation.scientific.three_layer_conclusion
-        if analysis.data_layer is not None:
+        assessment_index = {
+            item.hypothesis_id: item
+            for item in evaluation.scientific.hypothesis_assessments
+        }
+        tested_hypotheses = list(protocol.tested_hypotheses) if protocol is not None else []
+        decisive = any(
+            assessment_index.get(hypothesis_id) is not None
+            and assessment_index[hypothesis_id].evidence_classification
+            in {
+                EVIDENCE_STABLE_IMPROVEMENT,
+                EVIDENCE_STABLE_DEGRADATION,
+            }
+            for hypothesis_id in tested_hypotheses
+        )
+        if decisive and analysis.data_layer is not None:
             conclusion.data_layer = analysis.data_layer
-        if analysis.conclusion_text:
+            conclusion.data_layer.interpretation_source = "llm_interpreter"
+        if decisive and analysis.conclusion_text:
             conclusion.scientific_layer.answer = analysis.conclusion_text
-        if analysis.path_answer:
+        if decisive and analysis.path_answer:
             conclusion.scientific_layer.path_answer = analysis.path_answer
+        if (
+            decisive
+            and (analysis.conclusion_text or analysis.path_answer)
+        ):
+            conclusion.scientific_layer.interpretation_source = "llm_interpreter"
         if analysis.hypothesis_layer_summary:
             conclusion.hypothesis_layer_summary = analysis.hypothesis_layer_summary
         if analysis.overall_summary:

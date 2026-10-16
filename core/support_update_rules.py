@@ -25,6 +25,7 @@ EVIDENCE_NO_STABLE_GAIN = "no_stable_gain"
 EVIDENCE_STABLE_IMPROVEMENT = "stable_improvement"
 EVIDENCE_STABLE_DEGRADATION = "stable_degradation"
 EVIDENCE_INCONCLUSIVE = "inconclusive"
+EVIDENCE_IDENTICAL_PREDICTIONS = "identical_predictions"
 
 EVIDENCE_CLASSIFICATION_LABELS = {
     EVIDENCE_NOT_EXECUTED: "实验未执行，无可用证据",
@@ -33,6 +34,7 @@ EVIDENCE_CLASSIFICATION_LABELS = {
     EVIDENCE_STABLE_IMPROVEMENT: "检测到稳定 RMSE 增益",
     EVIDENCE_STABLE_DEGRADATION: "检测到稳定 RMSE 退化",
     EVIDENCE_INCONCLUSIVE: "RMSE 增益 CI 跨零，证据不足以确定方向",
+    EVIDENCE_IDENTICAL_PREDICTIONS: "两组预测完全一致（CI=[0,0]），未检出预测差异",
 }
 
 
@@ -104,6 +106,12 @@ def classify_rmse_gain_evidence(
     ci = _finite_ci(rmse_ci)
     if ci is not None:
         lower, upper = ci
+        if lower == 0.0 and upper == 0.0 and abs(rmse_delta) < 1e-6:
+            return EvidenceClassification(
+                classification=EVIDENCE_IDENTICAL_PREDICTIONS,
+                labels=["bootstrap RMSE 增益 95% CI 为 [0,0]，两组预测完全一致"]
+                + labels,
+            )
         if lower > 0.0:
             return EvidenceClassification(
                 classification=EVIDENCE_STABLE_IMPROVEMENT,
@@ -156,6 +164,7 @@ def compute_support_update_from_evidence(
         EVIDENCE_INVALID,
         EVIDENCE_NO_STABLE_GAIN,
         EVIDENCE_INCONCLUSIVE,
+        EVIDENCE_IDENTICAL_PREDICTIONS,
     }
     magnitude_matched = (
         match_magnitude(observed_delta or 0.0, expected_range)

@@ -200,6 +200,14 @@ export function CandidateExperimentTable({
         const distinguishingInsight = displayText(candidate?.distinguishing_insight) || candidate?.distinguishing_insight || ''
         const valueAnalysis = displayText(candidate?.value_analysis) || candidate?.value_analysis || ''
         const valueAnalysisBlocks = valueAnalysis.split(/\n+/).map((block: string) => block.trim()).filter(Boolean)
+        const priorFinding = candidate?.responded_prior_finding ?? design.responded_prior_finding
+        const uncertaintyFocus = candidate?.target_uncertainty_focus ?? design.target_uncertainty_focus
+        const changedFactors = candidate?.changed_factors ?? design.changed_factors
+        const heldFixedFactors = candidate?.held_fixed_factors ?? design.held_fixed_factors
+        const branchEntries = typeof (candidate?.expected_outcome_branches ?? design.expected_outcome_branches) === 'object'
+          ? Object.entries(candidate?.expected_outcome_branches ?? design.expected_outcome_branches ?? {})
+          : []
+        const exploratory = candidate?.exploratory ?? design.exploratory
 
         return (
           <article
@@ -243,6 +251,51 @@ export function CandidateExperimentTable({
               ) : (
                 <p>{experimentType === 'baseline_benchmark' ? '当前为基准对照候选实验，不直接承接对应不确定性。' : '当前候选未直接承接对应不确定性。'}</p>
               )}
+            </section>
+
+            <section className="candidate-table__section candidate-table__section--trace">
+              <span className="candidate-table__section-label">实验溯源与预登记</span>
+              <div className="candidate-table__grid">
+                <div className="candidate-table__row">
+                  <strong>所回应的上一轮发现</strong>
+                  <p>{displayText(priorFinding) || priorFinding || '本轮为首轮实验：以当前科学不确定性为基线。'}</p>
+                </div>
+                <div className="candidate-table__row">
+                  <strong>要解决的不确定性</strong>
+                  <p>{displayText(uncertaintyFocus) || uncertaintyFocus || '见上方对应不确定性条目。'}</p>
+                </div>
+                <div className="candidate-table__row">
+                  <strong>相对上一轮改变的因素</strong>
+                  <p>{toDisplayList(changedFactors, displayText)}</p>
+                </div>
+                <div className="candidate-table__row">
+                  <strong>保持固定的条件</strong>
+                  <p>{toDisplayList(heldFixedFactors, displayText)}</p>
+                </div>
+                <div className="candidate-table__row">
+                  <strong>预登记结果分支与下一步行动</strong>
+                  {branchEntries.length > 0 ? (
+                    <ul className="candidate-table__list candidate-table__list--branches">
+                      {branchEntries.map(([key, action]) => (
+                        <li key={key}>
+                          <span className="candidate-table__branch-key">{key}</span>
+                          <span>{displayText(String(action)) || String(action)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>实验完成后按实际 CI 结果更新下一步行动。</p>
+                  )}
+                </div>
+                <div className="candidate-table__row">
+                  <strong>实验性质</strong>
+                  <p>
+                    {exploratory
+                      ? <span className="candidate-table__badge candidate-table__badge--exploratory">探索性实验（多因素同时变化，不作单因素归因）</span>
+                      : <span className="candidate-table__badge candidate-table__badge--focused">单因素复核 / 验证实验</span>}
+                  </p>
+                </div>
+              </div>
             </section>
 
             <section className="candidate-table__section">

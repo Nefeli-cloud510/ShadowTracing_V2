@@ -1,4 +1,5 @@
 import json
+import math
 import sys
 import warnings
 from dataclasses import dataclass, field
@@ -25,9 +26,32 @@ from core.calendar_samples import (
     build_sample_plan,
     make_calendar_split,
 )
+from core.data_provenance import (
+    DataProvenanceError,
+    DataValidationReport,
+    validate_merged_data,
+)
+from core.json_safe import json_dumps
 
 warnings.filterwarnings("ignore")
 plt.switch_backend("Agg")
+plt.rcParams["font.sans-serif"] = [
+    "Microsoft YaHei",
+    "SimHei",
+    "Noto Sans CJK SC",
+    "WenQuanYi Micro Hei",
+    "Arial Unicode MS",
+]
+plt.rcParams["axes.unicode_minus"] = False
+plt.rcParams.update(
+    {
+        "axes.titlesize": 17,
+        "axes.labelsize": 14,
+        "xtick.labelsize": 12,
+        "ytick.labelsize": 12,
+        "legend.fontsize": 10,
+    }
+)
 
 
 # 输入配置校验
@@ -127,6 +151,7 @@ class MergedLoadResult:
     active_sparse_sources: list[str]
     merged_sources: list[str]
     missing_counts: dict[str, int] = field(default_factory=dict)
+    data_validation: DataValidationReport | None = None
 
 
 @dataclass
@@ -324,6 +349,12 @@ def load_and_merge_data(cfg: ExperimentConfig) -> MergedLoadResult:
     if file_cfg.target_column not in df_merge.columns:
         raise KeyError(f"合并后的数据缺少目标列: {file_cfg.target_column}")
 
+    validation_report = validate_merged_data(
+        df_merge,
+        source_labels=ordered_sources,
+        time_column=file_cfg.time_column,
+    )
+
     selected_columns = file_cfg.feature_columns + [file_cfg.target_column]
     missing_counts = {
         str(column): int(count)
@@ -350,6 +381,7 @@ def load_and_merge_data(cfg: ExperimentConfig) -> MergedLoadResult:
         active_sparse_sources=active_sparse_sources,
         merged_sources=ordered_sources,
         missing_counts=missing_counts,
+        data_validation=validation_report,
     )
 
 
@@ -667,6 +699,9 @@ class ParamSearchInfo:
     selected_alpha: float
     selected_l1_ratio: float | None
     converged: bool
+    search_completed: bool
+    boundary_hit: bool
+    solver_converged: bool | None
     grid_size: int
     rows: list[dict] = field(default_factory=list)
 
@@ -677,9 +712,28 @@ class ParamSearchInfo:
             "selected_alpha": self.selected_alpha,
             "selected_l1_ratio": self.selected_l1_ratio,
             "converged": self.converged,
+            "search_completed": self.search_completed,
+            "boundary_hit": self.boundary_hit,
+            "solver_converged": self.solver_converged,
+            "boundary_note": self.boundary_note(),
             "grid_size": self.grid_size,
             "n_rows": len(self.rows),
         }
+
+    def boundary_note(self) -> str:
+        """分别说明搜索完整、边界命中与求解器收敛三类状态。"""
+        if self.search_mode != "auto" or self.grid_size <= 1:
+            return "固定参数对照，不涉及网格搜索"
+        notes = []
+        if not self.search_completed:
+            notes.append("受 max_param_search_combinations 限制，未枚举完整网格")
+        if self.boundary_hit:
+            notes.append("最优参数落在网格边缘，需扩网格或改用其他选参方式")
+        if self.solver_converged is None:
+            notes.append("求解器为解析/封闭解，无迭代收敛状态")
+        elif not self.solver_converged:
+            notes.append("求解器在 max_iter 处停止，未满足收敛条件")
+        return "；".join(notes) if notes else "网格枚举完整，未命中网格边缘，求解器收敛"
 
 
 def resolve_model_family(cfg: ElasticNetConfig) -> Literal["ridge", "elasticnet"]:
@@ -767,6 +821,7 @@ def select_best_params(
         if family == "elasticnet"
         else None
     )
+    full_l1_ratios = list(l1_ratios)
     search_mode = str(getattr(cfg, "param_search_mode", "auto") or "auto").lower()
     can_search = (
         search_mode != "fixed"
@@ -783,6 +838,9 @@ def select_best_params(
             selected_alpha=fixed_alpha,
             selected_l1_ratio=fixed_l1_ratio,
             converged=True,
+            search_completed=False,
+            boundary_hit=False,
+            solver_converged=True,
             grid_size=1,
         )
 
@@ -810,6 +868,9 @@ def select_best_params(
                 selected_alpha=fixed_alpha,
                 selected_l1_ratio=fixed_l1_ratio,
                 converged=True,
+                search_completed=False,
+                boundary_hit=False,
+                solver_converged=True,
                 grid_size=1,
             )
         cv = TimeSeriesSplit(n_splits=n_splits)
@@ -832,23 +893,54 @@ def select_best_params(
         else None
     )
     estimator = search.best_estimator_.named_steps["model"]
-    converged = True
+    solver_converged: bool | None = True
     if hasattr(estimator, "n_iter_") and hasattr(estimator, "max_iter"):
-        converged = int(getattr(estimator, "n_iter_") or 0) < int(
-            getattr(estimator, "max_iter") or 0
+        raw_n_iter = getattr(estimator, "n_iter_", None)
+        if raw_n_iter is None:
+            solver_converged = None
+        else:
+            solver_converged = int(raw_n_iter) < int(
+                getattr(estimator, "max_iter") or 0
+            )
+    effective_l1_ratios = (
+        [float(value) for value in search.cv_results_["param_model__l1_ratio"]]
+        if family == "elasticnet"
+        else []
+    )
+    boundary_hit = bool(
+        selected_alpha <= min(effective_alpha_grid)
+        or selected_alpha >= max(effective_alpha_grid)
+        or (
+            effective_l1_ratios
+            and (
+                selected_l1_ratio <= min(effective_l1_ratios)
+                or selected_l1_ratio >= max(effective_l1_ratios)
+            )
         )
+    )
+    full_combination_count = len(alpha_grid) * max(len(full_l1_ratios), 1)
+    search_completed = bool(
+        combination_count <= max_combinations
+        and len(effective_alpha_grid) == len(alpha_grid)
+    )
     rows = _grid_rows_from_search(
         search,
         family=family,
         alpha_grid=effective_alpha_grid,
         l1_ratios=l1_ratios,
+        feature_columns=list(Xtr.columns),
+        Xtr=Xtr,
+        ytr=ytr,
     )
     return ParamSearchInfo(
         model_family=family,
         search_mode="auto",
         selected_alpha=selected_alpha,
         selected_l1_ratio=selected_l1_ratio,
-        converged=converged,
+        converged=True if solver_converged is None else solver_converged,
+        search_completed=search_completed,
+        boundary_hit=boundary_hit,
+        solver_converged=solver_converged,
         grid_size=len(rows),
         rows=rows,
     )
@@ -860,6 +952,9 @@ def _grid_rows_from_search(
     family: str,
     alpha_grid: list[float],
     l1_ratios: list[float],
+    feature_columns: list[str],
+    Xtr: pd.DataFrame | None = None,
+    ytr: np.ndarray | None = None,
 ) -> list[dict]:
     """把 GridSearchCV 的 cv_results_ 展开为按原始网格序排列的逐行记录。
 
@@ -907,6 +1002,31 @@ def _grid_rows_from_search(
         np.asarray(cv_results[f"split{split}_test_score"], dtype=float)[order]
         for split in range(search.n_splits_)
     ]
+    train_target = np.asarray(ytr, dtype=float) if ytr is not None else None
+    best_train_pred = (
+        np.asarray(search.best_estimator_.predict(Xtr), dtype=float)
+        if Xtr is not None and len(Xtr)
+        else None
+    )
+    if best_train_pred is not None and train_target is not None:
+        train_error = best_train_pred - train_target
+        train_rmse_best = float(np.sqrt(np.mean(np.square(train_error))))
+        train_mae_best = float(np.mean(np.abs(train_error)))
+        pred_std_best = float(np.std(best_train_pred))
+    else:
+        train_rmse_best = None
+        train_mae_best = None
+        pred_std_best = None
+    try:
+        best_pipeline_coef = np.asarray(
+            search.best_estimator_.named_steps["model"].coef_,
+            dtype=float,
+        ).ravel()
+    except (AttributeError, TypeError, ValueError):
+        best_pipeline_coef = None
+    best_coef: list[float] | None = None
+    if best_pipeline_coef is not None and len(best_pipeline_coef) == len(feature_columns):
+        best_coef = [float(value) for value in best_pipeline_coef]
     rows: list[dict] = []
     for index in range(len(order)):
         row: dict = {
@@ -920,9 +1040,19 @@ def _grid_rows_from_search(
                 np.sqrt(max(-float(mean_neg_mse[index]), 0.0))
             ),
             "std_test_score": float(std_scores[index]),
+            "train_rmse_best_params": train_rmse_best,
+            "train_mae_best_params": train_mae_best,
+            "prediction_std_best_params": pred_std_best,
+            "refit_train_rmse": train_rmse_best,
+            "refit_train_mae": train_mae_best,
+            "refit_prediction_std": pred_std_best,
         }
         for split, scores in enumerate(split_scores):
             row[f"split{split}_test_neg_mse"] = float(scores[index])
+            row[f"split{split}_train_rmse_best_params"] = train_rmse_best
+        if best_coef is not None:
+            for column_index, feature_name in enumerate(feature_columns):
+                row[f"refit_coef_{feature_name}"] = best_coef[column_index]
         rows.append(row)
     return rows
 
@@ -973,7 +1103,22 @@ def evaluate_model(
     ytr_pred = model.predict(Xtr)
     yte_pred = model.predict(Xte)
     baseline_pred = np.full_like(yte, ytr.mean(), dtype=float)
-    pearson_r = float(np.corrcoef(yte, yte_pred)[0, 1]) if len(yte) > 1 else float("nan")
+    if len(yte) > 1:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            pearson_raw = float(np.corrcoef(yte, yte_pred)[0, 1])
+        pearson_r = pearson_raw if np.isfinite(pearson_raw) else None
+    else:
+        pearson_r = None
+    unavailable_reasons: dict[str, str] = {}
+    if pearson_r is None:
+        if len(yte) <= 1:
+            unavailable_reasons["pearson_r"] = "insufficient_samples"
+        elif float(np.std(yte)) <= 1e-12:
+            unavailable_reasons["pearson_r"] = "constant_target"
+        elif float(np.std(yte_pred)) <= 1e-12:
+            unavailable_reasons["pearson_r"] = "constant_prediction"
+        else:
+            unavailable_reasons["pearson_r"] = "undefined"
 
     metrics = {
         "train_rmse": float(np.sqrt(mean_squared_error(ytr, ytr_pred))),
@@ -983,6 +1128,7 @@ def evaluate_model(
         "train_r2": float(r2_score(ytr, ytr_pred)),
         "test_r2": float(r2_score(yte, yte_pred)),
         "test_pearson_r": pearson_r,
+        "unavailable_reasons": unavailable_reasons,
         "baseline_test_rmse": float(np.sqrt(mean_squared_error(yte, baseline_pred))),
         "n_train": int(len(ytr)),
         "n_test": int(len(yte)),
@@ -1004,6 +1150,18 @@ def make_coefficient_table(model: BaseEstimator, feat_names: list[str]) -> pd.Da
 
 # 图表与残差分析
 
+def _format_metric_text(value, digits: int) -> str:
+    """Format a metric for plot or CLI text, showing N/A when undefined."""
+
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return "N/A"
+    if not math.isfinite(numeric):
+        return "N/A"
+    return f"{numeric:.{int(digits)}f}"
+
+
 def plot_feature_coefficients(
     coef_df: pd.DataFrame,
     output_dir: Path,
@@ -1015,10 +1173,10 @@ def plot_feature_coefficients(
     plt.figure(figsize=(10, 6), dpi=300)
     colors = ["#c0392b" if v < 0 else "#2980b9" for v in plot_df["coefficient"]]
     plt.barh(plot_df["feature"], plot_df["coefficient"], color=colors)
-    plt.xlabel("Coefficient")
-    plt.ylabel("Feature")
+    plt.xlabel("系数")
+    plt.ylabel("特征")
     display = MODEL_DISPLAY_NAMES.get(model_family, model_family)
-    plt.title(f"{display} Coefficients")
+    plt.title(f"{display} 特征系数（Top {len(plot_df)}）")
     plt.tight_layout()
     prefix = "elasticnet" if model_family == "elasticnet" else "ridge"
     save_path = output_dir / f"{prefix}_coefficients.png"
@@ -1045,13 +1203,13 @@ def plot_prediction_scatter(
         max_val = max(max_val, float(np.max(train_true)), float(np.max(train_pred)))
     plt.figure(figsize=(7, 6), dpi=300)
     if train_true is not None and train_pred is not None and len(train_true) > 0:
-        plt.scatter(train_true, train_pred, alpha=0.32, s=16, c="#8aa5c2", label="Train")
+        plt.scatter(train_true, train_pred, alpha=0.32, s=16, c="#8aa5c2", label="训练集")
     plt.scatter(y_true, y_pred, alpha=0.7, s=26, c="#2c3e50")
     plt.plot([min_val, max_val], [min_val, max_val], "r--", lw=2)
     text_info = (
-        f"R2 = {metrics['test_r2']:.3f}\n"
-        f"RMSE = {metrics['test_rmse']:.2f}\n"
-        f"r = {metrics['test_pearson_r']:.3f}"
+        f"R2 = {_format_metric_text(metrics.get('test_r2'), 3)}\n"
+        f"RMSE = {_format_metric_text(metrics.get('test_rmse'), 2)}\n"
+        f"r = {_format_metric_text(metrics.get('test_pearson_r'), 3)}"
     )
     plt.text(
         0.03,
@@ -1061,9 +1219,13 @@ def plot_prediction_scatter(
         va="top",
         bbox=dict(boxstyle="round", fc="white", alpha=0.8),
     )
-    plt.xlabel("True Solar-Wind Speed (km/s)")
-    plt.ylabel("Predicted Solar-Wind Speed (km/s)")
-    title = f"{experiment_label} True vs Predicted Scatter" if experiment_label else "True vs Predicted Scatter"
+    plt.xlabel("真实太阳风速度 (km/s)")
+    plt.ylabel("预测太阳风速度 (km/s)")
+    title = (
+        f"{experiment_label} 预测 vs 真实 线性散点图"
+        if experiment_label
+        else "预测 vs 真实 线性散点图"
+    )
     plt.title(title)
     plt.legend()
     plt.grid(alpha=0.3)
@@ -1099,7 +1261,7 @@ def plot_prediction_series(
             linewidth=1.2,
             alpha=0.7,
             color="#7f9ab3",
-            label="True (Train)",
+            label="真实值（训练集）",
         )
         ax.plot(
             time_train,
@@ -1108,10 +1270,10 @@ def plot_prediction_series(
             linewidth=1.2,
             alpha=0.7,
             color="#d4a557",
-            label="Predicted (Train)",
+            label="预测值（训练集）",
         )
     if split_time is not None:
-        ax.axvline(split_time, color="#c0392b", linestyle=":", lw=1.6, label="Train / Test Split")
+        ax.axvline(split_time, color="#c0392b", linestyle=":", lw=1.6, label="训练 / 测试分割")
     ax.plot(
         time_test,
         y_true,
@@ -1119,7 +1281,7 @@ def plot_prediction_series(
         linewidth=1.6,
         alpha=0.9,
         color="#2c3e50",
-        label="True",
+        label="真实值",
     )
     ax.plot(
         time_test,
@@ -1128,22 +1290,22 @@ def plot_prediction_series(
         linewidth=1.6,
         alpha=0.9,
         color="#c0392b",
-        label="Predicted",
+        label="预测值",
     )
     if x_limits is not None:
         ax.set_xlim(x_limits)
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Solar-Wind Speed (km/s)")
+    ax.set_xlabel("时间")
+    ax.set_ylabel("太阳风速度 (km/s)")
     if x_limits is not None:
         start_label = pd.Timestamp(x_limits[0]).strftime("%Y-%m-%d")
         end_label = pd.Timestamp(x_limits[1]).strftime("%Y-%m-%d")
-        subtitle = f"Full Data Range {start_label} - {end_label}"
+        subtitle = f"完整数据区间 {start_label} - {end_label}"
     else:
-        subtitle = "Full Data Range"
+        subtitle = "完整数据区间"
     title = (
-        f"{experiment_label} True vs Predicted Scatter (Time-Aligned) · {subtitle}"
+        f"{experiment_label} 时间轴预测对照 · {subtitle}"
         if experiment_label
-        else f"True vs Predicted Scatter (Time-Aligned) · {subtitle}"
+        else f"时间轴预测对照 · {subtitle}"
     )
     ax.set_title(title)
     ax.grid(axis="x", linestyle=":", color="#d8dee8", alpha=0.9)
@@ -1167,9 +1329,9 @@ def plot_residual_scatter(
     plt.figure(figsize=(7, 5), dpi=300)
     plt.scatter(y_pred, residual, alpha=0.7, s=24, c="#34495e")
     plt.axhline(y=0, color="red", linestyle="--", lw=2)
-    plt.xlabel("Predicted Solar-Wind Speed (km/s)")
-    plt.ylabel("Residual (True - Predicted)")
-    plt.title("Residual Scatter")
+    plt.xlabel("预测太阳风速度 (km/s)")
+    plt.ylabel("残差（真实值 - 预测值）")
+    plt.title("残差散点图")
     plt.grid(alpha=0.3)
     plt.tight_layout()
     prefix = "elasticnet" if model_family == "elasticnet" else "ridge"
@@ -1187,9 +1349,9 @@ def plot_residual_histogram(
 ):
     plt.figure(figsize=(7, 5), dpi=300)
     sns.histplot(residual, bins=20, kde=True, color="#34495e")
-    plt.xlabel("Residual (True - Predicted)")
-    plt.ylabel("Count")
-    plt.title("Residual Histogram")
+    plt.xlabel("残差（真实值 - 预测值）")
+    plt.ylabel("频数")
+    plt.title("残差分布直方图")
     plt.tight_layout()
     prefix = "elasticnet" if model_family == "elasticnet" else "ridge"
     save_path = output_dir / f"{prefix}_residual_hist.png"
@@ -1341,8 +1503,10 @@ def main(config_path: str | None = None):
         model,
         cfg.elasticnet_config.alpha,
     )
-    with open(output_dir / f"{output_prefix}_metrics.json", "w", encoding="utf-8") as f:
-        json.dump(metrics, f, ensure_ascii=False, indent=2)
+    (output_dir / f"{output_prefix}_metrics.json").write_text(
+        json_dumps(metrics, indent=2),
+        encoding="utf-8",
+    )
 
     residual = split.y_test - yte_pred
     full_time = np.concatenate([split.time_train, split.time_test])
@@ -1400,12 +1564,12 @@ def main(config_path: str | None = None):
     print(f"{display_name} 训练完成")
     print(f"滑动窗口后样本数: {len(window_result.X_all)}")
     print(f"滑动窗口共 {window_result.total_windows} 个")
-    print(f"训练集 RMSE: {metrics['train_rmse']:.3f}")
-    print(f"测试集 RMSE: {metrics['test_rmse']:.3f}")
-    print(f"训练集 R2: {metrics['train_r2']:.3f}")
-    print(f"测试集 R2: {metrics['test_r2']:.3f}")
-    print(f"测试集 Pearson r: {metrics['test_pearson_r']:.3f}")
-    print(f"测试集均值对照组 RMSE: {metrics['baseline_test_rmse']:.3f}")
+    print(f"训练段 RMSE: {_format_metric_text(metrics['train_rmse'], 3)}")
+    print(f"迭代评估段 RMSE: {_format_metric_text(metrics['test_rmse'], 3)}")
+    print(f"训练段 R2: {_format_metric_text(metrics['train_r2'], 3)}")
+    print(f"迭代评估段 R2: {_format_metric_text(metrics['test_r2'], 3)}")
+    print(f"迭代评估段 Pearson r: {_format_metric_text(metrics['test_pearson_r'], 3)}")
+    print(f"迭代评估段均值对照组 RMSE: {_format_metric_text(metrics['baseline_test_rmse'], 3)}")
     print(f"选定的 alpha: {metrics['alpha_selected']:.6g}")
     print("系数绝对值 Top 特征:")
     print(coef_df.head(10).to_string(index=False))

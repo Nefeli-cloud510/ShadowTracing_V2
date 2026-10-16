@@ -32,7 +32,7 @@ from core.hypothesis_proposer_llm import (
     HypothesisProposerResponse,
     _display_dictionary_block,
 )
-from core.llm_gateway import LLMGateway, _encode_image, _extract_json_payload
+from core.llm_gateway import LLMGateway
 from core.planner_unified import PlannerOutputBuilder
 from core.rag_service import RAGContextBundle, RAGEvidenceSnippet, RAGService
 from core.runtime_config import (
@@ -72,21 +72,20 @@ class StageRecord:
 
 class ObservedLLMGateway(LLMGateway):
     def __init__(self, *, role_name: str, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
+        super().__init__(statistics_observer=self._observe_statistics, **kwargs)
         self.role_name = role_name
         self.call_history: list[dict[str, Any]] = []
 
-    def _build_client(self) -> Any | None:
-        if not self.api_key:
-            return None
-        try:
-            from openai import OpenAI
-        except Exception:
-            return None
-        return OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url,
-            timeout=300,
+    def _observe_statistics(self, entry: dict[str, Any]) -> None:
+        self.call_history.append(
+            {
+                **entry,
+                "timestamp": datetime.now().isoformat(),
+                "role": entry.get("role") or self.role_name,
+                "client_available": self.client is not None,
+                "used_fallback": bool(entry.get("used_fallback", False)),
+                "error": None if entry.get("ok") else entry.get("error", "llm_call_failed"),
+            }
         )
 
     def generate_structured(
@@ -99,68 +98,38 @@ class ObservedLLMGateway(LLMGateway):
         payload_fixer: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         temperature: float | None = None,
         image_paths: list[str] | None = None,
+        role: str | None = None,
+        use_cache: bool = True,
+        deadline_seconds: float | None = None,
     ) -> BaseModel:
-        event: dict[str, Any] = {
-            "role": self.role_name,
-            "timestamp": datetime.now().isoformat(),
-            "model": self.model,
-            "client_available": self.client is not None,
-            "used_fallback": False,
-            "error": None,
-            "response_model": response_model.__name__,
-        }
-        if self.client is None:
-            event["used_fallback"] = True
-            event["error"] = "client_unavailable"
-            self.call_history.append(event)
-            if fallback_factory is None or not self.allow_fallback:
-                raise RuntimeError("LLM client is unavailable and no fallback_factory was provided.")
-            return self._coerce_response(response_model, fallback_factory())
+        effective_role = role or self.role_name
 
-        try:
-            user_content: Any = user_prompt
-            if image_paths:
-                content_parts: list[dict[str, Any]] = [
-                    {"type": "text", "text": user_prompt},
-                ]
-                for image_path in image_paths:
-                    encoded, media_type = _encode_image(image_path)
-                    content_parts.append(
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{media_type};base64,{encoded}",
-                            },
-                        }
-                    )
-                user_content = content_parts
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
-                temperature=self.temperature if temperature is None else temperature,
-            )
-            content = response.choices[0].message.content or ""
-            payload = _normalize_llm_payload(response_model, _extract_json_payload(content))
+        def combined_fixer(payload: dict[str, Any]) -> dict[str, Any]:
+            payload = _normalize_llm_payload(response_model, payload)
             if payload_fixer is not None:
                 payload = payload_fixer(payload)
-            event["response_chars"] = len(content)
-            self.call_history.append(event)
-            return response_model.model_validate(payload)
-        except Exception as exc:  # pragma: no cover - exercised only in live runs
-            event["used_fallback"] = True
-            event["error"] = repr(exc)
-            self.call_history.append(event)
-            if fallback_factory is None or not self.allow_fallback:
-                raise
-            return self._coerce_response(response_model, fallback_factory())
+            return payload
+
+        return super().generate_structured(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_model=response_model,
+            fallback_factory=fallback_factory,
+            payload_fixer=combined_fixer,
+            temperature=temperature,
+            image_paths=image_paths,
+            role=effective_role,
+            use_cache=use_cache,
+            deadline_seconds=deadline_seconds,
+        )
 
     def telemetry(self) -> dict[str, Any]:
-        total = len(self.call_history)
-        fallbacks = sum(1 for item in self.call_history if item["used_fallback"])
-        remote_success = total - fallbacks
+        history = list(self.call_history)
+        total = len(history)
+        fallbacks = sum(1 for item in history if item["used_fallback"])
+        remote_success = sum(
+            1 for item in history if item.get("ok") and not item.get("used_fallback")
+        )
         return {
             "role": self.role_name,
             "model": self.model,
@@ -168,7 +137,15 @@ class ObservedLLMGateway(LLMGateway):
             "calls": total,
             "remote_success_calls": remote_success,
             "fallback_calls": fallbacks,
-            "history": self.call_history,
+            "cache_hits": sum(1 for item in history if item.get("cache_hit")),
+            "retry_count": sum(int(item.get("retries") or 0) for item in history),
+            "input_tokens": sum(int(item.get("input_tokens") or 0) for item in history),
+            "output_tokens": sum(int(item.get("output_tokens") or 0) for item in history),
+            "elapsed_seconds": round(
+                sum(float(item.get("elapsed_seconds") or 0.0) for item in history),
+                3,
+            ),
+            "history": history,
         }
 
 
@@ -530,6 +507,7 @@ class CompactScientificQuestionerLLM(ScientificQuestionerLLM):
             ),
             response_model=ScientificQuestionerResponse,
             fallback_factory=lambda: self._fallback(planner_input, rag_context),
+            role="科学质询者llm",
         )
 
 
@@ -578,6 +556,7 @@ class CompactScientificInterpreterLLM(ScientificInterpreterLLM):
             user_prompt=f"context={compact}\n请输出一条结构化解释增强。",
             response_model=ScientificInterpreterLLMResponse,
             fallback_factory=lambda: self._build_fallback_response(planner_input, baseline),
+            role="科学解释者llm",
         )
         llm_enhancement = __import__(
             "core.unified_schema", fromlist=["InterpretationEnhancement"]

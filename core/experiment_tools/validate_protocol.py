@@ -14,7 +14,11 @@ from core.experiment_tools.compiled_plan import (
     CompiledExperimentPlan,
     normalize_diagnostic_id,
 )
-from core.experiment_tools.registry import EXPERIMENT_TOOL_INDEX, get_tool
+from core.experiment_tools.registry import (
+    EXPERIMENT_TOOL_INDEX,
+    get_tool,
+    normalize_model_family,
+)
 from core.unified_schema import (
     ContrastSpec,
     DiagnosticSpec,
@@ -139,12 +143,7 @@ def _validate_baseline_benchmark(protocol: ExperimentProtocol) -> ProtocolValida
 
 
 def _normalize_family(name: str) -> str | None:
-    normalized = name.strip().lower()
-    if normalized == "enet":
-        return "elasticnet"
-    if normalized in {"ridge", "elasticnet"}:
-        return normalized
-    return None
+    return normalize_model_family(name)
 
 
 def _base_treatment_sets(protocol: ExperimentProtocol) -> tuple[list[str], list[str]]:
@@ -153,9 +152,11 @@ def _base_treatment_sets(protocol: ExperimentProtocol) -> tuple[list[str], list[
     return control, treatment
 
 
-def _default_model_family(protocol: ExperimentProtocol) -> str:
+def _default_model_family(protocol: ExperimentProtocol) -> str | None:
     family = protocol.model.parameters.get("model_family") or protocol.model.name or "ElasticNet"
-    return _normalize_family(str(family)) or "elasticnet"
+    if family is None or not str(family).strip():
+        return "elasticnet"
+    return _normalize_family(str(family))
 
 
 def _family_tag(family: str) -> str:
@@ -626,12 +627,13 @@ def _validate_incremental(protocol: ExperimentProtocol) -> ProtocolValidationRes
             _validate_retrain_required(run, reasons)
             _validate_run_time_parameters(run, times, reasons)
     else:
+        resolved_family = family or "elasticnet"
         runs = [
             RunSpec(
                 run_id="baseline",
                 label="对照组",
                 feature_columns=control,
-                model_family=family,
+                model_family=resolved_family,
                 parameters=dict(protocol.model.parameters),
                 retrain=True,
             ),
@@ -639,7 +641,7 @@ def _validate_incremental(protocol: ExperimentProtocol) -> ProtocolValidationRes
                 run_id="treatment",
                 label="实验组",
                 feature_columns=treatment,
-                model_family=family,
+                model_family=resolved_family,
                 parameters=dict(protocol.model.parameters),
                 retrain=True,
             ),
@@ -887,7 +889,10 @@ def _validate_baseline_redundancy(protocol: ExperimentProtocol) -> ProtocolValid
         if len(model_families) > 1:
             reasons.append("baseline_redundancy 必须冻结单一模型家族，不允许跨模型比较增量。")
     else:
-        family = _default_model_family(protocol) or "elasticnet"
+        family = _default_model_family(protocol)
+        if family is None:
+            reasons.append("默认模型家族必须是 Ridge 或 ElasticNet，禁止静默回退。")
+        family = family or "elasticnet"
         definitions = {
             "m0": {"label": "M0 基础基线", "features": base},
             "m1": {"label": "M1 基础基线＋焦点", "features": base + focus},
@@ -981,7 +986,10 @@ def _validate_temporal_sensitivity(protocol: ExperimentProtocol) -> ProtocolVali
     if protocol.runs_spec:
         runs = [RunSpec.model_validate(item.model_dump()) for item in protocol.runs_spec]
     else:
-        family = _default_model_family(protocol) or "elasticnet"
+        family = _default_model_family(protocol)
+        if family is None:
+            reasons.append("默认模型家族必须是 Ridge 或 ElasticNet，禁止静默回退。")
+        family = family or "elasticnet"
         for value in values:
             tag = f"h{int(value)}" if change_axis == "forecast_horizon_days" else f"w{int(value)}"
             merged = dict(params)

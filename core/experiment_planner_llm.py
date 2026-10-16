@@ -402,8 +402,8 @@ class CandidateExperimentWriterLLM:
 3. value_analysis（实验综合价值数据分析）：只用用户消息中“预计算实验评估”给出的四个指标数值与计算说明，
    分五段自然语言书写，段与段之间用换行符分隔：
    - 信息增益分析：说明当前 IG 值在多大程度上代表着该实验能区分竞争假设；
-   - 性能增益分析：说明 PG 的规则含义；若为第一轮或尚无历史实验结果，要明确说明 PG 置 0
-     表示本轮未启用、不参与综合价值；
+   - 性能增益分析：说明预期性能增益（PG）的规则含义；若为第一轮或尚无历史实验结果，
+     要明确说明 PG 置 0 表示本轮未启用、不参与综合价值，写“PG 置 0”而不是“PG_expected置为0”；
    - 风险分析：结合给出的风险分与 D1-D4 计算说明，明确指出当前哪一项风险最高、
      其数值是多少、为什么它推高了风险，以及整体风险属于什么水平；数值变化时
      措辞必须随之变化，不得在数值不支持时写“主要由...贡献”之类的固定句式；
@@ -419,7 +419,9 @@ class CandidateExperimentWriterLLM:
    双臂增量实验使用“对照组 / 实验组”，模型敏感性实验按家族内增量撰写，单臂基准不使用对比句式。
 4. 涉及评价指标时用自然短语（如“预测相关系数、均方根误差”）表述，不要在同一段重复堆叠
    Pearson_r / RMSE 这类字段式名称。
-5. 不要在文本中暴露 candidate_id、uncertainty_id、hypothesis_id 等内部代号；假设可写作 H1、H2。
+5. 不要在文本中暴露 candidate_id、uncertainty_id、hypothesis_id 等内部代号，也不得使用
+   PG_expected、IG_score、Risk_score、Cost_score 这类下划线内部字段名；公开文本只允许 PG、IG、
+   Risk、Cost 或自然语言表述。假设可写作 H1、H2。
 6. 不得虚构任何实验结果或观测数据，只写判断依据、预期与可证伪条件。
 7. value_analysis 引用的所有数值必须严格来自“预计算实验评估”，不得自行编造或改写
    （包括 token 数、金额、C1/C2/C3 数值、D1-D4 数值）。
@@ -808,7 +810,7 @@ class ExperimentPlannerLLM:
             f"history_context={history_context or '无历史轮次'}\n"
             f"{display_block}"
             "history_context 提供了最近实验的指标、结论与失败归因。请据此判断本轮模型参数是否需要调整：\n"
-            "若上轮测试集样本过少可小幅降低 test_split_ratio；缺失记录在日历样本层按特征历史与目标可用性判定，样本偏少时可减小 past_lag_days；"
+            "若上轮迭代评估段样本过少可小幅降低 test_split_ratio；缺失记录在日历样本层按特征历史与目标可用性判定，样本偏少时可减小 past_lag_days；"
             "若超参数明显未调优可给出新的 alpha/l1_ratio。\n"
             "请输出 JSON: rationale, suggested_model_parameters, suggested_feature_focus, protocol_notes, extra_steps。"
         )

@@ -1,0 +1,49 @@
+{
+  "created": "repair_2021_v3.py",
+  "v2_issues": {
+    "omni": "all columns shifted one field left; Scalar B zero-filled; SW Plasma Speed contained density; Kp/Dst/ap shifted",
+    "shadow": "six LHAASO columns shifted; p2_y center values placed one column right with abs(); p1_x/p3/_llf mismatched; photo/ss copied verbatim from wrong source positions"
+  },
+  "v3_sources": {
+    "omni": "D:\\sunshadow\\calender_internal_2020_2024.xlsx",
+    "shadow": "D:\\sunshadow\\calender_internal_2020_2024.xlsx",
+    "pfss": "D:\\astro_rearrange\\data\\analysis\\pfss_basic_features_daily_v1.csv"
+  },
+  "outputs": {
+    "omni": "D:\\ShadowTracing\\runtime\\live_run_input\\omni_2021_full_calendar_v3.csv",
+    "shadow": "D:\\ShadowTracing\\runtime\\live_run_input\\lhaaso_shadow_pfss_2021_full_calendar_v3.csv"
+  },
+  "row_counts": {
+    "omni_v3": 196,
+    "shadow_v3": 196
+  },
+  "relation_checks": [
+    {
+      "check": "|Bx| <= Scalar B",
+      "fail_count": 0,
+      "bad_days": []
+    },
+    {
+      "check": "|By_GSE| <= Scalar B",
+      "fail_count": 0,
+      "bad_days": []
+    },
+    {
+      "check": "|Bz_GSE| <= Scalar B",
+      "fail_count": 0,
+      "bad_days": []
+    },
+    {
+      "check": "speed in [150, 1500] km/s",
+      "fail_count": 0
+    },
+    {
+      "check": "density in [0.01, 100] cm^-3",
+      "fail_count": 0
+    },
+    {
+      "check": "temperature in [1e4, 5e6] K",
+      "fail_count": 0
+    }
+  ]
+}

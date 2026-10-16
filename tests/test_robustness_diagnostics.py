@@ -120,6 +120,30 @@ class RobustnessDiagnosticsTest(unittest.TestCase):
         self.assertFalse(report.time_slice.stable)
         self.assertIn("未运行分时段检验", report.recommendation)
 
+    def test_single_calendar_block_never_reports_directional_stability(self) -> None:
+        baseline, treatment = _paired_frames(n=3, start="2021-03-01")
+
+        summary = paired_calendar_block_bootstrap(
+            baseline,
+            treatment,
+            block_size=7,
+            n_draws=100,
+            seed=1,
+        )
+
+        self.assertEqual(summary["n_nonempty_blocks"], 1)
+        self.assertTrue(summary["insufficient_blocks"])
+        self.assertFalse(summary["stable_rmse"])
+
+        report = summary_to_robustness_report(summary)
+
+        self.assertFalse(report.overall.stable)
+        self.assertTrue(report.bootstrap.insufficient_blocks)
+        self.assertEqual(report.bootstrap.n_nonempty_blocks, 1)
+        self.assertEqual(report.bootstrap.min_blocks, 2)
+        self.assertIn("低于预登记最小块数", report.overall.concern or "")
+        self.assertIn("不能据此作方向性稳定结论", report.recommendation or "")
+
 
 if __name__ == "__main__":
     unittest.main()

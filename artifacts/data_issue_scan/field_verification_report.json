@@ -1,0 +1,554 @@
+{
+  "sources": {
+    "live_omni": "D:\\ShadowTracing\\runtime\\live_run_input\\omni_2021_full_calendar_v2.csv",
+    "live_shadow": "D:\\ShadowTracing\\runtime\\live_run_input\\lhaaso_shadow_pfss_2021_full_calendar_v2.csv",
+    "authoritative_omni": "D:\\sunshadow\\calender_internal_2020_2024.xlsx",
+    "authoritative_shadow": "D:\\sunshadow\\calender_internal_2020_2024.xlsx"
+  },
+  "date_overlap": 196,
+  "omni": {
+    "Scalar B, nT": {
+      "n_live": 196,
+      "n_ref": 196,
+      "n_match": 0,
+      "n_mismatch": 196,
+      "corr": NaN,
+      "mean_abs_diff": 5.007142857142857,
+      "example_20210321": {
+        "live": 0.0,
+        "ref": 4.8
+      }
+    },
+    "BX, nT (GSE, GSM)": {
+      "n_live": 196,
+      "n_ref": 196,
+      "n_match": 0,
+      "n_mismatch": 196,
+      "corr": -0.13862712921547965,
+      "mean_abs_diff": 5.123469387755102,
+      "example_20210321": {
+        "live": 4.8,
+        "ref": 1.7
+      }
+    },
+    "BY, nT (GSE)": {
+      "n_live": 196,
+      "n_ref": 196,
+      "n_match": 0,
+      "n_mismatch": 196,
+      "corr": -0.5725518410998075,
+      "mean_abs_diff": 3.4806122448979595,
+      "example_20210321": {
+        "live": 1.7,
+        "ref": -1.4
+      }
+    },
+    "BZ, nT (GSE)": {
+      "n_live": 196,
+      "n_ref": 196,
+      "n_match": 0,
+      "n_mismatch": 196,
+      "corr": 0.14519089302374233,
+      "mean_abs_diff": 2.05,
+      "example_20210321": {
+        "live": -1.4,
+        "ref": 0.2
+      }
+    },
+    "BY, nT (GSM)": {
+      "n_live": 196,
+      "n_ref": 196,
+      "n_match": 4,
+      "n_mismatch": 192,
+      "corr": 0.18783867552841074,
+      "mean_abs_diff": 1.9525510204081633,
+      "example_20210321": {
+        "live": 0.2,
+        "ref": -1.2
+      }
+    },
+    "BZ, nT (GSM)": {
+      "n_live": 196,
+      "n_ref": 196,
+      "n_match": 2,
+      "n_mismatch": 194,
+      "corr": 0.12125856647221439,
+      "mean_abs_diff": 2.011224489795918,
+      "example_20210321": {
+        "live": -1.2,
+        "ref": -0.3
+      }
+    },
+    "SW Plasma Temperature, K": {
+      "n_live": 196,
+      "n_ref": 196,
+      "n_match": 0,
+      "n_mismatch": 196,
+      "corr": 0.14188885012393745,
+      "mean_abs_diff": 64253.15357142857,
+      "example_20210321": {
+        "live": 2.4,
+        "ref": 166941.0
+      }
+    },
+    "SW Proton Density, N/cm^3": {
+      "n_live": 196,
+      "n_ref": 196,
+      "n_match": 0,
+      "n_mismatch": 196,
+      "corr": -0.26718690199630774,
+      "mean_abs_diff": 64248.5918367347,
+      "example_20210321": {
+        "live": 166941.0,
+        "ref": 2.6
+      }
+    },
+    "SW Plasma Speed, km/s": {
+      "n_live": 196,
+      "n_ref": 196,
+      "n_match": 0,
+      "n_mismatch": 196,
+      "corr": -0.5041824795373118,
+      "mean_abs_diff": 385.81632653061234,
+      "example_20210321": {
+        "live": 2.6,
+        "ref": 615.0
+      }
+    },
+    "Kp index": {
+      "n_live": 196,
+      "n_ref": 196,
+      "n_match": 0,
+      "n_mismatch": 196,
+      "corr": 0.6160702679062743,
+      "mean_abs_diff": 12.445255102040816,
+      "example_20210321": {
+        "live": 1.95,
+        "ref": 33.0
+      }
+    },
+    "Dst-index, nT": {
+      "n_live": 196,
+      "n_ref": 196,
+      "n_match": 3,
+      "n_mismatch": 193,
+      "corr": -0.4832785089539261,
+      "mean_abs_diff": 18.647959183673468,
+      "example_20210321": {
+        "live": 33.0,
+        "ref": -22.0
+      }
+    },
+    "ap_index, nT": {
+      "n_live": 196,
+      "n_ref": 196,
+      "n_match": 8,
+      "n_mismatch": 188,
+      "corr": -0.46295847634509046,
+      "mean_abs_diff": 12.239795918367347,
+      "example_20210321": {
+        "live": -22.0,
+        "ref": 22.0
+      }
+    }
+  },
+  "shadow": {
+    "p2_y中心值": {
+      "n_live": 188,
+      "n_ref": 188,
+      "n_match": 1,
+      "n_mismatch": 187,
+      "corr": 0.4389252108734859,
+      "mean_abs_diff": 0.2280851063829787,
+      "example_20210321": {
+        "live": 0.084,
+        "ref": 0.058
+      }
+    },
+    "p2_y中心值误差": {
+      "n_live": 188,
+      "n_ref": 188,
+      "n_match": 0,
+      "n_mismatch": 188,
+      "corr": 0.4020892210904274,
+      "mean_abs_diff": 0.22889893617021279,
+      "example_20210321": {
+        "live": 0.058,
+        "ref": 0.09
+      }
+    },
+    "p1_x中心值": {
+      "n_live": 187,
+      "n_ref": 188,
+      "n_match": 0,
+      "n_mismatch": 187,
+      "corr": -0.8236902387393994,
+      "mean_abs_diff": 38390.77564705882,
+      "example_20210321": {
+        "live": 86.404,
+        "ref": 0.087
+      }
+    },
+    "p1_x中心值误差": {
+      "n_live": 188,
+      "n_ref": 188,
+      "n_match": 0,
+      "n_mismatch": 188,
+      "corr": -0.7681221644236541,
+      "mean_abs_diff": 0.17586170212765956,
+      "example_20210321": {
+        "live": 0.087,
+        "ref": 0.084
+      }
+    },
+    "p3 sigma_宽度": {
+      "n_live": 188,
+      "n_ref": 188,
+      "n_match": 1,
+      "n_mismatch": 187,
+      "corr": 0.24407329433034444,
+      "mean_abs_diff": 0.3887522872340426,
+      "example_20210321": {
+        "live": 0.09,
+        "ref": 0.36517
+      }
+    },
+    "_llf 最优卡方值": {
+      "n_live": 187,
+      "n_ref": 188,
+      "n_match": 0,
+      "n_mismatch": 187,
+      "corr": 0.17553124198884937,
+      "mean_abs_diff": 2089.71806342246,
+      "example_20210321": {
+        "live": 0.05013,
+        "ref": 2052.31
+      }
+    }
+  },
+  "identity_resemblances_omni": [
+    {
+      "live_column": "Scalar B, nT",
+      "top_resemblances": []
+    },
+    {
+      "live_column": "BX, nT (GSE, GSM)",
+      "top_resemblances": [
+        {
+          "authoritative_field": "Scalar B, nT__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "RMS_field_vector, nT__ref",
+          "corr": 0.8623355121371559
+        },
+        {
+          "authoritative_field": " RMS_BZ_GSE, nT__ref",
+          "corr": 0.8324048480236496
+        }
+      ]
+    },
+    {
+      "live_column": "BY, nT (GSE)",
+      "top_resemblances": [
+        {
+          "authoritative_field": "BX, nT (GSE, GSM)__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "BY, nT (GSM)__ref",
+          "corr": -0.5911937688762365
+        },
+        {
+          "authoritative_field": "BY, nT (GSE)__ref",
+          "corr": -0.5725518410998075
+        }
+      ]
+    },
+    {
+      "live_column": "BZ, nT (GSE)",
+      "top_resemblances": [
+        {
+          "authoritative_field": "BY, nT (GSE)__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "BY, nT (GSM)__ref",
+          "corr": 0.9885246546750902
+        },
+        {
+          "authoritative_field": "BX, nT (GSE, GSM)__ref",
+          "corr": -0.5725518410998075
+        }
+      ]
+    },
+    {
+      "live_column": "BY, nT (GSM)",
+      "top_resemblances": [
+        {
+          "authoritative_field": "BZ, nT (GSE)__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "BZ, nT (GSM)__ref",
+          "corr": 0.830316823693194
+        }
+      ]
+    },
+    {
+      "live_column": "BZ, nT (GSM)",
+      "top_resemblances": [
+        {
+          "authoritative_field": "BY, nT (GSM)__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "BY, nT (GSE)__ref",
+          "corr": 0.9885246546750902
+        },
+        {
+          "authoritative_field": "BX, nT (GSE, GSM)__ref",
+          "corr": -0.5911937688762366
+        }
+      ]
+    },
+    {
+      "live_column": "SW Plasma Temperature, K",
+      "top_resemblances": [
+        {
+          "authoritative_field": " RMS_BZ_GSE, nT__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "RMS_field_vector, nT__ref",
+          "corr": 0.8798309191630813
+        },
+        {
+          "authoritative_field": "Scalar B, nT__ref",
+          "corr": 0.8324048480236497
+        }
+      ]
+    },
+    {
+      "live_column": "SW Proton Density, N/cm^3",
+      "top_resemblances": [
+        {
+          "authoritative_field": "SW Plasma Temperature, K__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "SW Plasma Speed, km/s__ref",
+          "corr": 0.7840343284705968
+        },
+        {
+          "authoritative_field": "sigma-T,K__ref",
+          "corr": 0.7226806026932469
+        }
+      ]
+    },
+    {
+      "live_column": "SW Plasma Speed, km/s",
+      "top_resemblances": [
+        {
+          "authoritative_field": "SW Proton Density, N/cm^3__ref",
+          "corr": 0.9999999999999999
+        },
+        {
+          "authoritative_field": "Flow pressure__ref",
+          "corr": 0.7973298308663507
+        },
+        {
+          "authoritative_field": "sigma-n, N/cm^3)__ref",
+          "corr": 0.750902996569966
+        }
+      ]
+    },
+    {
+      "live_column": "Kp index",
+      "top_resemblances": [
+        {
+          "authoritative_field": "Flow pressure__ref",
+          "corr": 0.9999999999999999
+        },
+        {
+          "authoritative_field": "SW Proton Density, N/cm^3__ref",
+          "corr": 0.7973298308663507
+        },
+        {
+          "authoritative_field": "sigma-n, N/cm^3)__ref",
+          "corr": 0.7542885570045973
+        }
+      ]
+    },
+    {
+      "live_column": "Dst-index, nT",
+      "top_resemblances": [
+        {
+          "authoritative_field": "Kp index__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "ap_index, nT__ref",
+          "corr": 0.9110300542268669
+        },
+        {
+          "authoritative_field": "Flow pressure__ref",
+          "corr": 0.6160702679062743
+        }
+      ]
+    },
+    {
+      "live_column": "ap_index, nT",
+      "top_resemblances": [
+        {
+          "authoritative_field": "Dst-index, nT__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "BZ, nT (GSM)__ref",
+          "corr": 0.5165468754597791
+        }
+      ]
+    }
+  ],
+  "identity_resemblances_shadow": [
+    {
+      "live_column": "p2_y中心值",
+      "top_resemblances": [
+        {
+          "authoritative_field": "p1_x中心值误差__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "p2_y中心值误差__ref",
+          "corr": 0.9487183066112652
+        },
+        {
+          "authoritative_field": "p1_x中心值__ref",
+          "corr": -0.768122164423654
+        }
+      ]
+    },
+    {
+      "live_column": "p2_y中心值误差",
+      "top_resemblances": [
+        {
+          "authoritative_field": "p2_y中心值__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "p1_x中心值__ref",
+          "corr": -0.6314218732712966
+        },
+        {
+          "authoritative_field": "_llf 最优卡方值__ref",
+          "corr": 0.550948236644793
+        }
+      ]
+    },
+    {
+      "live_column": "p1_x中心值",
+      "top_resemblances": [
+        {
+          "authoritative_field": "p0误差__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "p0振幅__ref",
+          "corr": -0.9999955519705833
+        },
+        {
+          "authoritative_field": "p1_x中心值__ref",
+          "corr": -0.8236902387393994
+        }
+      ]
+    },
+    {
+      "live_column": "p1_x中心值误差",
+      "top_resemblances": [
+        {
+          "authoritative_field": "p1_x中心值__ref",
+          "corr": 0.9999999999999999
+        },
+        {
+          "authoritative_field": "p0误差__ref",
+          "corr": -0.8236902387393995
+        },
+        {
+          "authoritative_field": "p1_x中心值误差__ref",
+          "corr": -0.7681221644236541
+        }
+      ]
+    },
+    {
+      "live_column": "p3 sigma_宽度",
+      "top_resemblances": [
+        {
+          "authoritative_field": "p2_y中心值误差__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "p1_x中心值误差__ref",
+          "corr": 0.9487183066112652
+        },
+        {
+          "authoritative_field": "p3 sigma_宽度误差__ref",
+          "corr": 0.7368321772423616
+        }
+      ]
+    },
+    {
+      "live_column": "_llf 最优卡方值",
+      "top_resemblances": [
+        {
+          "authoritative_field": "p3 sigma_宽度误差__ref",
+          "corr": 1.0
+        },
+        {
+          "authoritative_field": "p2_y中心值误差__ref",
+          "corr": 0.7368321772423615
+        },
+        {
+          "authoritative_field": "p1_x中心值误差__ref",
+          "corr": 0.6586633297911939
+        }
+      ]
+    },
+    {
+      "live_column": "l0_04utc_deg",
+      "top_resemblances": []
+    },
+    {
+      "live_column": "photo_br_mean",
+      "top_resemblances": []
+    },
+    {
+      "live_column": "photo_br_absmean",
+      "top_resemblances": []
+    },
+    {
+      "live_column": "photo_n_lat",
+      "top_resemblances": []
+    },
+    {
+      "live_column": "photo_n_lon",
+      "top_resemblances": []
+    },
+    {
+      "live_column": "ss_br_mean",
+      "top_resemblances": []
+    },
+    {
+      "live_column": "ss_br_absmean",
+      "top_resemblances": []
+    },
+    {
+      "live_column": "ss_n_lat",
+      "top_resemblances": []
+    },
+    {
+      "live_column": "ss_n_lon",
+      "top_resemblances": []
+    }
+  ]
+}

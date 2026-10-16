@@ -1,0 +1,29 @@
+[
+  {
+    "check": "|Bx| <= Scalar B",
+    "fail_count": 0,
+    "bad_days": []
+  },
+  {
+    "check": "|By_GSE| <= Scalar B",
+    "fail_count": 0,
+    "bad_days": []
+  },
+  {
+    "check": "|Bz_GSE| <= Scalar B",
+    "fail_count": 0,
+    "bad_days": []
+  },
+  {
+    "check": "speed in [150, 1500] km/s",
+    "fail_count": 0
+  },
+  {
+    "check": "density in [0.01, 100] cm^-3",
+    "fail_count": 0
+  },
+  {
+    "check": "temperature in [1e4, 5e6] K",
+    "fail_count": 0
+  }
+]

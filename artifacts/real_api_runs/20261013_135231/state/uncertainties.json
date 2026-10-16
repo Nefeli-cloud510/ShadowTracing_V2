@@ -1,0 +1,42 @@
+{
+  "task_id": "ST_REAL_API_20261013_135231",
+  "current_round": 0,
+  "last_updated": "2026-10-13T13:52:31.195950",
+  "records": [
+    {
+      "uncertainty_id": "U01",
+      "question": "DeltaDec 的贡献是否独立于 By？",
+      "description": "需要区分独立增量与中介解释。",
+      "related_hypotheses": [],
+      "disagreement": {},
+      "mining_sources": [],
+      "status": "active",
+      "priority": "high",
+      "created_at_round": 0,
+      "created_by": "real_api_demo",
+      "history": [],
+      "alternative_resolutions": []
+    },
+    {
+      "uncertainty_id": "U02",
+      "question": "DeltaDec 的增益是否跨时间段稳定？",
+      "description": "需要检验滞后稳定性。",
+      "related_hypotheses": [],
+      "disagreement": {},
+      "mining_sources": [],
+      "status": "active",
+      "priority": "medium",
+      "created_at_round": 0,
+      "created_by": "real_api_demo",
+      "history": [],
+      "alternative_resolutions": []
+    }
+  ],
+  "priority_queue": {
+    "last_updated": "2026-10-13T13:52:31.195950",
+    "current_round": 0,
+    "queue": [],
+    "resolved": [],
+    "deprecated": []
+  }
+}

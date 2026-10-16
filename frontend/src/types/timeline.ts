@@ -382,6 +382,19 @@ export interface ThreeLayerConclusionExperimentLayer {
   runs?: ExperimentRunViewModel[]
   contrasts?: ExperimentContrastViewModel[]
   diagnostics?: unknown[]
+  modelSensitivityFamilies?: ModelSensitivityFamilyEvidenceViewModel[]
+}
+
+export interface ModelSensitivityFamilyEvidenceViewModel {
+  family: string
+  contrastId?: string
+  pointGainRmse?: number
+  pointGainPearsonR?: number
+  rmseCi?: number[] | null
+  pearsonCi?: number[] | null
+  crossesZero?: boolean | null
+  evaluation: string
+  evaluationLabel?: string
 }
 
 export interface ThreeLayerConclusionHypothesisRow {

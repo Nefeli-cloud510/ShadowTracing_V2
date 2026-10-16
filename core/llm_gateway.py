@@ -85,6 +85,7 @@ class LLMGateway:
         use_cache: bool = True,
         max_retries: int = 1,
         deadline_seconds: float | None = None,
+        statistics_observer: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         load_project_env()
         self.model = model or get_default_llm_model()
@@ -96,6 +97,7 @@ class LLMGateway:
         self.max_retries = max(0, int(max_retries))
         self.deadline_seconds = deadline_seconds
         self.client = client or self._build_client()
+        self._statistics_observer = statistics_observer
 
     def is_available(self) -> bool:
         return self.client is not None
@@ -123,26 +125,31 @@ class LLMGateway:
             retries: int = 0,
             input_tokens: int | None = None,
             output_tokens: int | None = None,
+            error: str | None = None,
+            used_fallback: bool = False,
         ) -> None:
-            self._statistics.record(
-                {
-                    "model": self.model,
-                    "role": role or self.model,
-                    "ok": bool(ok),
-                    "cache_hit": bool(cache_hit),
-                    "retries": int(retries),
-                    "input_tokens": int(input_tokens or 0),
-                    "output_tokens": int(output_tokens or 0),
-                    "elapsed_seconds": round(time.perf_counter() - started, 4),
-                }
-            )
+            entry = {
+                "model": self.model,
+                "role": role or self.model,
+                "ok": bool(ok),
+                "cache_hit": bool(cache_hit),
+                "retries": int(retries),
+                "input_tokens": int(input_tokens or 0),
+                "output_tokens": int(output_tokens or 0),
+                "elapsed_seconds": round(time.perf_counter() - started, 4),
+                "error": error,
+                "used_fallback": bool(used_fallback),
+            }
+            self._statistics.record(entry)
+            if self._statistics_observer is not None:
+                self._statistics_observer(entry)
 
         if self.client is None:
             if fallback_factory is None or not self.allow_fallback:
-                record(ok=False)
+                record(ok=False, error="client_unavailable")
                 raise RuntimeError("LLM client is unavailable for the real workflow.")
             result = self._coerce_response(response_model, fallback_factory())
-            record(ok=False)
+            record(ok=False, error="client_unavailable", used_fallback=True)
             return result
 
         try:
@@ -187,7 +194,11 @@ class LLMGateway:
             retries = 0
             while True:
                 if deadline is not None and (time.perf_counter() - started) >= deadline:
-                    record(ok=False, retries=retries)
+                    record(
+                        ok=False,
+                        retries=retries,
+                        error=f"timeout_after_{deadline:.0f}s",
+                    )
                     raise TimeoutError(
                         f"LLM 调用超过统一截止时间 {deadline:.0f}s：model={self.model}"
                     )
@@ -224,11 +235,15 @@ class LLMGateway:
                     retries += 1
                     time.sleep(min(1.5 * retries, 5.0))
         except Exception:
-            record(ok=False)
             if fallback_factory is None or not self.allow_fallback:
+                record(ok=False, error="llm_call_failed")
                 raise
-            fallback = self._coerce_response(response_model, fallback_factory())
-            record(ok=False)
+            try:
+                fallback = self._coerce_response(response_model, fallback_factory())
+            except Exception:
+                record(ok=False, error="fallback_factory_failed")
+                raise
+            record(ok=False, error="llm_call_failed", used_fallback=True)
             return fallback
 
     def _cache_get(self, key: str) -> str | None:

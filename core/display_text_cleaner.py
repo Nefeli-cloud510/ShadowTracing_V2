@@ -18,6 +18,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from core.hypothesis_identity import remap_hypothesis_id
+from core.json_safe import json_dumps
 from core.unified_schema import HypothesisTreeState, UncertaintyRecord, UncertaintyState
 
 DISPLAY_UNCERTAINTY_FALLBACK = "相关科学不确定性"
@@ -388,7 +389,7 @@ def _clean_display_note(
 
 def _write_model_json(path, model) -> None:
     payload = model.model_dump(mode="json", exclude_none=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(json_dumps(payload, indent=2), encoding="utf-8")
 
 
 def _clean_saved_protocol(

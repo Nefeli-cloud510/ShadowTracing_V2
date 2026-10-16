@@ -17,6 +17,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -59,6 +60,18 @@ EXPERIMENT_TYPE_LABELS = {
     "temporal_sensitivity": "时间轴敏感性",
 }
 
+MODEL_SENSITIVITY_LABELS = {
+    "stable_positive": "稳定正向增益",
+    "stable_negative": "稳定负向增益",
+    "no_stable_gain": "未检出稳定增益（CI 跨零）",
+    "identical_predictions": "两组预测完全一致（无预测差异）",
+    "insufficient_blocks": "CI 不可用 / 有效时间块不足",
+    "point_positive": "点估计正向，无稳定证据",
+    "point_negative": "点估计负向，无稳定证据",
+    "point_zero": "点估计接近零",
+    "not_evaluated": "未评估",
+}
+
 
 def _load_json(path: Path) -> dict[str, Any]:
     try:
@@ -69,6 +82,100 @@ def _load_json(path: Path) -> dict[str, Any]:
     except Exception:
         pass
     return {}
+
+
+def _resolve_live_root() -> Path:
+    """Resolve the active persisted session when the legacy ``current`` root is absent."""
+    if LIVE_ROOT.is_dir():
+        return LIVE_ROOT
+    pointer = _load_json(REPO_ROOT / "runtime" / "live_session" / "sessions" / "active_session.json")
+    session_name = str(pointer.get("session") or "").strip()
+    if session_name:
+        candidate = REPO_ROOT / "runtime" / "live_session" / "sessions" / session_name
+        if candidate.is_dir():
+            return candidate
+    candidates = sorted(
+        (REPO_ROOT / "runtime" / "live_session" / "sessions").glob("session_*"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return candidates[0] if candidates else LIVE_ROOT
+
+
+LIVE_ROOT = _resolve_live_root()
+STATE_DIR = LIVE_ROOT / "state"
+
+
+def _code_version() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return "local-workspace"
+        version = result.stdout.strip()
+        status = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if status.returncode == 0 and status.stdout.strip():
+            version = f"{version}-dirty"
+        return version
+    except Exception:
+        return "local-workspace"
+
+
+def _data_manifest_versions() -> list[str]:
+    versions: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    if not (LIVE_ROOT / "results").is_dir():
+        return versions
+    for manifest_path in (LIVE_ROOT / "results").rglob("data_manifest.json"):
+        manifest = _load_json(manifest_path)
+        version = str(manifest.get("data_version") or "unknown")
+        target = str(manifest.get("target_column") or "")
+        key = (version, target)
+        if key in seen:
+            continue
+        seen.add(key)
+        label = version
+        if target:
+            label = f"{label}（目标：{target}）"
+        versions.append(label)
+    return versions
+
+
+def _invalidation_experiment_ids(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    ids: list[str] = []
+    for item in value:
+        if isinstance(item, dict):
+            sid = item.get("experiment_id")
+        else:
+            sid = item
+        if sid:
+            ids.append(str(sid))
+    return ids
+
+
+def _invalidation_banner(invalidation: dict[str, Any]) -> str:
+    """Render a compact evidence-invalidation banner shared by report sections."""
+    if not isinstance(invalidation, dict):
+        return ""
+    if invalidation.get("status") != "evidence_invalidated":
+        return ""
+    exp_ids = "、".join(_invalidation_experiment_ids(invalidation.get("invalidated_experiments"))) or "--"
+    return (
+        '<div class="warning-banner"><strong>本节能科学结论已阻断</strong>：'
+        f"{_esc(invalidation.get('root_cause') or '数据列错位导致目标变量错误')}"
+        f"受影响实验：{_esc(exp_ids)}。以下仅作审计复现，不再进入正式结论与下一轮规划。</div>"
+    )
 
 
 def _fmt(value: Any, digits: int = 4) -> str:
@@ -220,6 +327,51 @@ def _last_decision(
     return matches[-1] if matches else None
 
 
+_COMMIT_DECISION_TYPES = ("continue_next_round", "round_adjusted", "terminate_workflow")
+
+
+def _latest_commit_decision(
+    bundle: dict[str, Any],
+    *,
+    round_id: int | None = None,
+) -> dict[str, Any] | None:
+    """Return the newest actual human PI decision, preferring commit decisions over review requests."""
+    matches = [
+        item
+        for item in _decisions(bundle)
+        if item.get("decision_type") in _COMMIT_DECISION_TYPES
+    ]
+    if round_id is not None:
+        matches = [item for item in matches if item.get("round_id") == round_id]
+    if not matches:
+        return None
+    latest = matches[0]
+    for item in matches[1:]:
+        if str(item.get("timestamp") or "") >= str(latest.get("timestamp") or ""):
+            latest = item
+    return latest
+
+
+def _commit_decision_label(decision: dict[str, Any] | None) -> str:
+    if not decision:
+        return "--"
+    decision_type = decision.get("decision_type")
+    if decision_type == "terminate_workflow":
+        return "停止工作流"
+    if decision_type == "round_adjusted":
+        return "调整方向并进入下一轮"
+    if decision_type == "continue_next_round":
+        return "进入下一轮"
+    return "--"
+
+
+def _interpretation_source_tag(layer: dict[str, Any]) -> str:
+    source = str(layer.get("interpretation_source") or "").strip().lower()
+    if source in ("llm_interpreter", "real_llm", "llm", "llm_original"):
+        return "真实 LLM 原文"
+    return "程序规则回退"
+
+
 def _human_touchpoints(bundle: dict[str, Any], round_number: int) -> list[str]:
     points: list[str] = []
     approved = _last_decision(bundle, "experiment_approved", round_id=round_number)
@@ -276,16 +428,67 @@ def _support_before_after(
     return before, after
 
 
+def _hypothesis_display_map(bundle: dict[str, Any]) -> dict[str, str]:
+    """Map internal hypothesis ids to short display ids from the persisted tree."""
+    mapping: dict[str, str] = {}
+    for node in bundle.get("hypothesis_tree", {}).get("nodes") or []:
+        if not isinstance(node, dict):
+            continue
+        internal_id = node.get("hypothesis_id")
+        if not internal_id:
+            continue
+        display_id = node.get("display_hypothesis_id") or node.get("display_id")
+        mapping[str(internal_id)] = str(display_id or internal_id)
+    return mapping
+
+
+def _short_hypothesis_label(
+    bundle: dict[str, Any],
+    raw_mapping: dict[str, str],
+    hypothesis_id: str,
+) -> str:
+    if hypothesis_id in raw_mapping:
+        return raw_mapping[hypothesis_id]
+    for node in bundle.get("hypothesis_tree", {}).get("nodes") or []:
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("hypothesis_id")) == hypothesis_id:
+            return str(node.get("display_hypothesis_id") or hypothesis_id)
+    return hypothesis_id
+
+
+def _related_hypothesis_text(
+    bundle: dict[str, Any],
+    raw_mapping: dict[str, str],
+    value: Any,
+) -> str:
+    items: list[str] = []
+    if isinstance(value, str):
+        items = [part.strip() for part in value.replace("，", "、").split("、") if part.strip()]
+    elif isinstance(value, list):
+        items = [str(item).strip() for item in value if str(item).strip()]
+    seen: set[str] = set()
+    labels: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        labels.append(_short_hypothesis_label(bundle, raw_mapping, item))
+    return "、".join(labels) or str(value if value is not None else "")
+
+
 def _kv_table(rows: list[tuple[str, Any]]) -> str:
     body = "".join(
         f"<tr><th>{_esc(key)}</th><td>{_esc(value)}</td></tr>"
         for key, value in rows
         if value not in (None, "", [], {})
     )
-    return f"<table>{body}</table>"
+    return f'<table class="kv-table">{body}</table>'
 
 
 def _bullets(items: Iterable[Any], max_items: int | None = None) -> str:
+    if items is None:
+        return ""
     values = [item for item in items if item not in (None, "", [], {})]
     if max_items is not None:
         values = values[:max_items]
@@ -295,10 +498,40 @@ def _bullets(items: Iterable[Any], max_items: int | None = None) -> str:
     return f"<ul>{body}</ul>"
 
 
+def _ordered_run_ids(run_ids: list[str]) -> list[str]:
+    """Keep baseline/treatment first, then preserve the remaining run order."""
+    ordered = [rid for rid in ("baseline", "treatment") if rid in run_ids]
+    ordered += [rid for rid in run_ids if rid not in ordered]
+    return ordered
+
+
 def _quote(label: str, text: Any) -> str:
     return (
         f'<blockquote class="llm-quote"><span class="quote-label">{_esc(label)}</span>'
         f"{_esc(text)}</blockquote>"
+    )
+
+
+def _figure_caption(name: str) -> str:
+    text = str(name).replace("_", " ")
+    for suffix, label in (
+        ("coefficients", "特征系数图"),
+        ("scatter", "线性散点图"),
+        ("timeseries", "时间轴预测对照图"),
+        ("residual scatter", "残差散点图"),
+        ("residual hist", "残差分布图"),
+        ("shap summary", "SHAP 特征影响图"),
+        ("shap bar", "SHAP 平均特征重要性图"),
+        ("shap waterfall 0", "SHAP 单样本瀑布图"),
+    ):
+        marker = f" {suffix}"
+        if text.endswith(marker):
+            text = f"{text[:-len(marker)].strip()} · {label}"
+            break
+    return (
+        text.replace("elasticnet ", "ElasticNet ")
+        .replace("ridge ", "Ridge ")
+        .replace("E_R", "实验 E_R")
     )
 
 
@@ -381,7 +614,7 @@ def _figure_grid(bundle: dict[str, Any], round_number: int) -> str:
             data_uri = _embed_image(path)
             if not data_uri:
                 continue
-            caption = name.replace("_", " ").replace("elasticnet ", "")
+            caption = _figure_caption(name)
             cells.append(
                 f'<figure class="figure"><img src="{data_uri}" alt="{_esc(caption)}"/>'
                 f"<figcaption>{_esc(caption)}</figcaption></figure>"
@@ -453,12 +686,27 @@ def _cover_section(bundle: dict[str, Any]) -> str:
         ("本轮阶段", _round_stage(bundle, round_number)),
         ("本轮回合实验", experiment or "尚未审批实验"),
         ("人工触点", "；".join(touchpoints) if touchpoints else "暂无人工操作记录"),
+        ("数据版本", "；".join(_data_manifest_versions()) or "--"),
+        ("会话 ID", LIVE_ROOT.name),
+        ("代码版本", _code_version()),
+        ("报告生成时间", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
     ]
+    invalidation = _load_json(STATE_DIR / "data_issue_invalidation.json")
+    invalidation_html = ""
+    if invalidation.get("status") == "evidence_invalidated":
+        exp_ids = "、".join(_invalidation_experiment_ids(invalidation.get("invalidated_experiments"))) or "--"
+        invalidation_html = (
+            '<div class="warning-banner"><strong>该会话数据证据已失效</strong>：'
+            f"{_esc(invalidation.get('root_cause') or '数据列错位导致目标变量错误')}"
+            f"受影响实验：{_esc(exp_ids)}。旧结果仅保留作审计，不构成正式科学结论，"
+            "下一轮需在 v3 数据会话重新建立实验状态。</div>"
+        )
     return (
         f'<div class="report-cover">'
         f'<p class="kicker">Shadow Tracing · Closed-Loop Report</p>'
         f'<h1>第 {round_number} 轮实验结果报告</h1>'
         f"<p class=\"question-line\">{_esc(question)}</p>"
+        f"{invalidation_html}"
         f"{_kv_table(rows)}</div>"
     )
 
@@ -529,6 +777,7 @@ def _hypothesis_section(bundle: dict[str, Any]) -> str:
     round_number = bundle["round"]
     tree = bundle.get("hypothesis_tree", {})
     nodes = tree.get("nodes") or []
+    raw_mapping = _hypothesis_display_map(bundle)
     question_dec = _last_decision(bundle, "scientific_questioning_completed", round_id=round_number)
     questioning_audit = []
     if question_dec:
@@ -585,6 +834,7 @@ def _hypothesis_section(bundle: dict[str, Any]) -> str:
         )
         body.append(_kv_table([
             ("假设陈述", node.get("statement") or node.get("display_statement")),
+            ("内部标识", node.get("hypothesis_id")),
             ("支持度", f"{_fmt(before)} → {_fmt(after)}（当前 {_fmt(current_score)}）"),
             ("激活条件", node.get("activation_condition")),
             ("预测", node.get("predictions")),
@@ -631,12 +881,17 @@ def _hypothesis_section(bundle: dict[str, Any]) -> str:
                     ),
                 )
             )
+    if raw_mapping:
+        body.append("<p class=\"muted\">假设对照："
+                    + "；".join(f"{_esc(value)} = {_esc(key)}" for key, value in sorted(raw_mapping.items()))
+                    + "。正文使用短标识，完整内部 ID 仅在本节给出。</p>")
     return "<section>" + "".join(body) + "</section>"
 
 
 def _uncertainty_candidate_section(bundle: dict[str, Any]) -> str:
     round_number = bundle["round"]
     body = [_h2("3. 不确定性驱动的候选实验")]
+    raw_mapping = _hypothesis_display_map(bundle)
 
     records = bundle.get("uncertainties", {}).get("records") or []
     round_records = []
@@ -668,7 +923,7 @@ def _uncertainty_candidate_section(bundle: dict[str, Any]) -> str:
                 f"<td>{_esc(record.get('priority'))}</td>"
                 f"<td>{_esc(record.get('resolution_status') or '保留')}</td>"
                 f"<td>{_esc(record.get('question'))}</td>"
-                f"<td>{_esc(record.get('related_hypotheses'))}</td>"
+                f"<td>{_esc(_related_hypothesis_text(bundle, raw_mapping, record.get('related_hypotheses')))}</td>"
                 "</tr>"
             )
         body.append(f"<table>{header}{''.join(rows)}</table>")
@@ -688,11 +943,20 @@ def _uncertainty_candidate_section(bundle: dict[str, Any]) -> str:
         )
         rank_rows = []
         for index, candidate in enumerate(sorted_candidates, start=1):
+            candidate_experiment_type = str(
+                candidate.get("experiment_type") or ""
+            ).strip()
+            fallback_type = str(candidate.get("type") or "").strip()
+            candidate_type_label = EXPERIMENT_TYPE_LABELS.get(
+                candidate_experiment_type,
+                candidate_experiment_type
+                or EXPERIMENT_TYPE_LABELS.get(fallback_type, "未标注"),
+            )
             rank_rows.append(
                 "<tr>"
                 f"<td>{index}</td><td>{_esc(candidate.get('experiment_id'))}</td>"
                 f"<td>{_fmt(candidate.get('utility_score'))}</td>"
-                f"<td>{_esc(candidate.get('type'))}</td></tr>"
+                f"<td>{_esc(candidate_type_label)}</td></tr>"
             )
         body.append(
             "<table><tr><th>排序</th><th>实验 ID</th><th>U(E)</th><th>类型</th></tr>"
@@ -708,7 +972,7 @@ def _uncertainty_candidate_section(bundle: dict[str, Any]) -> str:
             body.append(_quote("对应不确定性（LLM 原文）", candidate.get("scientific_question")))
             body.append(
                 "<p><strong>可验证假设：</strong>"
-                f"{_esc(candidate.get('tested_hypotheses'))} · "
+                f"{_esc(_related_hypothesis_text(bundle, raw_mapping, candidate.get('tested_hypotheses')))} · "
                 f"关联不确定性：{_esc(candidate.get('related_uncertainties'))}</p>"
             )
             body.append(_quote("区分性思路（LLM 原文）", candidate.get("distinguishing_insight")))
@@ -725,6 +989,26 @@ def _uncertainty_candidate_section(bundle: dict[str, Any]) -> str:
                 ("区分焦点", bundle.get("protocol", {}).get("display_design_focus") or design.get("focus")),
                 ("模型", bundle.get("protocol", {}).get("model", {}).get("name") or "ElasticNet"),
             ]))
+            body.append(_kv_table([
+                ("所回应的上一轮发现", candidate.get("responded_prior_finding")),
+                ("要解决的不确定性", candidate.get("target_uncertainty_focus")),
+                ("相对上一轮改变的因素", candidate.get("changed_factors")),
+                ("保持固定的条件", candidate.get("held_fixed_factors")),
+                ("探索性实验", candidate.get("exploratory")),
+            ]))
+            branches = candidate.get("expected_outcome_branches") or {}
+            if isinstance(branches, dict) and branches:
+                branch_rows = []
+                for branch_label, branch_action in branches.items():
+                    if branch_action in (None, "", [], {}):
+                        continue
+                    branch_rows.append(
+                        f"<tr><th>{_esc(branch_label)}</th><td>{_esc(branch_action)}</td></tr>"
+                    )
+                body.append(
+                    "<p><strong>预登记结果分支与下一步行动</strong></p>"
+                    f"<table>{''.join(branch_rows)}</table>"
+                )
             body.append(_quote("实验综合价值分析（LLM 原文）", candidate.get("value_analysis")))
             for label, key in (
                 ("信息增益", "estimated_information_gain"),
@@ -790,13 +1074,19 @@ def _execution_section(bundle: dict[str, Any]) -> str:
     metrics_runs = metrics.get("runs") if isinstance(metrics, dict) else []
     all_runs = result_runs or metrics_runs or runs
     run_by_id = {str(run.get("run_id") or run.get("name")): run for run in all_runs if isinstance(run, dict)}
-    run_ids = list(run_by_id.keys())
+    run_ids = _ordered_run_ids(list(run_by_id.keys()))
     delta = result.get("comparison") or metrics.get("delta") or {}
     metric_names = [("Pearson r", "pearson_r"), ("RMSE", "rmse"), ("MAE", "mae"), ("R²", "r2")]
     if run_ids:
-        header = "<tr><th>指标</th>" + "".join(
-            f"<th>{_esc(str(run_by_id[rid].get('name') or rid))}</th>" for rid in run_ids
-        ) + "</tr>"
+        run_headers = []
+        for rid in run_ids:
+            run_label = str(run_by_id[rid].get("name") or rid)
+            run_headers.append(
+                f"<th>{_esc(run_label)}（{_esc(rid)}）</th>"
+                if run_label != rid
+                else f"<th>{_esc(rid)}</th>"
+            )
+        header = "<tr><th>指标</th>" + "".join(run_headers) + "</tr>"
         metric_rows = []
         for label, key in metric_names:
             cells = []
@@ -834,7 +1124,7 @@ def _execution_section(bundle: dict[str, Any]) -> str:
             rmse_ci = ci.get("rmse_ci")
             contrast_rows.append(
                 "<tr>"
-                f"<td>{_esc(contrast.get('name') or contrast.get('contrast_id'))}</td>"
+                f"<td>{_esc(contrast.get('contrast_id') or contrast.get('name'))}</td>"
                 f"<td>{_fmt(contrast_delta.get('pearson_r'))}</td>"
                 f"<td>{_fmt(pearson_ci[0])} ~ {_fmt(pearson_ci[1]) if isinstance(pearson_ci, list) and len(pearson_ci) == 2 else '--'}</td>"
                 f"<td>{_fmt(contrast_delta.get('rmse'))}</td>"
@@ -902,9 +1192,163 @@ def _execution_section(bundle: dict[str, Any]) -> str:
     return "<section>" + "".join(body) + "</section>"
 
 
+def _classify_family_gain_for_export(
+    point: Any,
+    rmse_ci: Any,
+) -> str:
+    ci = rmse_ci if isinstance(rmse_ci, list) and len(rmse_ci) >= 2 else None
+    lower = upper = None
+    if ci is not None:
+        try:
+            lower = float(ci[0])
+            upper = float(ci[1])
+        except (TypeError, ValueError):
+            lower = upper = None
+    if lower is not None and upper is not None and lower == lower and upper == upper:
+        if lower == 0.0 and upper == 0.0:
+            return "identical_predictions" if point is None or abs(float(point)) < 1e-9 else "no_stable_gain"
+        if lower < 0 < upper or lower == 0 or upper == 0:
+            return "no_stable_gain"
+        if lower > 0:
+            return "stable_positive"
+        if upper < 0:
+            return "stable_negative"
+        return "insufficient_blocks"
+    if point is not None:
+        try:
+            number = float(point)
+        except (TypeError, ValueError):
+            number = None
+        if number is not None and number == number:
+            return "point_positive" if number > 0 else "point_negative" if number < 0 else "point_zero"
+    return "not_evaluated"
+
+
+def _derive_family_rows_from_result(result: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    runs = result.get("runs") or []
+    by_run_id = {
+        str(run.get("run_id") or run.get("name")): run
+        for run in runs
+        if isinstance(run, dict)
+    }
+    seen: set[str] = set()
+    for contrast in result.get("contrasts") or []:
+        if not isinstance(contrast, dict):
+            continue
+        family = None
+        for run_id in contrast.get("run_ids") or []:
+            run = by_run_id.get(str(run_id))
+            if run and run.get("model_family"):
+                family = str(run["model_family"])
+                break
+        family = family or "unknown"
+        if family in seen:
+            continue
+        seen.add(family)
+        delta = contrast.get("metrics_delta") or {}
+        bootstrap = contrast.get("bootstrap_ci") or {}
+        rmse_ci = bootstrap.get("rmse_ci")
+        point = delta.get("rmse")
+        evaluation = _classify_family_gain_for_export(point, rmse_ci)
+        rows.append(
+            {
+                "family": family,
+                "contrast_id": contrast.get("contrast_id"),
+                "point_gain_rmse": point,
+                "point_gain_pearson_r": delta.get("pearson_r"),
+                "rmse_ci": rmse_ci,
+                "pearson_ci": bootstrap.get("pearson_r_ci"),
+                "crosses_zero": (
+                    (
+                        float(rmse_ci[0]) < 0 < float(rmse_ci[1])
+                        or (float(rmse_ci[0]) == 0 and float(rmse_ci[1]) > 0)
+                        or (float(rmse_ci[1]) == 0 and float(rmse_ci[0]) < 0)
+                    )
+                    if isinstance(rmse_ci, list) and len(rmse_ci) >= 2
+                    else None
+                )
+                ,
+                "evaluation": evaluation,
+                "evaluation_label": MODEL_SENSITIVITY_LABELS.get(evaluation, evaluation),
+            }
+        )
+    return rows
+
+
+def _family_rows_from_conclusion(
+    conclusion: dict[str, Any],
+    result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    experiment_layer = conclusion.get("experiment_layer") or {}
+    structured = experiment_layer.get("model_sensitivity_families") or []
+    if structured:
+        return [item for item in structured if isinstance(item, dict)]
+    return _derive_family_rows_from_result(result)
+
+
+def _family_rows_verdict(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "未评估"
+    statuses = [str(row.get("evaluation") or "") for row in rows]
+    if all(status == "identical_predictions" for status in statuses):
+        return "两组预测完全一致（无预测差异）"
+    if any(status in {"no_stable_gain", "insufficient_blocks", "not_evaluated"} for status in statuses):
+        return "未检出稳定增益"
+    stable_positive = sum(status == "stable_positive" for status in statuses)
+    stable_negative = sum(status == "stable_negative" for status in statuses)
+    if stable_positive and stable_negative:
+        return "混合方向（需先核查数据与执行）"
+    if stable_positive == len(rows):
+        return "稳定正向增益"
+    if stable_negative == len(rows):
+        return "稳定负向增益"
+    return "未检出稳定增益"
+
+
+def _ci_text(ci: Any) -> str:
+    if isinstance(ci, list) and len(ci) >= 2:
+        return f"{_fmt(ci[0])} ~ {_fmt(ci[1])}"
+    return "--"
+
+
+def _model_sensitivity_family_section(
+    conclusion: dict[str, Any],
+    result: dict[str, Any],
+) -> str:
+    rows = _family_rows_from_conclusion(conclusion, result)
+    if not rows:
+        return ""
+    header = (
+        "<tr><th>模型家族</th><th>ΔRMSE</th><th>95% CI（RMSE）</th>"
+        "<th>ΔPearson r</th><th>95% CI（Pearson r）</th><th>判定</th></tr>"
+    )
+    table_rows = []
+    for row in rows:
+        table_rows.append(
+            "<tr>"
+            f"<td>{_esc(row.get('family'))}</td>"
+            f"<td>{_fmt(row.get('point_gain_rmse'))}</td>"
+            f"<td>{_ci_text(row.get('rmse_ci'))}</td>"
+            f"<td>{_fmt(row.get('point_gain_pearson_r'))}</td>"
+            f"<td>{_ci_text(row.get('pearson_ci'))}</td>"
+            f"<td>{_esc(row.get('evaluation_label') or row.get('evaluation'))}</td>"
+            "</tr>"
+        )
+    verdict = _family_rows_verdict(rows)
+    return (
+        '<h4>5.1.1 各模型家族日影增量与 CI</h4>'
+        f'<p class="detail-card__meta">总体判定（程序保守规则）：{_esc(verdict)}</p>'
+        f"<table>{header}{''.join(table_rows)}</table>"
+        '<p class="muted">点估计方向与稳定证据分开判断；任一家族 CI 跨零、缺失或有效时间块不足时，'
+        '整体结论固定为“未检出稳定增益”，本轮不自动改变假设支持度。</p>'
+    )
+
+
 def _four_layer_section(bundle: dict[str, Any]) -> str:
     round_number = bundle["round"]
     body = [_h2(f"5. 第 {round_number} 轮实验结果报告")]
+    raw_mapping = _hypothesis_display_map(bundle)
     evaluation = bundle.get("evaluation", {})
     scientific = evaluation.get("scientific", {}) or {}
     conclusion = scientific.get("three_layer_conclusion") or {}
@@ -930,11 +1374,17 @@ def _four_layer_section(bundle: dict[str, Any]) -> str:
         for run in result_runs
         if isinstance(run, dict)
     }
-    run_ids = list(run_by_id.keys())
+    run_ids = _ordered_run_ids(list(run_by_id.keys()))
     if run_ids:
-        header = "<tr><th>指标</th>" + "".join(
-            f"<th>{_esc(str(run_by_id[rid].get('name') or rid))}</th>" for rid in run_ids
-        ) + "</tr>"
+        run_headers = []
+        for rid in run_ids:
+            run_label = str(run_by_id[rid].get("name") or rid)
+            run_headers.append(
+                f"<th>{_esc(run_label)}（{_esc(rid)}）</th>"
+                if run_label != rid
+                else f"<th>{_esc(rid)}</th>"
+            )
+        header = "<tr><th>指标</th>" + "".join(run_headers) + "</tr>"
         table_rows = []
         for label, key in [("Pearson r", "pearson_r"), ("RMSE", "rmse"), ("MAE", "mae"), ("R²", "r2")]:
             cells = []
@@ -956,7 +1406,7 @@ def _four_layer_section(bundle: dict[str, Any]) -> str:
                 rmse_ci = ci.get("rmse_ci")
                 contrast_rows.append(
                     "<tr>"
-                    f"<td>{_esc(contrast.get('name') or contrast.get('contrast_id'))}</td>"
+                    f"<td>{_esc(contrast.get('contrast_id') or contrast.get('name'))}</td>"
                     f"<td>{_fmt(contrast_delta.get('pearson_r'))}</td>"
                     f"<td>{_fmt(pearson_ci[0])} ~ {_fmt(pearson_ci[1]) if isinstance(pearson_ci, list) and len(pearson_ci) == 2 else '--'}</td>"
                     f"<td>{_fmt(contrast_delta.get('rmse'))}</td>"
@@ -979,15 +1429,20 @@ def _four_layer_section(bundle: dict[str, Any]) -> str:
             )
         body.append(f"<table>{header}{''.join(table_rows)}</table>")
 
+    family_section = _model_sensitivity_family_section(conclusion, result)
+    if family_section:
+        body.append(family_section)
+
     body.append(_h3("5.2 第一层 · 数据层"))
-    body.append(_quote("RMSE 变化归因（LLM 原文 / 程序回退）", data_layer.get("rmse_attribution")))
-    body.append(_quote("Pearson-r 变化归因（LLM 原文 / 程序回退）", data_layer.get("pearson_attribution")))
+    data_source_tag = _interpretation_source_tag(data_layer)
+    body.append(_quote(f"RMSE 变化归因（{data_source_tag}）", data_layer.get("rmse_attribution")))
+    body.append(_quote(f"Pearson-r 变化归因（{data_source_tag}）", data_layer.get("pearson_attribution")))
     body.append(_quote("ΔSkill 含义（程序计算）", data_layer.get("skill_delta_meaning")))
     body.append(_quote("异常 / 不一致识别", data_layer.get("anomalies")))
     body.append(_quote("推荐后续关注方向", data_layer.get("next_focus")))
     chart_analyses = data_layer.get("chart_analyses")
     if chart_analyses:
-        body.append(_quote("图表分析（LLM 原文）", chart_analyses))
+        body.append(_quote(f"图表逐图分析（{data_source_tag}）", chart_analyses))
     else:
         body.append('<p class="muted">本轮图表逐图分析未生成，结果图已在 4.4 节以原始图像落盘。</p>')
 
@@ -999,6 +1454,7 @@ def _four_layer_section(bundle: dict[str, Any]) -> str:
     table_rows = []
     for row in assessments:
         hypothesis_id = row.get("display_hypothesis_id") or row.get("hypothesis_id")
+        hypothesis_label = _short_hypothesis_label(bundle, raw_mapping, str(hypothesis_id))
         direction = row.get("predicted_direction")
         predicted_range = row.get("predicted_range") or row.get("expected_range")
         support_after = row.get("support_after")
@@ -1012,7 +1468,7 @@ def _four_layer_section(bundle: dict[str, Any]) -> str:
         )
         table_rows.append(
             "<tr>"
-            f"<td>{_esc(hypothesis_id)}</td>"
+            f"<td>{_esc(hypothesis_label)}</td>"
             f"<td>{_esc(direction)}</td><td>{_esc(predicted_range)}</td>"
             f"<td>{_fmt(row.get('actual_delta') or row.get('delta'))}</td>"
             f"<td>{'匹配' if row.get('direction_matched') else '偏离'}</td>"
@@ -1028,8 +1484,9 @@ def _four_layer_section(bundle: dict[str, Any]) -> str:
         ("主科学问题", scientific_layer.get("main_question") or _main_question(bundle)),
         ("证据摘要（程序计算）", scientific_layer.get("evidence_text")),
     ]))
-    body.append(_quote("科学问题回答（LLM 原文 / 程序回退）", scientific_layer.get("answer")))
-    body.append(_quote("传递路径回答", scientific_layer.get("path_answer")))
+    scientific_source_tag = _interpretation_source_tag(scientific_layer)
+    body.append(_quote(f"科学问题回答（{scientific_source_tag}）", scientific_layer.get("answer")))
+    body.append(_quote(f"传递路径回答（{scientific_source_tag}）", scientific_layer.get("path_answer")))
 
     body.append(_h3("5.5 第四层 · 实验追踪层"))
     body.append(_bullets(tracking_layer.get("audit_items")))
@@ -1059,7 +1516,16 @@ def _next_advice_section(bundle: dict[str, Any]) -> str:
             three_layer = history[-1].get("three_layer_conclusion") or {}
             if isinstance(three_layer.get("next_round_suggestion"), dict):
                 suggestion = three_layer["next_round_suggestion"]
-    if suggestion:
+    if suggestion and any(
+        suggestion.get(key)
+        for key in (
+            "evidence_summary",
+            "remaining_uncertainty_analysis",
+            "experiment_design_advice",
+            "hypothesis_space_advice",
+            "pi_decision_advice",
+        )
+    ):
         for label, key in (
             ("1. 当前证据摘要", "evidence_summary"),
             ("2. 剩余不确定性定位", "remaining_uncertainty_analysis"),
@@ -1099,6 +1565,22 @@ def _next_advice_section(bundle: dict[str, Any]) -> str:
         traces = evaluation_summary.get("reasoning_traces") or []
         if traces:
             body.append(_quote("科学解释者（LLM 原文 · 推理痕迹）", [item.get("summary") for item in traces]))
+        if not (findings or remaining or review_detail or disagreement_updates or traces):
+            body.append('<p class="muted">本轮未生成 LLM 下一轮建议，以下按程序证据状态组织下一步。</p>')
+        body.append("<p><strong>程序侧下一步建议（回退）</strong></p>")
+        fallback_notes = [
+            "下一轮应从当前数据版本与验证目标出发设计实验；未获得稳定证据前，不得把点估计视为科学结论。",
+            "若本轮两组预测完全一致，先核验特征是否真正进入模型、日影系数是否被正则化压零，再决定是否重跑或做区分性实验。",
+        ]
+        invalidation = _load_json(STATE_DIR / "data_issue_invalidation.json")
+        if invalidation.get("status") == "evidence_invalidated":
+            exp_ids = "、".join(_invalidation_experiment_ids(invalidation.get("invalidated_experiments"))) or "--"
+            fallback_notes.insert(
+                0,
+                f"当前会话数据证据已失效（{_esc(invalidation.get('root_cause') or '目标变量错误')}）；"
+                f"受影响实验：{_esc(exp_ids)}，本轮依据不进入下一轮规划。",
+            )
+        body.append(_bullets(fallback_notes))
     return "<section>" + "".join(body) + "</section>"
 
 
@@ -1110,21 +1592,32 @@ def _conclusion_section(bundle: dict[str, Any]) -> str:
     conclusion = scientific.get("three_layer_conclusion") or {}
     scientific_layer = conclusion.get("scientific_layer") or {}
     data_layer = conclusion.get("data_layer") or {}
+    invalidation = _load_json(STATE_DIR / "data_issue_invalidation.json")
+    evidence_invalidated = invalidation.get("status") == "evidence_invalidated"
 
     body.append(_h3("7.1 数据指标分析"))
+    if evidence_invalidated:
+        body.append(_invalidation_banner(invalidation))
     metrics = evaluation.get("metrics") or {}
     result = bundle.get("result", {})
     result_runs = result.get("runs") or (metrics.get("runs") if isinstance(metrics, dict) else []) or []
+    task = bundle.get("task", {})
+    research_variables = (task.get("payload", {}).get("research_question", {}).get("variables") or {})
+    target_name = (
+        str(research_variables.get("y") or "").strip()
+        or str(task.get("payload", {}).get("target_variable") or "").strip()
+        or "目标变量"
+    )
     metric_summary: list[str] = []
     for run in result_runs:
         if not isinstance(run, dict):
             continue
-        name = str(run.get("name") or run.get("run_id") or "运行")
-        rid = str(run.get("run_id") or name)
+        rid = str(run.get("run_id") or run.get("name") or "运行")
+        name = str(run.get("name") or rid)
         run_metrics = run.get("metrics") or {}
         pearson = run_metrics.get("pearson_r", metrics.get(f"{rid}_pearson_r"))
         rmse = run_metrics.get("rmse", metrics.get(f"{rid}_rmse"))
-        metric_summary.append(f"{name} Pearson r={_fmt(pearson)}，RMSE={_fmt(rmse)}")
+        metric_summary.append(f"{name}（{rid}） Pearson r={_fmt(pearson)}，RMSE={_fmt(rmse)}")
     if metric_summary:
         metric_analysis = "；".join(metric_summary)
     else:
@@ -1136,13 +1629,18 @@ def _conclusion_section(bundle: dict[str, Any]) -> str:
         _quote(
             "科学结论 · 数据指标分析",
             (
-                "对太阳风速度的预测："
+                f"对{target_name}的预测："
                 f"{metric_analysis}；"
                 f"{_to_text(data_layer.get('rmse_attribution'))}；"
                 f"{_to_text(data_layer.get('pearson_attribution'))}。"
             ),
         )
     )
+    if evidence_invalidated:
+        body.append(
+            '<p class="muted">数据失效状态下，上述自然语言由旧解释生成，程序不保证其与失效指标一致；'
+            "任何数值不得被引用为支持度更新依据。</p>"
+        )
     body.append(_h3("7.2 科学假设分析"))
     body.append(_quote("科学结论 · 假设分析", scientific_layer.get("answer")))
     body.append(_h3("7.3 给下一轮的建议简述"))
@@ -1175,18 +1673,34 @@ def _conclusion_section(bundle: dict[str, Any]) -> str:
         body.append('<p class="muted">剩余不确定性未落盘。</p>')
     body.append(_h3("7.5 人工 PI 最终决策"))
     review = _last_decision(bundle, "round_review_requested", round_id=round_number)
-    continue_decision = _last_decision(bundle, "continue_next_round", round_id=round_number)
-    decision_reason = review.get("summary") if review else None
-    if not decision_reason and continue_decision:
+    commit_decision = _latest_commit_decision(bundle, round_id=round_number)
+    if commit_decision:
+        decision_details = commit_decision.get("details") or {}
         decision_reason = (
-            continue_decision.get("details", {})
-            .get("human_feedback")
+            decision_details.get("human_feedback")
+            or decision_details.get("human_notes")
+            or commit_decision.get("summary")
             or "--"
         )
+        raw_decision_time = commit_decision.get("timestamp")
+        if not raw_decision_time and review:
+            raw_decision_time = review.get("timestamp")
+        decision_time = str(raw_decision_time or "")[:19]
+    else:
+        decision_reason = (
+            (review.get("details") or {}).get("human_feedback")
+            or review.get("summary")
+            if review
+            else None
+        )
+        decision_time = str(review.get("timestamp") or "")[:19] if review else None
+    decision_label = _commit_decision_label(commit_decision)
+    if not commit_decision and review:
+        decision_label = "待人工决策"
     body.append(_kv_table([
-        ("决策", "进入下一轮" if continue_decision else "--"),
+        ("决策", decision_label),
         ("决策理由", decision_reason or "--"),
-        ("决策时间", review.get("timestamp") if review else "--"),
+        ("决策时间", decision_time or "--"),
     ]))
     return "<section>" + "".join(body) + "</section>"
 
@@ -1316,12 +1830,20 @@ def _chrome_candidates() -> list[Path]:
     return result
 
 
+def _pdf_stem(file_name_stem: str) -> str:
+    stem = str(file_name_stem)
+    if stem.lower().endswith(".pdf"):
+        stem = stem[:-4]
+    return stem
+
+
 def render_report_pdf(html_text: str, file_name_stem: str) -> tuple[bytes | None, bool]:
     """Render HTML to PDF via headless Chromium.
 
     Returns ``(pdf_bytes, used_html_fallback)``.  When no browser is available
     the caller falls back to serving the HTML document itself.
     """
+    file_name_stem = _pdf_stem(file_name_stem)
     export_dir = LIVE_ROOT / "exports"
     export_dir.mkdir(parents=True, exist_ok=True)
     html_path = export_dir / f"{file_name_stem}.html"
@@ -1390,16 +1912,21 @@ p { margin: 6px 0; }
 .report-cover { padding: 16px 0 14px; border-bottom: 2px solid #275B94; margin-bottom: 16px; }
 .kicker { color: #275B94; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 8px; font-size: 12px; }
 .question-line { color: #36567e; font-size: 14px; margin: 0 0 12px; }
-table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 11.5px; }
-th, td { border: 1px solid #E3E1D8; padding: 6px 8px; vertical-align: top; text-align: left; }
+.warning-banner { background: #FBEAE5; border: 1px solid #C4552F; color: #7D2D14; border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; font-size: 12px; line-height: 1.55; }
+table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 11.5px; table-layout: fixed; }
+th, td { border: 1px solid #E3E1D8; padding: 6px 8px; vertical-align: top; text-align: left; overflow-wrap: anywhere; word-break: break-word; }
 th { background: #F1EFE8; color: #0F2142; font-weight: 700; }
 tr:nth-child(even) td { background: #FCFBF8; }
+table.kv-table { table-layout: auto; }
+table.kv-table th { width: 34%; background: transparent; color: #36567E; }
+table.kv-table th, table.kv-table td { border: none; border-bottom: 1px solid #E8E6DE; padding: 7px 8px; }
+table.kv-table tr:nth-child(even) td { background: transparent; }
 .llm-quote { background: #F4F3EE; border-left: 3px solid #C7A46A; padding: 10px 12px; margin: 10px 0; white-space: pre-wrap; border-radius: 0 8px 8px 0; }
 .quote-label { display: block; font-size: 11px; color: #8A764F; font-weight: 700; margin-bottom: 4px; }
 .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid currentColor; }
-.figure-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
-.figure { margin: 0; border: 1px solid #E3E1D8; background: #fff; padding: 8px; border-radius: 10px; break-inside: avoid; }
-.figure img { display: block; width: 100%; height: auto; max-height: 320px; object-fit: contain; }
+.figure-grid { display: grid; grid-template-columns: 1fr; gap: 14px; margin: 12px 0; }
+.figure { margin: 0; border: 1px solid #E3E1D8; background: #fff; padding: 10px; border-radius: 8px; break-inside: avoid; text-align: center; }
+.figure img { display: block; max-width: 100%; width: auto; height: auto; max-height: 640px; margin: 0 auto; object-fit: contain; }
 figcaption { font-size: 11px; color: #66708A; margin-top: 5px; }
 .muted { color: #6B7990; }
 .page-break { break-before: page; height: 0; }

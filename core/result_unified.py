@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import json
+import math
 from pathlib import Path
 
+from core.json_safe import json_dumps
 from core.unified_schema import (
     DataSourceCoverage,
     ExecutionSummary,
@@ -24,6 +25,7 @@ def build_run_metrics(raw_metrics: dict) -> RunMetrics:
         mae=raw_metrics.get("test_mae"),
         pearson_r=raw_metrics.get("test_pearson_r"),
         r2=raw_metrics.get("test_r2"),
+        unavailable_reasons=dict(raw_metrics.get("unavailable_reasons") or {}),
     )
 
 
@@ -173,20 +175,20 @@ def export_result_bundle(
         )
 
     (round_dir / "protocol.json").write_text(
-        json.dumps(protocol_payload, ensure_ascii=False, indent=2),
+        json_dumps(protocol_payload, indent=2),
         encoding="utf-8",
     )
     (round_dir / "result_unified.json").write_text(
-        json.dumps(result_payload, ensure_ascii=False, indent=2),
+        json_dumps(result_payload, indent=2),
         encoding="utf-8",
     )
     if write_latest:
         latest_protocol_path.write_text(
-            json.dumps(protocol_payload, ensure_ascii=False, indent=2),
+            json_dumps(protocol_payload, indent=2),
             encoding="utf-8",
         )
         latest_metrics_path.write_text(
-            json.dumps(latest_metrics_payload, ensure_ascii=False, indent=2),
+            json_dumps(latest_metrics_payload, indent=2),
             encoding="utf-8",
         )
 
@@ -194,7 +196,14 @@ def export_result_bundle(
 def _safe_delta(new_value: float | None, old_value: float | None) -> float | None:
     if new_value is None or old_value is None:
         return None
-    return float(new_value) - float(old_value)
+    try:
+        new_float = float(new_value)
+        old_float = float(old_value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not (math.isfinite(new_float) and math.isfinite(old_float)):
+        return None
+    return new_float - old_float
 
 
 def _safe_reverse_delta(new_value: float | None, old_value: float | None) -> float | None:
@@ -202,4 +211,11 @@ def _safe_reverse_delta(new_value: float | None, old_value: float | None) -> flo
 
     if new_value is None or old_value is None:
         return None
-    return float(old_value) - float(new_value)
+    try:
+        new_float = float(new_value)
+        old_float = float(old_value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not (math.isfinite(new_float) and math.isfinite(old_float)):
+        return None
+    return old_float - new_float

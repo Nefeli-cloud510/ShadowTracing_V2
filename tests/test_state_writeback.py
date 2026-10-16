@@ -4,10 +4,14 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
+from core.control_unified import HumanControlService
 from core.evaluation_unified import evaluate_experiment
+from core.scientific_interpreter_llm import InterpreterRoundAnalysis
 from core.state_repository import UnifiedStateRepository
 from core.state_updater import UnifiedStateUpdater
 from core.unified_schema import (
+    BootstrapReport,
+    ConclusionDataLayer,
     EvaluationSpec,
     ExecutionSummary,
     ExperimentDesign,
@@ -15,11 +19,16 @@ from core.unified_schema import (
     ExperimentResult,
     ExperimentRun,
     HypothesisNode,
+    HypothesisPrediction,
+    InterpretationEnhancement,
     MetricDelta,
     ResearchQuestion,
+    RobustnessOverall,
+    RobustnessReport,
     ScientificConstraints,
     ScientificTask,
     ScientificTaskPayload,
+    TimeSliceReport,
     VariableBinding,
 )
 
@@ -258,6 +267,318 @@ class StateWritebackTest(unittest.TestCase):
             initial_version,
             "更正后的证据应使用新的 evidence_version",
         )
+
+    def _build_protocol_result_evaluation_with_ci(
+        self,
+        *,
+        ci: list[float],
+        rmse_delta: float | None,
+    ) -> tuple[ExperimentProtocol, ExperimentResult, object]:
+        protocol = ExperimentProtocol(
+            experiment_id="E100",
+            round_id=1,
+            task_id="ST_100",
+            target="Vsw",
+            features=ExperimentDesign(
+                target="Vsw",
+                control=["By", "Bz"],
+                treatment=["By", "Bz", "DeltaDec"],
+            ),
+            tested_hypotheses=["H1"],
+            hypothesis_predictions={
+                "H1": HypothesisPrediction(
+                    expected_effect="positive",
+                    expected_range=[0.02, 1.0],
+                )
+            },
+        )
+        result = ExperimentResult(
+            experiment_id="E100",
+            round_id=1,
+            status="completed",
+            runs=[
+                ExperimentRun(run_id="baseline", name="baseline"),
+                ExperimentRun(run_id="treatment", name="treatment"),
+            ],
+            comparison=MetricDelta(rmse=rmse_delta),
+            execution=ExecutionSummary(status="completed", duration_seconds=4.0),
+            robustness=RobustnessReport(
+                bootstrap=BootstrapReport(rmse_ci=ci, stable=False),
+                time_slice=TimeSliceReport(splits=[], stable=False),
+                overall=RobustnessOverall(stable=False),
+            ),
+        )
+        evaluation = evaluate_experiment(
+            result,
+            protocol=protocol,
+            remaining_uncertainties=[
+                {"question": "DeltaDec 的增益是否跨时间段稳定", "priority": "high"}
+            ],
+        )
+        return protocol, result, evaluation
+
+    def _strong_support_enhancement(self) -> InterpretationEnhancement:
+        return InterpretationEnhancement(
+            enhancement_id="LIE_INT_001",
+            target_hypothesis_id="H1",
+            interpretation="科学解释者认为日影增量信号清晰，假设应被强支持。",
+            impact_direction="supports",
+            impact_strength=1.0,
+            confidence=1.0,
+        )
+
+    def test_inconclusive_ci_blocks_interpreter_support_writeback(self) -> None:
+        protocol, result, evaluation = self._build_protocol_result_evaluation_with_ci(
+            ci=[-0.2, 0.3],
+            rmse_delta=0.05,
+        )
+        assessment = evaluation.scientific.hypothesis_assessments[0]
+        self.assertEqual(assessment.evidence_classification, "inconclusive")
+        self.assertFalse(assessment.updated)
+
+        updater = UnifiedStateUpdater(self.repository)
+        updated = updater.apply_evaluation(
+            protocol=protocol,
+            result=result,
+            evaluation=evaluation,
+            interpretation_enhancements=[self._strong_support_enhancement()],
+            protocol_path="config/latest_protocol.json",
+            result_path="results/round_01/result_unified.json",
+            evaluation_path="results/round_01/evaluation_unified.json",
+        )
+        node = updated["hypothesis_tree"].node_index()["H1"]
+        self.assertAlmostEqual(node.support_score, 0.5)
+        self.assertFalse(
+            any(
+                getattr(entry, "evidence_key", "").startswith("E100:enhancement:")
+                for entry in node.support_history
+            ),
+            "CI 跨零时解释者不得写入增强支持度历史",
+        )
+        self.assertEqual(
+            node.evidence_items[-1].support_weight,
+            0.0,
+            "解释者意见只作为顾问文本记录，不参与支持度计算",
+        )
+        self.assertEqual(node.critiques[-1].from_role, "scientific_interpreter")
+        self.assertTrue(node.alternative_explanations)
+
+    def test_numeric_degradation_beats_strong_interpreter_support(self) -> None:
+        protocol, result, evaluation = self._build_protocol_result_evaluation_with_ci(
+            ci=[-0.4, -0.1],
+            rmse_delta=-0.5,
+        )
+        assessment = evaluation.scientific.hypothesis_assessments[0]
+        self.assertEqual(assessment.evidence_classification, "stable_degradation")
+        self.assertTrue(assessment.updated)
+
+        updater = UnifiedStateUpdater(self.repository)
+        updated = updater.apply_evaluation(
+            protocol=protocol,
+            result=result,
+            evaluation=evaluation,
+            interpretation_enhancements=[self._strong_support_enhancement()],
+            protocol_path="config/latest_protocol.json",
+            result_path="results/round_01/result_unified.json",
+            evaluation_path="results/round_01/evaluation_unified.json",
+        )
+        node = updated["hypothesis_tree"].node_index()["H1"]
+        self.assertAlmostEqual(node.support_score, 0.45)
+        self.assertFalse(
+            any(
+                getattr(entry, "evidence_key", "").startswith("E100:enhancement:")
+                for entry in node.support_history
+            ),
+            "数值证据退化后，解释者强支持不得反向拉高支持度",
+        )
+
+    def test_conclusion_overwrite_blocked_for_conservative_evidence(self) -> None:
+        protocol, result, evaluation = self._build_protocol_result_evaluation_with_ci(
+            ci=[-0.2, 0.3],
+            rmse_delta=0.05,
+        )
+        program_answer = evaluation.scientific.three_layer_conclusion.scientific_layer.answer
+        program_path_answer = (
+            evaluation.scientific.three_layer_conclusion.scientific_layer.path_answer
+        )
+        analysis = InterpreterRoundAnalysis(
+            enhancements=[],
+            data_layer=ConclusionDataLayer(
+                rmse_attribution="实际存在明显稳定增益，RMSE 持续下降。",
+                anomalies=["无"],
+            ),
+            conclusion_text="能，确实有稳定增益，日影显著改善太阳风速度预测。",
+            path_answer="路径已确认，通过 By 独立传递。",
+            hypothesis_layer_summary="解释者综合意见。",
+            overall_summary="解释者总体总结。",
+        )
+
+        HumanControlService._apply_interpreter_analysis_to_conclusion(
+            evaluation,
+            analysis,
+            protocol=protocol,
+        )
+        conclusion = evaluation.scientific.three_layer_conclusion
+        self.assertEqual(conclusion.scientific_layer.answer, program_answer)
+        self.assertEqual(conclusion.scientific_layer.path_answer, program_path_answer)
+        self.assertEqual(conclusion.hypothesis_layer_summary, "解释者综合意见。")
+        self.assertEqual(conclusion.overall_summary, "解释者总体总结。")
+
+    def test_conclusion_overwrite_allowed_for_decisive_evidence(self) -> None:
+        protocol, result, evaluation = self._build_protocol_result_evaluation_with_ci(
+            ci=[0.1, 0.4],
+            rmse_delta=0.5,
+        )
+        analysis = InterpreterRoundAnalysis(
+            enhancements=[],
+            data_layer=ConclusionDataLayer(
+                rmse_attribution="LLM 对四图与两组对比的数据层分析。",
+                anomalies=["无"],
+            ),
+            conclusion_text="能，bootstrap RMSE 增益 CI 整体为正，存在稳定前置信息。",
+            path_answer="控制 By 后仍观察到独立增量。",
+        )
+
+        HumanControlService._apply_interpreter_analysis_to_conclusion(
+            evaluation,
+            analysis,
+            protocol=protocol,
+        )
+        conclusion = evaluation.scientific.three_layer_conclusion
+        self.assertEqual(
+            conclusion.scientific_layer.answer,
+            "能，bootstrap RMSE 增益 CI 整体为正，存在稳定前置信息。",
+        )
+        self.assertEqual(
+            conclusion.scientific_layer.path_answer,
+            "控制 By 后仍观察到独立增量。",
+        )
+
+    def _apply_ci_evaluation(
+        self,
+        protocol: ExperimentProtocol,
+        result: ExperimentResult,
+        evaluation: object,
+    ) -> dict[str, object]:
+        updater = UnifiedStateUpdater(self.repository)
+        return updater.apply_evaluation(
+            protocol=protocol,
+            result=result,
+            evaluation=evaluation,
+            protocol_path="config/latest_protocol.json",
+            result_path="results/round_01/result_unified.json",
+            evaluation_path="results/round_01/evaluation_unified.json",
+        )
+
+    def _evaluate_with_ci(
+        self,
+        protocol: ExperimentProtocol,
+        result: ExperimentResult,
+    ) -> object:
+        return evaluate_experiment(
+            result,
+            protocol=protocol,
+            remaining_uncertainties=[
+                {"question": "DeltaDec 的增益是否跨时间段稳定", "priority": "high"}
+            ],
+        )
+
+    def test_metadata_only_change_does_not_reapply_support(self) -> None:
+        protocol, result, evaluation = self._build_protocol_result_evaluation_with_ci(
+            ci=[0.1, 0.4],
+            rmse_delta=0.5,
+        )
+        self._apply_ci_evaluation(protocol, result, evaluation)
+        tree = self.repository.load_hypothesis_tree()
+        node = tree.node_index()["H1"]
+        self.assertAlmostEqual(node.support_score, 0.55)
+        self.assertEqual(len(node.support_history), 1)
+        first_identity = node.support_history[0].evidence_identity
+        first_version = node.support_history[0].evidence_version
+
+        metadata_changed = result.model_copy(
+            update={
+                "warnings": ["重新生成报告时补充的警告文字"],
+                "execution": result.execution.model_copy(
+                    update={"message": "人工复核后重新导出"}
+                ),
+            }
+        )
+        new_evaluation = self._evaluate_with_ci(protocol, metadata_changed)
+        self._apply_ci_evaluation(protocol, metadata_changed, new_evaluation)
+
+        tree = self.repository.load_hypothesis_tree()
+        node = tree.node_index()["H1"]
+        self.assertAlmostEqual(node.support_score, 0.55)
+        self.assertEqual(len(node.support_history), 1)
+        entry = node.support_history[0]
+        self.assertEqual(entry.evidence_identity, first_identity)
+        self.assertNotEqual(entry.evidence_version, first_version)
+
+    def test_scientific_revision_replaces_previous_contribution(self) -> None:
+        protocol, result, evaluation = self._build_protocol_result_evaluation_with_ci(
+            ci=[0.1, 0.4],
+            rmse_delta=0.5,
+        )
+        self._apply_ci_evaluation(protocol, result, evaluation)
+        tree = self.repository.load_hypothesis_tree()
+        self.assertAlmostEqual(tree.node_index()["H1"].support_score, 0.55)
+
+        revised = result.model_copy(
+            update={
+                "comparison": MetricDelta(rmse=-0.5),
+                "robustness": RobustnessReport(
+                    bootstrap=BootstrapReport(rmse_ci=[-0.4, -0.1], stable=False),
+                    time_slice=TimeSliceReport(splits=[], stable=False),
+                    overall=RobustnessOverall(stable=False),
+                ),
+            }
+        )
+        revised_evaluation = self._evaluate_with_ci(protocol, revised)
+        self._apply_ci_evaluation(protocol, revised, revised_evaluation)
+
+        tree = self.repository.load_hypothesis_tree()
+        node = tree.node_index()["H1"]
+        self.assertAlmostEqual(
+            node.support_score,
+            0.45,
+            "科学结论修订应撤销旧贡献并只应用最终版本",
+        )
+        self.assertEqual(len(node.support_history), 1)
+        entry = node.support_history[0]
+        self.assertAlmostEqual(entry.support_before, 0.5)
+        self.assertAlmostEqual(entry.support_delta, -0.05)
+
+    def test_revision_to_inconclusive_reverts_to_original_support(self) -> None:
+        protocol, result, evaluation = self._build_protocol_result_evaluation_with_ci(
+            ci=[0.1, 0.4],
+            rmse_delta=0.5,
+        )
+        self._apply_ci_evaluation(protocol, result, evaluation)
+        tree = self.repository.load_hypothesis_tree()
+        self.assertAlmostEqual(tree.node_index()["H1"].support_score, 0.55)
+
+        inconclusive = result.model_copy(
+            update={
+                "comparison": MetricDelta(rmse=0.05),
+                "robustness": RobustnessReport(
+                    bootstrap=BootstrapReport(rmse_ci=[-0.2, 0.3], stable=False),
+                    time_slice=TimeSliceReport(splits=[], stable=False),
+                    overall=RobustnessOverall(stable=False),
+                ),
+            }
+        )
+        inconclusive_evaluation = self._evaluate_with_ci(protocol, inconclusive)
+        self._apply_ci_evaluation(protocol, inconclusive, inconclusive_evaluation)
+
+        node = self.repository.load_hypothesis_tree().node_index()["H1"]
+        self.assertAlmostEqual(
+            node.support_score,
+            0.5,
+            "修订为 CI 跨零时，旧贡献应撤销且不产生新加分",
+        )
+        self.assertEqual(len(node.support_history), 1)
+        self.assertAlmostEqual(node.support_history[0].support_delta, 0.0)
 
 
 if __name__ == "__main__":

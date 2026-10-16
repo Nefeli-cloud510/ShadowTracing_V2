@@ -227,6 +227,17 @@ type RawThreeLayerConclusion = {
     runs?: RawRunSnapshot[]
     contrasts?: RawContrastSnapshot[]
     diagnostics?: unknown[]
+    model_sensitivity_families?: Array<{
+      family?: string
+      contrast_id?: string
+      point_gain_rmse?: unknown
+      point_gain_pearson_r?: unknown
+      rmse_ci?: number[] | null
+      pearson_ci?: number[] | null
+      crosses_zero?: boolean | null
+      evaluation?: string
+      evaluation_label?: string
+    }>
   }
   hypothesis_layer?: Array<{
     hypothesis_id?: string
@@ -336,11 +347,18 @@ type RawDecisionLog = {
 type RawCandidateExperiment = {
   experiment_id?: string
   type?: string
+  experiment_type?: string
   scientific_question?: string
   purpose?: string
   tested_hypotheses?: string[]
   related_uncertainties?: string[]
   distinguishing_insight?: string
+  responded_prior_finding?: string
+  target_uncertainty_focus?: string
+  changed_factors?: string[]
+  held_fixed_factors?: string[]
+  expected_outcome_branches?: Record<string, string>
+  exploratory?: boolean
   design?: {
     target?: string
     control?: string[]
@@ -1196,7 +1214,10 @@ function inferIncrementalVerdict(
   if (experimentType && experimentType !== 'incremental_prediction') {
     return 'mixed'
   }
-  const delta = deltaPearsonR ?? 0
+  const delta = deltaPearsonR
+  if (delta === undefined) {
+    return 'mixed'
+  }
   if (delta > 0.005) {
     return 'supports'
   }
@@ -2633,6 +2654,17 @@ function buildThreeLayerConclusionViewModel(
       runs: mapExperimentRuns(experiment),
       contrasts: mapExperimentContrasts(experiment),
       diagnostics: experiment.diagnostics ?? [],
+      modelSensitivityFamilies: (experiment.model_sensitivity_families ?? []).map((item) => ({
+        family: String(item.family ?? ''),
+        contrastId: item.contrast_id,
+        pointGainRmse: finiteNumber(item.point_gain_rmse),
+        pointGainPearsonR: finiteNumber(item.point_gain_pearson_r),
+        rmseCi: Array.isArray(item.rmse_ci) ? item.rmse_ci : null,
+        pearsonCi: Array.isArray(item.pearson_ci) ? item.pearson_ci : null,
+        crossesZero: item.crosses_zero === undefined || item.crosses_zero === null ? null : item.crosses_zero === true,
+        evaluation: String(item.evaluation ?? ''),
+        evaluationLabel: item.evaluation_label,
+      })),
     },
     hypothesisLayer,
     scientificLayer: {

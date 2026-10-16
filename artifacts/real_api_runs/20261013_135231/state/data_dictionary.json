@@ -1,0 +1,63 @@
+{
+  "dictionary_id": "DICT_REAL_API_DEMO",
+  "generated_at": "2026-10-13T13:52:31.195950",
+  "version": "1.0",
+  "dataset_name": "real_api_demo",
+  "total_samples": 48,
+  "time_column": "TIME",
+  "time_format": "YYYYMMDD",
+  "fields": [
+    {
+      "field_name": "TIME",
+      "data_type": "int",
+      "physical_meaning": "time",
+      "missing_rate": 0.0,
+      "is_target": false
+    },
+    {
+      "field_name": "Vsw",
+      "data_type": "float",
+      "physical_meaning": "target",
+      "missing_rate": 0.0,
+      "is_target": true
+    },
+    {
+      "field_name": "By",
+      "data_type": "float",
+      "physical_meaning": "IMF By",
+      "missing_rate": 0.0,
+      "is_target": false
+    },
+    {
+      "field_name": "Bz",
+      "data_type": "float",
+      "physical_meaning": "IMF Bz",
+      "missing_rate": 0.0,
+      "is_target": false
+    },
+    {
+      "field_name": "Np",
+      "data_type": "float",
+      "physical_meaning": "Solar wind density",
+      "missing_rate": 0.0,
+      "is_target": false
+    },
+    {
+      "field_name": "DeltaDec",
+      "data_type": "float",
+      "physical_meaning": "LHAASO DeltaDec",
+      "missing_rate": 0.0,
+      "is_target": false
+    }
+  ],
+  "target_candidates": [
+    "Vsw"
+  ],
+  "feature_candidates": [
+    "By",
+    "Bz",
+    "Np",
+    "DeltaDec"
+  ],
+  "user_supplementary": {}
+}

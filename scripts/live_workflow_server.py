@@ -25,8 +25,10 @@ from pydantic import BaseModel, Field
 from core.control_unified import HumanControlService
 from core.decision_unified import DecisionLayerService
 from core.display_text_cleaner import clean_repository_text
+from core.json_safe import json_dumps
 from core.llm_gateway import LLMGateway
 from core.multi_source_uncertainty_miner import MIN_UNCERTAINTIES
+from core.pdf_extraction import extract_pdf_text
 from core.runtime_config import get_default_llm_model, get_llm_role_models, load_project_env
 from core.state_repository import UnifiedStateRepository
 from core.unified_schema import (
@@ -49,10 +51,19 @@ from scripts.run_real_api_two_round_demo import build_real_llm_control
 
 HOST = "127.0.0.1"
 PORT = 8765
-LIVE_ROOT = REPO_ROOT / "runtime" / "live_session" / "current"
+SESSION_BASE_DIR = REPO_ROOT / "runtime" / "live_session"
+SESSION_DIR = SESSION_BASE_DIR / "sessions"
+ACTIVE_SESSION_POINTER_FILENAME = "active_session.json"
+LIVE_ROOT = SESSION_BASE_DIR / "current"
 STATE_DIR = LIVE_ROOT / "state"
-STAGED_DATA_DIR = REPO_ROOT / "runtime" / "live_session" / "staged"
+STAGED_DATA_DIR = SESSION_BASE_DIR / "staged"
 STAGED_MANIFEST_PATH = STAGED_DATA_DIR / "staged_manifest.json"
+
+LIVE_RUN_INPUT_DIR = REPO_ROOT / "runtime" / "live_run_input"
+CORRECTED_DATA_OVERRIDES = {
+    "omni_2021_full_calendar_v2.csv": "omni_2021_full_calendar_v3.csv",
+    "lhaaso_shadow_pfss_2021_full_calendar_v2.csv": "lhaaso_shadow_pfss_2021_full_calendar_v3.csv",
+}
 
 PRIORITY_SCORE_BY_LEVEL = {"low": 0.4, "medium": 0.6, "high": 0.85}
 
@@ -756,7 +767,7 @@ def build_dictionary_and_task(
     return task, dictionary
 
 
-def ingest_knowledge_files(knowledge_dir: Path, text_dir: Path, files: list[dict[str, Any]]) -> None:
+def ingest_knowledge_files(knowledge_dir: Path, text_dir: Path, files: list[dict[str, Any]]) -> list[dict[str, Any]]:
     manifest: list[dict[str, Any]] = []
     knowledge_dir.mkdir(parents=True, exist_ok=True)
     text_dir.mkdir(parents=True, exist_ok=True)
@@ -767,10 +778,36 @@ def ingest_knowledge_files(knowledge_dir: Path, text_dir: Path, files: list[dict
         suffix = raw_path.suffix.lower()
         text_path = text_dir / f"{raw_path.stem}.txt"
         extraction_status = "placeholder_only"
+        extraction_engine: str | None = None
+        page_count: int | None = None
+        character_count: int | None = None
+        extraction_note: str | None = None
         if suffix in TEXT_FILE_SUFFIXES:
-            text_path.write_text(item["content"].decode("utf-8", errors="ignore"), encoding="utf-8")
+            raw_text = item["content"].decode("utf-8", errors="ignore")
+            text_path.write_text(raw_text, encoding="utf-8")
             extraction_status = "ready"
+            extraction_engine = "direct_text"
+            character_count = len(raw_text)
+        elif suffix == ".pdf":
+            extraction = extract_pdf_text(raw_path)
+            if extraction["error"] is None:
+                text_path.write_text(str(extraction["text"]), encoding="utf-8")
+                extraction_status = "extracted"
+                extraction_engine = str(extraction["engine"])
+                page_count = int(extraction["page_count"] or 0)
+                character_count = int(extraction["character_count"] or 0)
+            else:
+                extraction_note = f"PDF文本提取失败：{extraction['error']}"
+                text_path.write_text(
+                    (
+                        f"uploaded knowledge file: {raw_path.name}\n"
+                        f"path: uploads/knowledge/{raw_path.name}\n"
+                        f"extraction_error: {extraction_note}"
+                    ),
+                    encoding="utf-8",
+                )
         else:
+            extraction_note = "不支持的文件类型，已保留原始文件副本。"
             text_path.write_text(
                 f"uploaded knowledge file: {raw_path.name}\npath: uploads/knowledge/{raw_path.name}",
                 encoding="utf-8",
@@ -784,6 +821,10 @@ def ingest_knowledge_files(knowledge_dir: Path, text_dir: Path, files: list[dict
                 "storage_path": f"uploads/knowledge/{raw_path.name}",
                 "extracted_text_path": f"outputs/pdf_texts/{text_path.name}",
                 "extraction_status": extraction_status,
+                "extraction_engine": extraction_engine,
+                "page_count": page_count,
+                "character_count": character_count,
+                "extraction_note": extraction_note,
                 "knowledge_sync_status": "local_session_only",
                 "knowledge_sync_note": "当前仅支持读取百炼知识库，不支持把上传文件写回到百炼托管知识库。",
             }
@@ -795,7 +836,7 @@ def write_upload_manifest(records: list[dict[str, Any]], state_dir: Path | None 
     state_dir = state_dir or STATE_DIR
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "upload_manifest.json").write_text(
-        json.dumps({"records": records}, ensure_ascii=False, indent=2),
+        json_dumps({"records": records}, indent=2),
         encoding="utf-8",
     )
 
@@ -805,7 +846,7 @@ def write_model_usage_manifest(session_model: str, state_dir: Path | None = None
     state_dir = state_dir or STATE_DIR
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "model_usage.json").write_text(
-        json.dumps(
+        json_dumps(
             {
                 "session_model": session_model,
                 "routes": [
@@ -828,7 +869,6 @@ def write_model_usage_manifest(session_model: str, state_dir: Path | None = None
                     for role, model in role_models.items()
                 ],
             },
-            ensure_ascii=False,
             indent=2,
         ),
         encoding="utf-8",
@@ -862,7 +902,7 @@ def read_staged_file_payloads() -> list[dict[str, Any]]:
 def write_staged_manifest(files: list[dict[str, Any]]) -> None:
     STAGED_DATA_DIR.mkdir(parents=True, exist_ok=True)
     STAGED_MANIFEST_PATH.write_text(
-        json.dumps(
+        json_dumps(
             {
                 "files": [
                     {
@@ -874,11 +914,39 @@ def write_staged_manifest(files: list[dict[str, Any]]) -> None:
                 ],
                 "updated_at": datetime.now().isoformat(),
             },
-            ensure_ascii=False,
             indent=2,
         ),
         encoding="utf-8",
     )
+
+
+def resolve_corrected_data_files(
+    data_files: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    resolved: list[dict[str, Any]] = []
+    replacements: list[dict[str, Any]] = []
+    for item in data_files:
+        file_name = sanitize_filename(str(item["name"]))
+        corrected_name = CORRECTED_DATA_OVERRIDES.get(file_name)
+        if corrected_name is None:
+            resolved.append(item)
+            continue
+        source_path = LIVE_RUN_INPUT_DIR / corrected_name
+        if not source_path.is_file():
+            raise FileNotFoundError(
+                f"检测到已废弃的 v2 数据文件 {file_name}，"
+                f"但修正版 {source_path} 不存在，已阻断启动以防再次使用错位数据。"
+            )
+        resolved.append({"name": corrected_name, "content": source_path.read_bytes()})
+        replacements.append(
+            {
+                "original_file_name": file_name,
+                "replacement_file_name": corrected_name,
+                "reason": "v2 存在系统性整列错位，v3 已按权威日历逐日核验重排",
+                "source_path": str(source_path),
+            }
+        )
+    return resolved, replacements
 
 
 def initialize_live_workspace(
@@ -899,6 +967,7 @@ def initialize_live_workspace(
     resolved_data_files = data_files if data_files else read_staged_file_payloads()
     if not resolved_data_files:
         raise ValueError("至少需要上传一个数据文件。")
+    resolved_data_files, data_replacements = resolve_corrected_data_files(resolved_data_files)
     raw_data_paths = persist_data_files(live_root / "data" / "raw", resolved_data_files)
     upload_manifest = ingest_knowledge_files(
         live_root / "uploads" / "knowledge",
@@ -916,6 +985,18 @@ def initialize_live_workspace(
     repo.initialize_state_skeleton(task, data_dictionary=dictionary, overwrite=True)
     write_upload_manifest(upload_manifest, live_root / "state")
     write_model_usage_manifest(model, live_root / "state")
+    if data_replacements:
+        replacement_path = live_root / "state" / "data_replacement.json"
+        replacement_path.write_text(
+            json_dumps(
+                {
+                    "initialized_at": datetime.now().isoformat(),
+                    "replacements": data_replacements,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
     return live_root, repo, task, dictionary
 
 
@@ -923,10 +1004,19 @@ class LiveSessionManager:
     def __init__(self, live_root: Path | None = None) -> None:
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
+        self._worker_starting_generation: int | None = None
         self._recovery_lock = threading.Lock()
         self._recovery_in_progress = False
         self._generation = 0
-        self.live_root = live_root or LIVE_ROOT
+        if live_root is not None:
+            if live_root.name == "current" or live_root.parent.name != "sessions":
+                self.session_base = live_root.parent / "sessions"
+            else:
+                self.session_base = live_root.parent
+            self.live_root = self._restore_active_session_root(default=live_root)
+        else:
+            self.session_base = SESSION_DIR
+            self.live_root = self._restore_active_session_root(default=LIVE_ROOT)
         self.state_dir = self.live_root / "state"
         self.status_path = self.live_root / "session_status.json"
         self._status: dict[str, Any] = {
@@ -967,7 +1057,7 @@ class LiveSessionManager:
     def _write_status(self) -> None:
         self.live_root.mkdir(parents=True, exist_ok=True)
         self.status_path.write_text(
-            json.dumps(self._status, ensure_ascii=False, indent=2),
+            json_dumps(self._status, indent=2),
             encoding="utf-8",
         )
 
@@ -1145,6 +1235,7 @@ class LiveSessionManager:
             old_root = self.live_root
             self._generation += 1
             self._worker = None
+            self._worker_starting_generation = None
             self.live_root = self._allocate_session_root()
             self.state_dir = self.live_root / "state"
             self.status_path = self.live_root / "session_status.json"
@@ -1164,12 +1255,37 @@ class LiveSessionManager:
             shutil.rmtree(old_root, ignore_errors=True)
         if not preserve_staged_data:
             shutil.rmtree(STAGED_DATA_DIR, ignore_errors=True)
+        self._write_active_session_pointer()
         self._write_status()
         return dict(self._status)
 
+    def _restore_active_session_root(self, default: Path) -> Path:
+        try:
+            pointer_path = self.session_base / ACTIVE_SESSION_POINTER_FILENAME
+            if not pointer_path.exists():
+                return default
+            payload = json.loads(pointer_path.read_text(encoding="utf-8"))
+            session_name = str(payload.get("session") or "").strip()
+            if session_name in {"", ".", ".."} or Path(session_name).name != session_name:
+                return default
+            candidate = self.session_base / session_name
+            if candidate.is_dir():
+                return candidate
+        except Exception:
+            pass
+        return default
+
+    def _write_active_session_pointer(self) -> None:
+        self.session_base.mkdir(parents=True, exist_ok=True)
+        pointer_path = self.session_base / ACTIVE_SESSION_POINTER_FILENAME
+        pointer_path.write_text(
+            json_dumps({"session": self.live_root.name}, indent=2),
+            encoding="utf-8",
+        )
+
     def _allocate_session_root(self) -> Path:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        sessions_dir = self.live_root.parent / "sessions"
+        sessions_dir = self.session_base
         candidate = sessions_dir / f"session_{stamp}"
         index = 0
         while candidate.exists():
@@ -1180,6 +1296,8 @@ class LiveSessionManager:
     def _assert_not_busy(self) -> None:
         if self._worker is not None and self._worker.is_alive():
             raise RuntimeError("当前已有动作正在运行，请等待当前阶段完成。")
+        if self._worker_starting_generation == self._generation:
+            raise RuntimeError("当前已有动作正在启动，请等待当前阶段完成。")
 
     def _begin_recovery(self) -> None:
         with self._recovery_lock:
@@ -1207,14 +1325,23 @@ class LiveSessionManager:
                 daemon=True,
             )
             self._worker = worker
+            self._worker_starting_generation = generation
             self._status["workerError"] = None
             self._status["updatedAt"] = datetime.now().isoformat()
-            self._write_status()
-        worker.start()
+            try:
+                self._write_status()
+                worker.start()
+            except Exception:
+                self._worker = None
+                self._worker_starting_generation = None
+                raise
         return self.snapshot()
 
     def _run_worker(self, *, target, _generation: int, _session_root: Path, **kwargs: Any) -> None:
         try:
+            with self._lock:
+                if self._worker_starting_generation == _generation:
+                    self._worker_starting_generation = None
             target(_generation=_generation, _session_root=_session_root, **kwargs)
         finally:
             self._cleanup_if_stale(_generation, _session_root)
@@ -1562,13 +1689,12 @@ class LiveSessionManager:
             failure_path = _session_root / "failure_report.json"
             failure_path.parent.mkdir(parents=True, exist_ok=True)
             failure_path.write_text(
-                json.dumps(
+                json_dumps(
                     {
                         "timestamp": datetime.now().isoformat(),
                         "error": repr(exc),
                         "traceback": traceback.format_exc(),
                     },
-                    ensure_ascii=False,
                     indent=2,
                 ),
                 encoding="utf-8",
@@ -1600,6 +1726,27 @@ class LiveSessionManager:
             model_parameters=model_parameters or {},
         )
 
+    def retry_failed_experiment(
+        self,
+        *,
+        candidate_id: str | None,
+        human_notes: str | None,
+        model_parameters: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        self._assert_not_busy()
+        self._update(
+            status="running",
+            stage="experiment_execution",
+            message="正在重试上一轮失败的候选实验。",
+        )
+        return self._start_worker(
+            self._run_candidate_execution,
+            candidate_id=candidate_id,
+            human_notes=human_notes,
+            model_parameters=model_parameters or {},
+            retry_failed=True,
+        )
+
     def _run_candidate_execution(
         self,
         *,
@@ -1608,6 +1755,7 @@ class LiveSessionManager:
         candidate_id: str | None,
         human_notes: str | None,
         model_parameters: dict[str, Any],
+        retry_failed: bool = False,
     ) -> None:
         try:
             self._abort_if_stale(_generation)
@@ -1618,6 +1766,7 @@ class LiveSessionManager:
                 human_notes=human_notes,
                 auto_continue=False,
                 model_parameters=model_parameters or None,
+                retry_failed=retry_failed,
             )
             self._abort_if_stale(_generation)
             self._update(
@@ -1948,13 +2097,12 @@ class LiveSessionManager:
             failure_path = _session_root / "failure_report.json"
             failure_path.parent.mkdir(parents=True, exist_ok=True)
             failure_path.write_text(
-                json.dumps(
+                json_dumps(
                     {
                         "timestamp": datetime.now().isoformat(),
                         "error": repr(exc),
                         "traceback": traceback.format_exc(),
                     },
-                    ensure_ascii=False,
                     indent=2,
                 ),
                 encoding="utf-8",
@@ -2047,6 +2195,9 @@ class LiveWorkflowHandler(BaseHTTPRequestHandler):
         if self.path == "/api/workflow/approval":
             self._handle_approval_action()
             return
+        if self.path == "/api/workflow/retry-failed":
+            self._handle_retry_failed_experiment()
+            return
         if self.path == "/api/workflow/resume-analysis":
             self._handle_resume_analysis()
             return
@@ -2084,7 +2235,7 @@ class LiveWorkflowHandler(BaseHTTPRequestHandler):
 
     def _write_json(self, payload: dict[str, Any], status: int = HTTPStatus.OK) -> None:
         self._set_headers(status=status)
-        self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+        self.wfile.write(json_dumps(payload).encode("utf-8"))
 
     def _handle_report_export(self) -> None:
         try:
@@ -2277,6 +2428,23 @@ class LiveWorkflowHandler(BaseHTTPRequestHandler):
             else:
                 raise ValueError("未知审批动作。")
             self._write_json(status, status=HTTPStatus.ACCEPTED if action in {"approve", "modify"} else HTTPStatus.OK)
+        except Exception as exc:
+            self._write_json({"message": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+
+    def _handle_retry_failed_experiment(self) -> None:
+        try:
+            payload = self._read_json_body()
+            candidate_id = str(payload.get("candidateId") or "").strip() or None
+            human_notes = str(payload.get("humanNotes") or "").strip() or None
+            model_parameters = payload.get("modelParameters")
+            if model_parameters is not None and not isinstance(model_parameters, dict):
+                raise ValueError("modelParameters 必须是对象。")
+            status = SESSION_MANAGER.retry_failed_experiment(
+                candidate_id=candidate_id,
+                human_notes=human_notes,
+                model_parameters=model_parameters if isinstance(model_parameters, dict) else None,
+            )
+            self._write_json(status, status=HTTPStatus.ACCEPTED)
         except Exception as exc:
             self._write_json({"message": str(exc)}, status=HTTPStatus.BAD_REQUEST)
 

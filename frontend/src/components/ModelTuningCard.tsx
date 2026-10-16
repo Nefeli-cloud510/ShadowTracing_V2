@@ -7,7 +7,7 @@ const PARAMETER_LABELS: Record<string, string> = {
   past_lag_days: '样本滞后（天）',
   forecast_horizon_days: '预测视野（天）',
   max_lag_day: '最大滞后构造（天）',
-  test_split_ratio: '测试集比例',
+  test_split_ratio: '迭代评估比例',
   alpha: '正则强度 alpha',
   l1_ratio: 'L1 占比 l1_ratio',
   use_lag_feature: '是否启用滞后特征',

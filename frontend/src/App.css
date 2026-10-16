@@ -3225,6 +3225,75 @@ select {
   border-bottom: 0;
 }
 
+.model-sensitivity-families {
+  display: grid;
+  gap: 10px;
+  margin-top: 2px;
+  padding: 12px 14px;
+  border: 1px solid rgba(12, 42, 95, 0.1);
+  border-radius: 10px;
+  background: rgba(245, 248, 252, 0.8);
+}
+
+.model-sensitivity-families__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  color: #0f2142;
+  font-size: 13px;
+}
+
+.model-sensitivity-families__head strong {
+  color: #0f2142;
+  font-size: 14px;
+}
+
+.model-sensitivity-families__head span {
+  color: #25578f;
+  font-weight: 600;
+}
+
+.model-sensitivity-families__table-wrap {
+  overflow-x: auto;
+}
+
+.model-sensitivity-families__table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.model-sensitivity-families__table th {
+  padding: 8px 10px;
+  text-align: left;
+  color: #43516b;
+  background: rgba(37, 87, 143, 0.07);
+  border-bottom: 1px solid rgba(12, 42, 95, 0.12);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.model-sensitivity-families__table td {
+  padding: 9px 10px;
+  color: rgba(15, 33, 66, 0.82);
+  border-bottom: 1px solid rgba(12, 42, 95, 0.08);
+  line-height: 1.5;
+}
+
+.model-sensitivity-families__table tr:last-child td {
+  border-bottom: 0;
+}
+
+.model-sensitivity-families__note {
+  margin: 0;
+  color: #6e767e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .three-layer-conclusion__id {
   display: inline-flex;
   min-width: 42px;
@@ -3919,6 +3988,40 @@ select {
   line-height: 1.65;
 }
 
+.candidate-table__list--branches li {
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(12, 42, 95, 0.045);
+}
+
+.candidate-table__branch-key {
+  font-size: 12px;
+  font-weight: 700;
+  color: #25578f;
+}
+
+.candidate-table__badge {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.candidate-table__badge--exploratory {
+  color: #8a4a1f;
+  background: rgba(191, 104, 45, 0.13);
+  border: 1px solid rgba(191, 104, 45, 0.22);
+}
+
+.candidate-table__badge--focused {
+  color: #22643d;
+  background: rgba(45, 128, 82, 0.12);
+  border: 1px solid rgba(45, 128, 82, 0.2);
+}
+
 .candidate-table__id-chip {
   flex: 0 0 auto;
   max-width: 220px;
@@ -4008,6 +4111,10 @@ select {
   .candidate-table__list li {
     flex-direction: column;
     gap: 4px;
+  }
+
+  .candidate-table__list--branches li {
+    padding: 8px 10px;
   }
 }
 
