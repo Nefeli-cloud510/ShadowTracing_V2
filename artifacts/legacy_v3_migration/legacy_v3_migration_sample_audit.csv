@@ -1,0 +1,11 @@
+﻿horizon_days,variant,feature_spec_label,candidate_count,retained_before_common,retained_after_common,n_train,n_test_full_split,n_test_dev_window,drop_reason_counts_json,field_drop_counts_json
+1,mag,BY+BZ+|B| 多滞后(不带日影),196,187,170,132,37,35,"{""history_gap"": 8, ""retained"": 187, ""target_unavailable"": 1}",{}
+1,mag_both,磁场＋两个方向日影,196,170,170,132,37,35,"{""feature_missing"": 16, ""history_gap"": 9, ""retained"": 170, ""target_unavailable"": 1}","{""p2_y中心值"": 8, ""p1_x中心值"": 8}"
+1,mag_ew,磁场＋p1_x中心值(东西日影),196,178,170,132,37,35,"{""feature_missing"": 8, ""history_gap"": 9, ""retained"": 178, ""target_unavailable"": 1}","{""p1_x中心值"": 8}"
+1,mag_ns,磁场＋p2_y中心值(南北日影),196,179,170,132,37,35,"{""feature_missing"": 8, ""history_gap"": 8, ""retained"": 179, ""target_unavailable"": 1}","{""p2_y中心值"": 8}"
+1,v2_mag,旧 Scalar B+BY 双日窗(不带日影),196,194,194,156,37,35,"{""history_gap"": 1, ""retained"": 194, ""target_unavailable"": 1}",{}
+3,mag,BY+BZ+|B| 多滞后(不带日影),196,185,168,130,35,35,"{""history_gap"": 8, ""retained"": 185, ""target_unavailable"": 3}",{}
+3,mag_both,磁场＋两个方向日影,196,168,168,130,35,35,"{""feature_missing"": 16, ""history_gap"": 9, ""retained"": 168, ""target_unavailable"": 3}","{""p2_y中心值"": 8, ""p1_x中心值"": 8}"
+3,mag_ew,磁场＋p1_x中心值(东西日影),196,176,168,130,35,35,"{""feature_missing"": 8, ""history_gap"": 9, ""retained"": 176, ""target_unavailable"": 3}","{""p1_x中心值"": 8}"
+3,mag_ns,磁场＋p2_y中心值(南北日影),196,177,168,130,35,35,"{""feature_missing"": 8, ""history_gap"": 8, ""retained"": 177, ""target_unavailable"": 3}","{""p2_y中心值"": 8}"
+3,v2_mag,旧 Scalar B+BY 双日窗(不带日影),196,192,192,154,35,35,"{""history_gap"": 1, ""retained"": 192, ""target_unavailable"": 3}",{}

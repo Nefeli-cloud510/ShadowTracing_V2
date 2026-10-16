@@ -1,0 +1,52 @@
+{
+  "schema_version": "legacy-v3-cross-window-main-plot-v1",
+  "figure": "outer_backtest_cross_window_main_gain_ci.png",
+  "comparison": "mag -> mag_both",
+  "horizon_days": 3,
+  "mode": "auto",
+  "metric": "RMSE paired gain, km/s",
+  "positive_meaning": "加入双方向日影后误差改善",
+  "ci_method": "配对日历块 bootstrap 95% CI",
+  "bootstrap": {
+    "block_size": 7,
+    "n_draws": 2000,
+    "seed": 20261017
+  },
+  "rows": [
+    {
+      "window": "dev",
+      "window_label": "dev（迭代评估段）",
+      "calendar_window": "2021-08-26 ~ 2021-09-29",
+      "n_paired_samples": 35,
+      "point_gain_rmse": 0.480856,
+      "rmse_ci_low": 0.014233,
+      "rmse_ci_high": 0.850366,
+      "stable_rmse": true
+    },
+    {
+      "window": "f1",
+      "window_label": "F1（补充回测）",
+      "calendar_window": "2021-07-05 ~ 2021-07-27",
+      "n_paired_samples": 17,
+      "point_gain_rmse": -0.272799,
+      "rmse_ci_low": -1.50702,
+      "rmse_ci_high": 0.506581,
+      "stable_rmse": false
+    },
+    {
+      "window": "f2",
+      "window_label": "F2（补充回测）",
+      "calendar_window": "2021-08-03 ~ 2021-08-25",
+      "n_paired_samples": 23,
+      "point_gain_rmse": 0.530072,
+      "rmse_ci_low": -0.327421,
+      "rmse_ci_high": 1.677192,
+      "stable_rmse": false
+    }
+  ],
+  "note": "主图仅保留 mag->mag_both、h=3、auto；其余 24 组比较放在 outer_backtest_gain_ci_by_fold.png 备份页。",
+  "source_files": [
+    "outer_backtest_gain_comparison.csv",
+    "outer_backtest_reproducibility_conclusion.json"
+  ]
+}

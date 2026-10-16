@@ -1,0 +1,344 @@
+{
+  "schema_version": "legacy-v3-migration-v1",
+  "label": "dev_backtest",
+  "generated_at": "2026-10-17T05:54:37.371803",
+  "scope": "探索性迁移诊断；不修改闭环状态、不批准协议、不写回假设支持度",
+  "data": {
+    "session_root": "D:\\ShadowTracing\\runtime\\live_session\\sessions\\session_20261016_235451_805278",
+    "coverage": [
+      {
+        "source": "omni_2021_full_calendar_v3",
+        "expected_days": 196,
+        "observed_days": 196,
+        "missing_days": 0,
+        "coverage_ratio": 1.0,
+        "interpolated_days": 0,
+        "note": null
+      },
+      {
+        "source": "lhaaso_shadow_pfss_2021_full_calendar_v3",
+        "expected_days": 196,
+        "observed_days": 196,
+        "missing_days": 0,
+        "coverage_ratio": 1.0,
+        "interpolated_days": 0,
+        "note": null
+      }
+    ],
+    "missing_counts": {
+      "BY, nT (GSE)": 0,
+      "BZ, nT (GSE)": 0,
+      "Scalar B, nT": 0,
+      "p1_x中心值": 8,
+      "p2_y中心值": 8,
+      "SW Plasma Speed, km/s": 0
+    },
+    "data_validation": {
+      "source_labels": [
+        "omni_2021_full_calendar_v3",
+        "lhaaso_shadow_pfss_2021_full_calendar_v3"
+      ],
+      "passed": true,
+      "checks": [
+        {
+          "check": "Scalar B, nT > 0 或缺失",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        },
+        {
+          "check": "|Bx| <= Scalar B",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        },
+        {
+          "check": "|By_GSE| <= Scalar B",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        },
+        {
+          "check": "|Bz_GSE| <= Scalar B",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        },
+        {
+          "check": "风速 150-1500 km/s",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        },
+        {
+          "check": "密度 0.01-100 /cm^3",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        },
+        {
+          "check": "温度 1e4-5e6 K",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        }
+      ]
+    },
+    "source_columns": [
+      "BY, nT (GSE)",
+      "BZ, nT (GSE)",
+      "Scalar B, nT",
+      "p1_x中心值",
+      "p2_y中心值",
+      "TIME",
+      "SW Plasma Speed, km/s"
+    ],
+    "row_count": 196,
+    "date_start": "2021-03-21",
+    "date_end": "2021-10-02",
+    "duplicate_dates": 0,
+    "generated_at": "2026-10-17T05:54:37.371803"
+  },
+  "freeze": {
+    "split_label": "dev_backtest",
+    "test_start_issue_date": "2021-08-26",
+    "test_end_issue_date": "2021-09-29",
+    "test_ratio": 0.2,
+    "n_internal_folds": 2,
+    "horizon_days": [
+      1,
+      3
+    ],
+    "features": {
+      "timelag_mag": [
+        [
+          "BY, nT (GSE)",
+          4
+        ],
+        [
+          "BY, nT (GSE)",
+          5
+        ],
+        [
+          "BY, nT (GSE)",
+          7
+        ],
+        [
+          "BY, nT (GSE)",
+          8
+        ],
+        [
+          "BZ, nT (GSE)",
+          1
+        ],
+        [
+          "BZ, nT (GSE)",
+          2
+        ],
+        [
+          "Scalar B, nT",
+          1
+        ],
+        [
+          "Scalar B, nT",
+          2
+        ]
+      ],
+      "timelag_mag_ns": [
+        [
+          "BY, nT (GSE)",
+          4
+        ],
+        [
+          "BY, nT (GSE)",
+          5
+        ],
+        [
+          "BY, nT (GSE)",
+          7
+        ],
+        [
+          "BY, nT (GSE)",
+          8
+        ],
+        [
+          "BZ, nT (GSE)",
+          1
+        ],
+        [
+          "BZ, nT (GSE)",
+          2
+        ],
+        [
+          "Scalar B, nT",
+          1
+        ],
+        [
+          "Scalar B, nT",
+          2
+        ],
+        [
+          "p2_y中心值",
+          1
+        ]
+      ],
+      "timelag_mag_ew": [
+        [
+          "BY, nT (GSE)",
+          4
+        ],
+        [
+          "BY, nT (GSE)",
+          5
+        ],
+        [
+          "BY, nT (GSE)",
+          7
+        ],
+        [
+          "BY, nT (GSE)",
+          8
+        ],
+        [
+          "BZ, nT (GSE)",
+          1
+        ],
+        [
+          "BZ, nT (GSE)",
+          2
+        ],
+        [
+          "Scalar B, nT",
+          1
+        ],
+        [
+          "Scalar B, nT",
+          2
+        ],
+        [
+          "p1_x中心值",
+          9
+        ]
+      ],
+      "timelag_mag_both": [
+        [
+          "BY, nT (GSE)",
+          4
+        ],
+        [
+          "BY, nT (GSE)",
+          5
+        ],
+        [
+          "BY, nT (GSE)",
+          7
+        ],
+        [
+          "BY, nT (GSE)",
+          8
+        ],
+        [
+          "BZ, nT (GSE)",
+          1
+        ],
+        [
+          "BZ, nT (GSE)",
+          2
+        ],
+        [
+          "Scalar B, nT",
+          1
+        ],
+        [
+          "Scalar B, nT",
+          2
+        ],
+        [
+          "p2_y中心值",
+          1
+        ],
+        [
+          "p1_x中心值",
+          9
+        ]
+      ],
+      "v2_scalar_b_by_offsets": [
+        [
+          "Scalar B, nT",
+          0
+        ],
+        [
+          "Scalar B, nT",
+          -1
+        ],
+        [
+          "BY, nT (GSE)",
+          0
+        ],
+        [
+          "BY, nT (GSE)",
+          -1
+        ]
+      ]
+    },
+    "fixed_params": {
+      "timelag": {
+        "alpha": 1.0,
+        "l1_ratio": 0.9
+      },
+      "v2": {
+        "alpha": 0.3,
+        "l1_ratio": 0.6
+      }
+    },
+    "selected_params": {
+      "alpha_grid": [
+        0.01,
+        0.1,
+        1.0,
+        10.0,
+        100.0,
+        1000.0
+      ],
+      "l1_ratio_grid": [
+        0.1,
+        0.3,
+        0.5,
+        0.7,
+        0.9
+      ],
+      "max_combinations": 30
+    },
+    "bootstrap": {
+      "block_size": 7,
+      "n_draws": 2000,
+      "seed": 20261017,
+      "min_blocks": 2
+    }
+  },
+  "mapping_notes": [
+    "旧 Elasticnet_timelag.txt 的 lag_list 在 v3 中按发报日相对滞后解释：feature_date = issue_date - lag，保证预测时点不使用未来数据。",
+    "旧 Elasticnet.txt 的 window_size=2 对应旧 notebook 的 t-1/t-2；v3 迁移为发报日 offset 0/-1（即发报日与前一日历日）。",
+    "所有丢弃均保留真实日历原因，不插值、不重排、不压缩缺失日期。"
+  ],
+  "limits": [
+    "35 天评估段是迭代评估段 dev_backtest，不是未查看的独立盲测。",
+    "旧 xlsx 源文件不存在，无法逐条复现旧数据；本结果只证明旧参数/特征在新 v3 CSV 上的日历对齐口径。",
+    "探索性结果不写回假设树、记忆或前端闭环状态。"
+  ],
+  "output_files": {
+    "summary": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\legacy_v3_migration_summary.csv",
+    "daily_predictions": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\legacy_v3_migration_daily.csv",
+    "coefficients": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\legacy_v3_migration_coefficients.csv",
+    "gain_comparison": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\legacy_v3_migration_gain_comparison.csv",
+    "sample_audit": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\legacy_v3_migration_sample_audit.csv",
+    "manifest": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\legacy_v3_migration_manifest.json"
+  }
+}

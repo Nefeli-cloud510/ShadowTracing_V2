@@ -1,0 +1,157 @@
+{
+  "schema_version": "legacy-v3-outer-backtest-v1",
+  "label": "supplementary_time_backtest",
+  "generated_at": "2026-10-17T07:06:22.462069",
+  "scope": "只读补充时间回测；不修改闭环状态、协议、前端或报告；dev 段 2021-08-26 起未进入任何训练或选参",
+  "dev_segment": {
+    "start": "2021-08-26",
+    "end": "2021-09-29",
+    "label": "迭代评估段，未纳入本回测训练/评价"
+  },
+  "outer_folds": [
+    {
+      "fold_id": "f1",
+      "eval_start": "2021-07-05",
+      "eval_end": "2021-07-28",
+      "note": "未参与dev选参的早段窗口"
+    },
+    {
+      "fold_id": "f2",
+      "eval_start": "2021-07-29",
+      "eval_end": "2021-08-25",
+      "note": "未参与dev选参、紧邻dev起点之前的窗口"
+    }
+  ],
+  "data": {
+    "session_root": "D:\\ShadowTracing\\runtime\\live_session\\sessions\\session_20261016_235451_805278",
+    "coverage": [
+      {
+        "source": "omni_2021_full_calendar_v3",
+        "expected_days": 196,
+        "observed_days": 196,
+        "missing_days": 0,
+        "coverage_ratio": 1.0,
+        "interpolated_days": 0,
+        "note": null
+      },
+      {
+        "source": "lhaaso_shadow_pfss_2021_full_calendar_v3",
+        "expected_days": 196,
+        "observed_days": 196,
+        "missing_days": 0,
+        "coverage_ratio": 1.0,
+        "interpolated_days": 0,
+        "note": null
+      }
+    ],
+    "missing_counts": {
+      "BY, nT (GSE)": 0,
+      "BZ, nT (GSE)": 0,
+      "Scalar B, nT": 0,
+      "p1_x中心值": 8,
+      "p2_y中心值": 8,
+      "SW Plasma Speed, km/s": 0
+    },
+    "data_validation": {
+      "source_labels": [
+        "omni_2021_full_calendar_v3",
+        "lhaaso_shadow_pfss_2021_full_calendar_v3"
+      ],
+      "passed": true,
+      "checks": [
+        {
+          "check": "Scalar B, nT > 0 或缺失",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        },
+        {
+          "check": "|Bx| <= Scalar B",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        },
+        {
+          "check": "|By_GSE| <= Scalar B",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        },
+        {
+          "check": "|Bz_GSE| <= Scalar B",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        },
+        {
+          "check": "风速 150-1500 km/s",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        },
+        {
+          "check": "密度 0.01-100 /cm^3",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        },
+        {
+          "check": "温度 1e4-5e6 K",
+          "fail_count": 0,
+          "tolerance": 1e-06,
+          "bad_dates": [],
+          "bad_values_sample": []
+        }
+      ]
+    },
+    "source_columns": [
+      "BY, nT (GSE)",
+      "BZ, nT (GSE)",
+      "Scalar B, nT",
+      "p1_x中心值",
+      "p2_y中心值",
+      "TIME",
+      "SW Plasma Speed, km/s"
+    ],
+    "row_count": 196,
+    "date_start": "2021-03-21",
+    "date_end": "2021-10-02",
+    "duplicate_dates": 0,
+    "generated_at": "2026-10-17T07:06:22.462069"
+  },
+  "grid": {
+    "alpha_grid": [
+      0.01,
+      0.1,
+      1.0,
+      10.0,
+      100.0,
+      1000.0
+    ],
+    "l1_ratio_grid": [
+      0.1,
+      0.3,
+      0.5,
+      0.7,
+      0.9
+    ],
+    "max_combinations": 30
+  },
+  "bootstrap": {
+    "block_size": 7,
+    "n_draws": 2000,
+    "seed": 20261017,
+    "min_blocks": 2
+  },
+  "status": {
+    "dev_window_excluded_from_training": true,
+    "closed_loop_state_modified": false,
+    "scientific_claim": "结果用于核验改善在早段时段是否可重复；由于特征定义与网格仍来自 dev 探索，术语为补充时间回测，不宣称独立盲测。"
+  }
+}

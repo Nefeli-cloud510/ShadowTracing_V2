@@ -1,0 +1,109 @@
+{
+  "schema_version": "legacy-v3-outer-backtest-audit-v1",
+  "label": "outer_backtest_read_only_audit",
+  "generated_at": "2026-10-17T07:13:53.981596",
+  "inputs": {
+    "summary": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\outer_backtest\\outer_backtest_summary.csv",
+    "daily_predictions": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\outer_backtest\\outer_backtest_daily.csv",
+    "gain_comparison": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\outer_backtest\\outer_backtest_gain_comparison.csv",
+    "manifest": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\outer_backtest\\outer_backtest_manifest.json"
+  },
+  "window_coverage": [
+    {
+      "fold_id": "f1",
+      "horizon_days": 1,
+      "planned_start": "2021-07-05",
+      "planned_end": "2021-07-28",
+      "planned_count": 24,
+      "actual_start": "2021-07-05",
+      "actual_end": "2021-07-27",
+      "actual_common_count": 17,
+      "dropped_count": 7,
+      "dropped_dates_json": "[\"2021-07-20\", \"2021-07-21\", \"2021-07-22\", \"2021-07-23\", \"2021-07-24\", \"2021-07-25\", \"2021-07-28\"]",
+      "reason_counts_json": "{\"feature_missing\": 14}",
+      "variant_reason_counts_json": "{\"mag\": {\"retained\": 24}, \"mag_ns\": {\"retained\": 18, \"feature_missing\": 6}, \"mag_ew\": {\"retained\": 23, \"feature_missing\": 1}, \"mag_both\": {\"retained\": 17, \"feature_missing\": 7}, \"v2_mag\": {\"retained\": 24}}",
+      "missing_fields_json": "{\"p2_y中心值@2021-07-19:值为缺失/非有限\": 1, \"p2_y中心值@2021-07-20:值为缺失/非有限\": 1, \"p2_y中心值@2021-07-21:值为缺失/非有限\": 1, \"p2_y中心值@2021-07-22:值为缺失/非有限\": 1, \"p2_y中心值@2021-07-23:值为缺失/非有限\": 1, \"p2_y中心值@2021-07-24:值为缺失/非有限\": 1, \"p1_x中心值@2021-07-19:值为缺失/非有限\": 1}"
+    },
+    {
+      "fold_id": "f2",
+      "horizon_days": 1,
+      "planned_start": "2021-07-29",
+      "planned_end": "2021-08-25",
+      "planned_count": 28,
+      "actual_start": "2021-08-03",
+      "actual_end": "2021-08-25",
+      "actual_common_count": 23,
+      "dropped_count": 5,
+      "dropped_dates_json": "[\"2021-07-29\", \"2021-07-30\", \"2021-07-31\", \"2021-08-01\", \"2021-08-02\"]",
+      "reason_counts_json": "{\"feature_missing\": 10}",
+      "variant_reason_counts_json": "{\"mag\": {\"retained\": 28}, \"mag_ns\": {\"retained\": 28}, \"mag_ew\": {\"feature_missing\": 5, \"retained\": 23}, \"mag_both\": {\"feature_missing\": 5, \"retained\": 23}, \"v2_mag\": {\"retained\": 28}}",
+      "missing_fields_json": "{\"p1_x中心值@2021-07-20:值为缺失/非有限\": 1, \"p1_x中心值@2021-07-21:值为缺失/非有限\": 1, \"p1_x中心值@2021-07-22:值为缺失/非有限\": 1, \"p1_x中心值@2021-07-23:值为缺失/非有限\": 1, \"p1_x中心值@2021-07-24:值为缺失/非有限\": 1}"
+    },
+    {
+      "fold_id": "f1",
+      "horizon_days": 3,
+      "planned_start": "2021-07-05",
+      "planned_end": "2021-07-28",
+      "planned_count": 24,
+      "actual_start": "2021-07-05",
+      "actual_end": "2021-07-27",
+      "actual_common_count": 17,
+      "dropped_count": 7,
+      "dropped_dates_json": "[\"2021-07-20\", \"2021-07-21\", \"2021-07-22\", \"2021-07-23\", \"2021-07-24\", \"2021-07-25\", \"2021-07-28\"]",
+      "reason_counts_json": "{\"feature_missing\": 14}",
+      "variant_reason_counts_json": "{\"mag\": {\"retained\": 24}, \"mag_ns\": {\"retained\": 18, \"feature_missing\": 6}, \"mag_ew\": {\"retained\": 23, \"feature_missing\": 1}, \"mag_both\": {\"retained\": 17, \"feature_missing\": 7}, \"v2_mag\": {\"retained\": 24}}",
+      "missing_fields_json": "{\"p2_y中心值@2021-07-19:值为缺失/非有限\": 1, \"p2_y中心值@2021-07-20:值为缺失/非有限\": 1, \"p2_y中心值@2021-07-21:值为缺失/非有限\": 1, \"p2_y中心值@2021-07-22:值为缺失/非有限\": 1, \"p2_y中心值@2021-07-23:值为缺失/非有限\": 1, \"p2_y中心值@2021-07-24:值为缺失/非有限\": 1, \"p1_x中心值@2021-07-19:值为缺失/非有限\": 1}"
+    },
+    {
+      "fold_id": "f2",
+      "horizon_days": 3,
+      "planned_start": "2021-07-29",
+      "planned_end": "2021-08-25",
+      "planned_count": 28,
+      "actual_start": "2021-08-03",
+      "actual_end": "2021-08-25",
+      "actual_common_count": 23,
+      "dropped_count": 5,
+      "dropped_dates_json": "[\"2021-07-29\", \"2021-07-30\", \"2021-07-31\", \"2021-08-01\", \"2021-08-02\"]",
+      "reason_counts_json": "{\"feature_missing\": 10}",
+      "variant_reason_counts_json": "{\"mag\": {\"retained\": 28}, \"mag_ns\": {\"retained\": 28}, \"mag_ew\": {\"feature_missing\": 5, \"retained\": 23}, \"mag_both\": {\"feature_missing\": 5, \"retained\": 23}, \"v2_mag\": {\"retained\": 28}}",
+      "missing_fields_json": "{\"p1_x中心值@2021-07-20:值为缺失/非有限\": 1, \"p1_x中心值@2021-07-21:值为缺失/非有限\": 1, \"p1_x中心值@2021-07-22:值为缺失/非有限\": 1, \"p1_x中心值@2021-07-23:值为缺失/非有限\": 1, \"p1_x中心值@2021-07-24:值为缺失/非有限\": 1}"
+    }
+  ],
+  "metric_recheck": {
+    "rows_checked": 40,
+    "passed": true,
+    "failures": []
+  },
+  "bootstrap_recheck": {
+    "comparisons_checked": 24,
+    "passed": true,
+    "failures": []
+  },
+  "calendar_recheck": {
+    "passed": true,
+    "failures": []
+  },
+  "dev_isolation_recheck": {
+    "checked_folds": 4,
+    "passed": true,
+    "failures": []
+  },
+  "search_state": {
+    "auto_runs": 20,
+    "fixed_runs": 20,
+    "search_completed": 20,
+    "boundary_hit_count": 10,
+    "solver_converged_count": 20,
+    "grid_size_distinct": [
+      30
+    ]
+  },
+  "output_files": {
+    "window_coverage": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\outer_backtest\\outer_backtest_window_coverage.csv",
+    "window_gap_summary": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\outer_backtest\\outer_backtest_window_gap_summary.csv",
+    "audit_json": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\outer_backtest\\outer_backtest_audit.json",
+    "gain_ci_plot": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\outer_backtest\\outer_backtest_gain_ci_by_fold.png"
+  },
+  "overall_passed": true
+}

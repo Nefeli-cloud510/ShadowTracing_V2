@@ -1,0 +1,4 @@
+﻿window,window_label,calendar_window,n_paired_samples,point_gain_rmse,rmse_ci_low,rmse_ci_high,stable_rmse
+dev,dev（迭代评估段）,2021-08-26 ~ 2021-09-29,35,0.480856,0.014233,0.850366,True
+f1,F1（补充回测）,2021-07-05 ~ 2021-07-27,17,-0.272799,-1.50702,0.506581,False
+f2,F2（补充回测）,2021-08-03 ~ 2021-08-25,23,0.530072,-0.327421,1.677192,False

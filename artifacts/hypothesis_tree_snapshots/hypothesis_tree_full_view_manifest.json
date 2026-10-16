@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-10-16T22:00:24.669Z",
+  "capture_mode": "full_tree_no_popup",
+  "session": "D:\\ShadowTracing\\runtime\\live_session\\sessions\\session_20261016_235451_805278",
+  "snapshots": [
+    {
+      "id": "round01_evaluation_writeback_tree",
+      "label": "round 1 evaluation writeback",
+      "node_count": 5,
+      "generated_at": "2026-10-16T15:57:09.840409Z"
+    },
+    {
+      "id": "round02_pre_questioning_tree",
+      "label": "round 2 pre-questioning",
+      "node_count": 5,
+      "generated_at": "2026-10-16T16:33:55.202139Z"
+    },
+    {
+      "id": "round02_evaluation_writeback_tree",
+      "label": "round 2 evaluation writeback",
+      "node_count": 5,
+      "generated_at": "2026-10-16T16:33:55.202139Z"
+    }
+  ]
+}

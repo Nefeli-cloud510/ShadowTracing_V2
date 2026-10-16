@@ -1,0 +1,36 @@
+{
+  "file_config": {
+    "omni_file_path": "D:\\astro\\dataexcel\\raw_OMNI\\out_of_ICME_raw_OMNI_Daily_DATA.xlsx",
+    "lhaaso_file_path": "D:\\astro\\dataexcel\\raw_sunshadow\\raw_out_of_ICME_sunshadow2.xlsx",
+    "time_column": "TIME",
+    "target_column": "SW Plasma Speed, km/s",
+    "feature_columns": [
+      "BY, nT (GSE)",
+      "BZ, nT (GSE)",
+      "Scalar B, nT",
+      "p2_y中心值",
+      "p1_x中心值"
+    ]
+  },
+   "multi_lag_config":{
+    "test_split_ratio":0.3,
+    "variable_lags":[
+      {"var_name":"Scalar B, nT","lag_list":[1,2]},
+      {"var_name":"BZ, nT (GSE)","lag_list":[1,2]},
+      {"var_name":"p2_y中心值","lag_list":[1]},
+      {"var_name":"BY, nT (GSE)","lag_list":[4,5,7,8]},
+      {"var_name":"p1_x中心值","lag_list":[9]}
+    ]
+  },
+  "time_window_config": {
+    "window_size": 9,
+    "test_split_ratio": 0.3,
+    "use_lag_feature": false,
+    "max_lag_day": 3
+  },
+  "elasticnet_config": {
+    "alpha": 1,
+    "l1_ratio": 0.9,
+    "random_state": 42
+ }
+}

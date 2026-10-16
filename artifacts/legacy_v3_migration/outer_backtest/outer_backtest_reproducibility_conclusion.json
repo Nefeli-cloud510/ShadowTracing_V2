@@ -1,0 +1,112 @@
+{
+  "schema_version": "legacy-v3-outer-backtest-conclusion-v1",
+  "label": "dev mag_both reproducibility conclusion",
+  "generated_at": "2026-10-17T07:25:09",
+  "question": "dev 段 35 天中唯一不跨零的 mag_both RMSE 改善，能否在未参与 dev 探索的早段窗口复现？",
+  "verdict": "not_reproduced",
+  "dev_reference": {
+    "evaluation_window": "2021-08-26..2021-09-29",
+    "horizon_days": 3,
+    "mode": "auto",
+    "comparison": "mag -> mag_both",
+    "run_pair": "mag_auto_h3 -> mag_both_auto_h3",
+    "n_paired_samples": 35,
+    "baseline_rmse": 50.303485,
+    "treatment_rmse": 49.822629,
+    "point_gain_rmse": 0.480856,
+    "rmse_ci_95": [
+      0.014233,
+      0.850366
+    ],
+    "stable_rmse": true,
+    "point_gain_pearson_r": 0.154972,
+    "pearson_r_ci_95": [
+      -0.225203,
+      0.307921
+    ],
+    "note": "这是迭代评估段中的单组结果，不是独立盲测。"
+  },
+  "outer_followup": [
+    {
+      "fold_id": "f1",
+      "planned_window": "2021-07-05..2021-07-28",
+      "actual_common_window": "2021-07-05..2021-07-27",
+      "n_paired_samples": 17,
+      "horizon_days": 3,
+      "mode": "auto",
+      "point_gain_rmse": -0.272799,
+      "rmse_ci_95": [
+        -1.50702,
+        0.506581
+      ],
+      "stable_rmse": false,
+      "missing_reason": "p2_y 中心值、p1_x 中心值部分缺失，被真实日历共同样本剔除",
+      "reproduces_dev_signal": false
+    },
+    {
+      "fold_id": "f2",
+      "planned_window": "2021-07-29..2021-08-25",
+      "actual_common_window": "2021-08-03..2021-08-25",
+      "n_paired_samples": 23,
+      "horizon_days": 3,
+      "mode": "auto",
+      "point_gain_rmse": 0.530072,
+      "rmse_ci_95": [
+        -0.327421,
+        1.677192
+      ],
+      "stable_rmse": false,
+      "missing_reason": "p1_x 中心值部分缺失，被真实日历共同样本剔除",
+      "reproduces_dev_signal": false
+    }
+  ],
+  "other_noncrossing_results": [
+    {
+      "fold_id": "f1",
+      "horizon_days": 3,
+      "mode": "auto",
+      "comparison": "mag -> mag_ew",
+      "point_gain_rmse": -0.492211,
+      "rmse_ci_95": [
+        -1.182113,
+        -0.080536
+      ],
+      "direction": "negative",
+      "note": "本回测窗口 RMSE 增益区间支持退化"
+    },
+    {
+      "fold_id": "f2",
+      "horizon_days": 3,
+      "mode": "auto",
+      "comparison": "mag -> mag_ns",
+      "point_gain_rmse": 0.128901,
+      "rmse_ci_95": [
+        0.023263,
+        0.310514
+      ],
+      "direction": "positive",
+      "note": "本回测窗口 RMSE 增益区间支持改善"
+    }
+  ],
+  "boundaries": [
+    "这是补充时间回测，不是独立盲测：特征定义、网格、基线、提前期与分类规则仍来自 dev 段探索。",
+    "mag_both 仅表示未复现 dev 中的不跨零改善，不能宣称跨时段稳定，也不能宣称已证伪日影物理作用。",
+    "f1/f2 各有真实日历缺失，共同样本分别降为 17 天与 23 天；缺口已保留在 window_coverage 中。",
+    "24 组比较未做多重比较调整；两个额外不跨零结果方向相反，应视为探索性信息。",
+    "stable_rmse=true 只表示该窗口内的块 bootstrap 区间未跨零，不等同于科学意义上的稳定性验证通过。",
+    "未测量的 Pearson 不填零，仍遵循未计算/不可计算规则。"
+  ],
+  "suggested_defense_wording": "在冻结的迭代评估段中，双方向日影方案出现一次小幅 RMSE 改善；预登记的早段补充回测中，同一设置的两个窗口均未复现该改善，且两个窗口各出现了一个方向相反、未做多重比较调整的不跨零结果。因此该发现当前应表述为局部、待重复，不能表述为稳定的跨时段增量。",
+  "source_files": {
+    "summary": "outer_backtest_summary.csv",
+    "daily_predictions": "outer_backtest_daily.csv",
+    "gain_comparison": "outer_backtest_gain_comparison.csv",
+    "window_coverage": "outer_backtest_window_coverage.csv",
+    "audit": "outer_backtest_audit.json",
+    "manifest": "outer_backtest_manifest.json",
+    "gain_ci_plot": "outer_backtest_gain_ci_by_fold.png",
+    "cross_window_main_plot": "outer_backtest_cross_window_main_gain_ci.png",
+    "cross_window_main_csv": "outer_backtest_cross_window_main_gain_ci.csv",
+    "cross_window_main_json": "outer_backtest_cross_window_main_gain_ci.json"
+  }
+}

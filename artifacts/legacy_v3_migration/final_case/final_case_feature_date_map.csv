@@ -1,0 +1,41 @@
+feature_variant,variable,config_value,issue_offset_days,feature_date_rule,available_at_issue
+timelag_mag,"BY, nT (GSE)",4,-4,issue_date - 4 days,True
+timelag_mag,"BY, nT (GSE)",5,-5,issue_date - 5 days,True
+timelag_mag,"BY, nT (GSE)",7,-7,issue_date - 7 days,True
+timelag_mag,"BY, nT (GSE)",8,-8,issue_date - 8 days,True
+timelag_mag,"BZ, nT (GSE)",1,-1,issue_date - 1 days,True
+timelag_mag,"BZ, nT (GSE)",2,-2,issue_date - 2 days,True
+timelag_mag,"Scalar B, nT",1,-1,issue_date - 1 days,True
+timelag_mag,"Scalar B, nT",2,-2,issue_date - 2 days,True
+timelag_mag_ns,"BY, nT (GSE)",4,-4,issue_date - 4 days,True
+timelag_mag_ns,"BY, nT (GSE)",5,-5,issue_date - 5 days,True
+timelag_mag_ns,"BY, nT (GSE)",7,-7,issue_date - 7 days,True
+timelag_mag_ns,"BY, nT (GSE)",8,-8,issue_date - 8 days,True
+timelag_mag_ns,"BZ, nT (GSE)",1,-1,issue_date - 1 days,True
+timelag_mag_ns,"BZ, nT (GSE)",2,-2,issue_date - 2 days,True
+timelag_mag_ns,"Scalar B, nT",1,-1,issue_date - 1 days,True
+timelag_mag_ns,"Scalar B, nT",2,-2,issue_date - 2 days,True
+timelag_mag_ns,p2_y中心值,1,-1,issue_date - 1 days,True
+timelag_mag_ew,"BY, nT (GSE)",4,-4,issue_date - 4 days,True
+timelag_mag_ew,"BY, nT (GSE)",5,-5,issue_date - 5 days,True
+timelag_mag_ew,"BY, nT (GSE)",7,-7,issue_date - 7 days,True
+timelag_mag_ew,"BY, nT (GSE)",8,-8,issue_date - 8 days,True
+timelag_mag_ew,"BZ, nT (GSE)",1,-1,issue_date - 1 days,True
+timelag_mag_ew,"BZ, nT (GSE)",2,-2,issue_date - 2 days,True
+timelag_mag_ew,"Scalar B, nT",1,-1,issue_date - 1 days,True
+timelag_mag_ew,"Scalar B, nT",2,-2,issue_date - 2 days,True
+timelag_mag_ew,p1_x中心值,9,-9,issue_date - 9 days,True
+timelag_mag_both,"BY, nT (GSE)",4,-4,issue_date - 4 days,True
+timelag_mag_both,"BY, nT (GSE)",5,-5,issue_date - 5 days,True
+timelag_mag_both,"BY, nT (GSE)",7,-7,issue_date - 7 days,True
+timelag_mag_both,"BY, nT (GSE)",8,-8,issue_date - 8 days,True
+timelag_mag_both,"BZ, nT (GSE)",1,-1,issue_date - 1 days,True
+timelag_mag_both,"BZ, nT (GSE)",2,-2,issue_date - 2 days,True
+timelag_mag_both,"Scalar B, nT",1,-1,issue_date - 1 days,True
+timelag_mag_both,"Scalar B, nT",2,-2,issue_date - 2 days,True
+timelag_mag_both,p2_y中心值,1,-1,issue_date - 1 days,True
+timelag_mag_both,p1_x中心值,9,-9,issue_date - 9 days,True
+v2_scalar_b_by_offsets,"Scalar B, nT",0,0,issue_date + (0) days (v3 direct offset),True
+v2_scalar_b_by_offsets,"Scalar B, nT",-1,-1,issue_date + (-1) days (v3 direct offset),True
+v2_scalar_b_by_offsets,"BY, nT (GSE)",0,0,issue_date + (0) days (v3 direct offset),True
+v2_scalar_b_by_offsets,"BY, nT (GSE)",-1,-1,issue_date + (-1) days (v3 direct offset),True

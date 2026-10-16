@@ -1,0 +1,266 @@
+{
+  "schema_version": "legacy-v3-convergence-audit-v1",
+  "generated_at": "2026-10-17T06:09:02.244966",
+  "scope": "只读收束审计；不修改闭环状态、协议、前端或报告",
+  "checks": [
+    {
+      "check": "summary row count",
+      "passed": true,
+      "detail": "expected 24, got 24 (20 model arms + 4 references)"
+    },
+    {
+      "check": "gain comparison row count",
+      "passed": true,
+      "detail": "expected 12, got 12"
+    },
+    {
+      "check": "coefficient row count",
+      "passed": true,
+      "detail": "expected 20, got 20 (references have no fitted coefficients)"
+    },
+    {
+      "check": "sample audit row count",
+      "passed": true,
+      "detail": "expected 10, got 10"
+    },
+    {
+      "check": "daily run groups",
+      "passed": true,
+      "detail": "24 run groups, each with [35] rows"
+    },
+    {
+      "check": "metrics recomputed from daily predictions",
+      "passed": true,
+      "detail": "all 24 runs match saved RMSE/MAE/R2/Pearson, max abs error 1.421e-14"
+    },
+    {
+      "check": "12 gains and bootstrap intervals recomputed",
+      "passed": true,
+      "detail": "all saved point gains and 95% CIs reproduced, max abs error 2.132e-14"
+    },
+    {
+      "check": "target date alignment",
+      "passed": true,
+      "detail": "target_date = issue_date + horizon for every row"
+    },
+    {
+      "check": "no future feature usage",
+      "passed": true,
+      "detail": "all feature dates are issue date or earlier"
+    },
+    {
+      "check": "search state matches mode",
+      "passed": true,
+      "detail": "auto arms: search_completed=True, grid=30; fixed arms: no search, grid=1"
+    },
+    {
+      "check": "final figures generated from source run",
+      "passed": true,
+      "detail": "gain: final_gain_ci_auto_vs_fixed.png; timeseries: final_timeseries_auto_main.png"
+    }
+  ],
+  "overall": "PASS",
+  "counts": {
+    "summary_rows": 24,
+    "model_arms": 20,
+    "references": 4,
+    "daily_rows": 840,
+    "gain_rows": 12,
+    "coefficient_rows": 20,
+    "sample_audit_rows": 10
+  },
+  "source_input_sha256": {
+    "summary": "27710bc06ca894f678586b6f57ded6836df40dc4607717d6ee1a0a3c177dbee7",
+    "daily_prediction_file": "d3dc48f382bc0c65047f65c733b9fa6a3b0a45b80b1b43fa7c1115a6e260cb97",
+    "gain_comparison": "b59edbb6c581853486b4c7c90f87081b9465a8cbb7eaa0f9cef2982e5d08478e",
+    "coefficients": "61747f7e05ade0a7d51e73dc679fe4a149eee66c25fd61db5d78968b7ad09e31",
+    "sample_audit": "f401b6f655008a34274369798d1166882e94da55319846176275514271e10ca8",
+    "source_manifest": "4725b725e1242d160ca9cab8a6f8071397ebf14009bbb9f8bdc306819b9a3ec5"
+  },
+  "date_definition": {
+    "issue_date": "发报日（预测发布日）",
+    "target_date": "issue_date + horizon_days",
+    "feature_date": "issue_date - lag（v3 口径）或 issue_date + offset",
+    "horizon_1_target": "2021-08-27 至 2021-09-30",
+    "horizon_3_target": "2021-08-29 至 2021-10-02",
+    "issue_window": "2021-08-26 至 2021-09-29",
+    "n_eval_days": 35
+  },
+  "selected_params_summary": [
+    {
+      "run_id": "mag_auto_h1",
+      "horizon_days": 1,
+      "mode": "auto",
+      "variant": "mag",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.1
+    },
+    {
+      "run_id": "mag_both_auto_h1",
+      "horizon_days": 1,
+      "mode": "auto",
+      "variant": "mag_both",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.5
+    },
+    {
+      "run_id": "mag_ew_auto_h1",
+      "horizon_days": 1,
+      "mode": "auto",
+      "variant": "mag_ew",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.1
+    },
+    {
+      "run_id": "mag_ns_auto_h1",
+      "horizon_days": 1,
+      "mode": "auto",
+      "variant": "mag_ns",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.5
+    },
+    {
+      "run_id": "v2_mag_auto_h1",
+      "horizon_days": 1,
+      "mode": "auto",
+      "variant": "v2_mag",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.1
+    },
+    {
+      "run_id": "mag_fixed_h1",
+      "horizon_days": 1,
+      "mode": "fixed",
+      "variant": "mag",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.9
+    },
+    {
+      "run_id": "mag_both_fixed_h1",
+      "horizon_days": 1,
+      "mode": "fixed",
+      "variant": "mag_both",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.9
+    },
+    {
+      "run_id": "mag_ew_fixed_h1",
+      "horizon_days": 1,
+      "mode": "fixed",
+      "variant": "mag_ew",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.9
+    },
+    {
+      "run_id": "mag_ns_fixed_h1",
+      "horizon_days": 1,
+      "mode": "fixed",
+      "variant": "mag_ns",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.9
+    },
+    {
+      "run_id": "v2_mag_fixed_h1",
+      "horizon_days": 1,
+      "mode": "fixed",
+      "variant": "v2_mag",
+      "selected_alpha": 0.3,
+      "selected_l1_ratio": 0.6
+    },
+    {
+      "run_id": "mag_auto_h3",
+      "horizon_days": 3,
+      "mode": "auto",
+      "variant": "mag",
+      "selected_alpha": 10.0,
+      "selected_l1_ratio": 0.7
+    },
+    {
+      "run_id": "mag_both_auto_h3",
+      "horizon_days": 3,
+      "mode": "auto",
+      "variant": "mag_both",
+      "selected_alpha": 10.0,
+      "selected_l1_ratio": 0.7
+    },
+    {
+      "run_id": "mag_ew_auto_h3",
+      "horizon_days": 3,
+      "mode": "auto",
+      "variant": "mag_ew",
+      "selected_alpha": 10.0,
+      "selected_l1_ratio": 0.7
+    },
+    {
+      "run_id": "mag_ns_auto_h3",
+      "horizon_days": 3,
+      "mode": "auto",
+      "variant": "mag_ns",
+      "selected_alpha": 10.0,
+      "selected_l1_ratio": 0.5
+    },
+    {
+      "run_id": "v2_mag_auto_h3",
+      "horizon_days": 3,
+      "mode": "auto",
+      "variant": "v2_mag",
+      "selected_alpha": 10.0,
+      "selected_l1_ratio": 0.1
+    },
+    {
+      "run_id": "mag_fixed_h3",
+      "horizon_days": 3,
+      "mode": "fixed",
+      "variant": "mag",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.9
+    },
+    {
+      "run_id": "mag_both_fixed_h3",
+      "horizon_days": 3,
+      "mode": "fixed",
+      "variant": "mag_both",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.9
+    },
+    {
+      "run_id": "mag_ew_fixed_h3",
+      "horizon_days": 3,
+      "mode": "fixed",
+      "variant": "mag_ew",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.9
+    },
+    {
+      "run_id": "mag_ns_fixed_h3",
+      "horizon_days": 3,
+      "mode": "fixed",
+      "variant": "mag_ns",
+      "selected_alpha": 1.0,
+      "selected_l1_ratio": 0.9
+    },
+    {
+      "run_id": "v2_mag_fixed_h3",
+      "horizon_days": 3,
+      "mode": "fixed",
+      "variant": "v2_mag",
+      "selected_alpha": 0.3,
+      "selected_l1_ratio": 0.6
+    }
+  ],
+  "final_figures": {
+    "gain_ci": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\final_case\\final_gain_ci_auto_vs_fixed.png",
+    "timeseries": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\final_case\\final_timeseries_auto_main.png"
+  },
+  "output_files": {
+    "metric_table": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\final_case\\final_case_metric_table.csv",
+    "gain_table": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\final_case\\final_case_gain_table.csv",
+    "feature_date_map": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\final_case\\final_case_feature_date_map.csv",
+    "audit": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\final_case\\convergence_case_audit.json"
+  },
+  "limits": [
+    "35 天评估段仍是迭代评估段 dev_backtest，不是独立盲测。",
+    "只有 h3 auto mag_both 的 RMSE 增益 CI 在本样本范围内未跨零；它不能替代跨时段的独立时间回测。",
+    "固定旧参数仅作为参照，不因这 35 天分数更高而事后改称正式主方案。"
+  ]
+}
