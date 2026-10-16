@@ -97,7 +97,7 @@ TEST_START = pd.Timestamp("2021-08-26")
 TEST_RATIO = 0.2
 N_INTERNAL_FOLDS = 2
 ALPHA_GRID = [0.0001, 0.001, 0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
-L1_GRID = [0.1, 0.3, 0.5, 0.7, 0.9]
+L1_GRID = [0.01, 0.1, 0.3, 0.5, 0.7, 0.9, 0.99]
 RANDOM_STATE = 42
 BLOCK_SIZE = 7
 N_DRAWS = 4000
@@ -171,16 +171,19 @@ def _metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     pearson_r: float | None = None
     pearson_reason: str | None = None
     if len(y_true) > 1:
-        with np.errstate(invalid="ignore", divide="ignore"):
-            raw = float(np.corrcoef(y_true, y_pred)[0, 1])
-        if np.isfinite(raw):
-            pearson_r = raw
-        elif float(np.std(y_true)) <= 1e-12:
+        y_std = float(np.std(y_true))
+        pred_std = float(np.std(y_pred))
+        if y_std <= 1e-12:
             pearson_reason = "constant_target"
-        elif float(np.std(y_pred)) <= 1e-12:
+        elif pred_std <= 1e-12:
             pearson_reason = "constant_prediction"
         else:
-            pearson_reason = "undefined"
+            with np.errstate(invalid="ignore", divide="ignore"):
+                raw = float(np.corrcoef(y_true, y_pred)[0, 1])
+            if np.isfinite(raw):
+                pearson_r = raw
+            else:
+                pearson_reason = "undefined"
     else:
         pearson_reason = "insufficient_samples"
     return {
@@ -745,7 +748,10 @@ def main() -> int:
                     split.cv_folds
                 ):
                     fold_pipeline = _refit_selected_pipeline(
-                        family, search, X_train, y_train
+                        family,
+                        search,
+                        X_train.iloc[train_index],
+                        y_train[train_index],
                     )
                     fold_pred = np.asarray(
                         fold_pipeline.predict(X_train.iloc[eval_index]),
@@ -1139,7 +1145,14 @@ def main() -> int:
         "split_label": "dev_backtest",
         "phase_label": "迭代评估段（已反复查看，不是独立盲测）",
         "test_start": str(TEST_START.date()),
-        "test_end": "2021-09-29",
+        "test_issue_start": str(TEST_START.date()),
+        "test_issue_end": "2021-09-29",
+        "test_target_start": "2021-08-29",
+        "test_target_end": "2021-10-02",
+        "test_issue_end_note": (
+            "评估段中的日期统一写发布日；目标日 = 发布日 + 3，"
+            "即 2021-08-29 至 2021-10-02。"
+        ),
         "horizon_days": HORIZON_DAYS,
         "time_definition": (
             "特征在 issue_date 时已可获得；目标 = issue_date + "
@@ -1188,6 +1201,7 @@ def main() -> int:
             eval_csv.name,
             gain_csv.name,
             "parameter_curves.png",
+            "parameter_curves_elasticnet_l1.png",
             "eval_comparison.png",
             "gain_ci.png",
         ],
@@ -1240,50 +1254,73 @@ def main() -> int:
 
 
 def _plot_parameter_curves(curve_df: pd.DataFrame) -> None:
-    fig, axes = plt.subplots(
-        2,
+    ridge_df = curve_df.loc[curve_df["model_family"] == "ridge"]
+    fig, axis = plt.subplots(
         1,
-        figsize=(11, 8),
+        1,
+        figsize=(11, 6),
+        constrained_layout=True,
+    )
+    for (scheme, arm), group in ridge_df.groupby(["scheme", "arm"]):
+        label = f"{scheme}-{'基线' if arm == 'base' else '日影'}"
+        axis.plot(
+            group["alpha"],
+            group["mean_eval_rmse"],
+            marker="o",
+            label=f"{label} 训练内验证",
+        )
+        axis.plot(
+            group["alpha"],
+            group["mean_train_rmse"],
+            marker="x",
+            linestyle="--",
+            alpha=0.7,
+            label=f"{label} 折内训练",
+        )
+    axis.set_xscale("log")
+    axis.set_ylabel("RMSE, km/s")
+    axis.set_xlabel("alpha")
+    axis.set_title("Ridge 参数曲线（共同日历折，无 l1_ratio 维度）")
+    axis.grid(True, which="both", axis="both", alpha=0.3)
+    axis.legend(fontsize=8)
+    path = OUTPUT_DIR / "parameter_curves.png"
+    fig.savefig(path, dpi=170, bbox_inches="tight")
+    plt.close(fig)
+
+    en_df = curve_df.loc[curve_df["model_family"] == "elasticnet"]
+    fig, axes = plt.subplots(
+        3,
+        2,
+        figsize=(13, 11),
         constrained_layout=True,
         sharex=True,
     )
-    for family, axis in zip(FAMILIES, axes):
-        subset = curve_df.loc[curve_df["model_family"] == family]
-        # Represent each scheme-arm by the selected-l1 agnostic alpha curve,
-        # using the mean over available l1_ratio rows.
-        agg = (
-            subset.groupby(["scheme", "arm", "alpha"])
-            .agg(
-                mean_train_rmse=("mean_train_rmse", "mean"),
-                mean_eval_rmse=("mean_eval_rmse", "mean"),
-            )
-            .reset_index()
-        )
-        for (scheme, arm), group in agg.groupby(["scheme", "arm"]):
-            label = (
-                f"{scheme}-{'基线' if arm == 'base' else '日影'}"
-            )
+    pairs = [
+        (scheme, arm)
+        for scheme in SCHEMES
+        for arm in ("base", "shadow")
+    ]
+    for axis, (scheme, arm) in zip(axes.flat, pairs):
+        subset = en_df.loc[
+            (en_df["scheme"] == scheme) & (en_df["arm"] == arm)
+        ]
+        for l1_ratio, group in subset.groupby("l1_ratio"):
             axis.plot(
                 group["alpha"],
                 group["mean_eval_rmse"],
                 marker="o",
-                label=f"{label} 训练内验证",
-            )
-            axis.plot(
-                group["alpha"],
-                group["mean_train_rmse"],
-                marker="x",
-                linestyle="--",
-                alpha=0.7,
-                label=f"{label} 折内训练",
+                linewidth=1.4,
+                label=f"l1={l1_ratio:g}",
             )
         axis.set_xscale("log")
-        axis.set_ylabel("RMSE, km/s")
-        axis.set_title(f"{family.title()} 参数曲线（共同日历折）")
+        axis.set_title(f"方案 {scheme} · {'基线' if arm == 'base' else '日影'}")
         axis.grid(True, which="both", axis="both", alpha=0.3)
-        axis.legend(fontsize=8)
-    axes[1].set_xlabel("alpha")
-    path = OUTPUT_DIR / "parameter_curves.png"
+        axis.legend(title="l1_ratio", fontsize=7)
+    for axis in axes[:, 0]:
+        axis.set_ylabel("训练内验证 RMSE, km/s")
+    for axis in axes[-1, :]:
+        axis.set_xlabel("alpha")
+    path = OUTPUT_DIR / "parameter_curves_elasticnet_l1.png"
     fig.savefig(path, dpi=170, bbox_inches="tight")
     plt.close(fig)
 

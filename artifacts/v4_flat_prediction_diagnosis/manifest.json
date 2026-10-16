@@ -10,7 +10,11 @@
   "split_label": "dev_backtest",
   "phase_label": "迭代评估段（已反复查看，不是独立盲测）",
   "test_start": "2021-08-26",
-  "test_end": "2021-09-29",
+  "test_issue_start": "2021-08-26",
+  "test_issue_end": "2021-09-29",
+  "test_target_start": "2021-08-29",
+  "test_target_end": "2021-10-02",
+  "test_issue_end_note": "评估段中的日期统一写发布日；目标日 = 发布日 + 3，即 2021-08-29 至 2021-10-02。",
   "horizon_days": 3,
   "time_definition": "特征在 issue_date 时已可获得；目标 = issue_date + 3 日历天；C 方案复发特征 = target_date - 27 天",
   "method": "同一冻结日历样本与同一 time-series folds；Ridge/ElasticNet 各自训练内网格选参，scaler 仅在每折训练部分拟合；另加无惩罚 LinearRegression 参照。35 天结果只按 dev_backtest 报告。",
@@ -58,11 +62,13 @@
     1000.0
   ],
   "l1_ratio_grid": [
+    0.01,
     0.1,
     0.3,
     0.5,
     0.7,
-    0.9
+    0.9,
+    0.99
   ],
   "common_sample": {
     "retained_count": 158,
@@ -102,6 +108,7 @@
     "eval_comparison.csv",
     "gain_ci.csv",
     "parameter_curves.png",
+    "parameter_curves_elasticnet_l1.png",
     "eval_comparison.png",
     "gain_ci.png"
   ],
