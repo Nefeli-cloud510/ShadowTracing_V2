@@ -370,9 +370,15 @@ def _evaluate_model_sensitivity(
         if family_evidences
         else "未发现可用的 per-family contrast，无法计算家族内增益。"
     )
+    bootstrap_ran = any(
+        entry.get("rmse_ci") is not None
+        for entry in family_evidences
+    )
     robustness = result.robustness or RobustnessReport(
         overall={
-            "stable": conclusion_kind == "stable_positive",
+            "stable": bootstrap_ran
+            and conclusion_kind in {"stable_positive", "stable_negative"},
+            "status": "tested" if bootstrap_ran else "not_tested",
             "concern": robustness_concern,
         }
     )
@@ -601,7 +607,11 @@ def _build_pending_scientific_evaluation(
         diagnostics=list(result.diagnostics),
     )
     robustness = result.robustness or RobustnessReport(
-        overall={"stable": False, "concern": "该实验类型尚未配置自动稳健性汇总。"}
+        overall={
+            "stable": False,
+            "status": "not_tested",
+            "concern": "该实验类型尚未配置自动稳健性汇总。",
+        }
     )
     evidence = EvidenceSummary(
         new_evidence_for=[

@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.hypothesis_state_machine import EvidenceSource, OBSERVING_LOW, resolve_status
+from core.hypothesis_state_machine import (
+    ACTIVATION_THRESHOLD,
+    ACTIVE,
+    CONVERGED,
+    OBSERVING,
+    OBSERVING_LOW,
+    EvidenceSource,
+    resolve_status,
+)
 
 
 @dataclass(frozen=True)
@@ -368,6 +376,8 @@ def compute_support_update_from_reasoning(
         draft_to_pending=draft_to_pending,
         evidence_source=evidence_source,
     )
+    if advisory and status in {"supported", CONVERGED}:
+        status = ACTIVE if support_after >= ACTIVATION_THRESHOLD else OBSERVING
     return SupportUpdateOutcome(
         support_before=current_support,
         support_after=support_after,

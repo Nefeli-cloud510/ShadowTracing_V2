@@ -5,9 +5,11 @@ import pandas as pd
 
 from core.robustness_diagnostics import (
     _block_ids,
+    empty_bootstrap_summary,
     paired_calendar_block_bootstrap,
     summary_to_robustness_report,
 )
+from core.unified_schema import BootstrapReport
 
 
 def _paired_frames(
@@ -98,6 +100,27 @@ class RobustnessDiagnosticsTest(unittest.TestCase):
         # verify_pearson=True 时，前 25 次抽样会与 weighted_pearson() 逐项比对，
         # 未抛出 AssertionError 即证明向量化实现与参考实现一致。
 
+    def test_unavailable_pearson_ci_is_none_not_null_pair(self) -> None:
+        baseline, treatment = _paired_frames(n=40)
+        baseline = baseline.assign(y_pred=350.0)
+        treatment = treatment.assign(y_pred=351.0)
+
+        summary = paired_calendar_block_bootstrap(
+            baseline,
+            treatment,
+            block_size=7,
+            n_draws=100,
+            seed=20261017,
+        )
+
+        self.assertEqual(summary["n_valid_pearson_draws"], 0)
+        self.assertIsNone(summary["pearson_r_ci"])
+
+        report = summary_to_robustness_report(summary)
+        self.assertIsNone(report.bootstrap.pearson_r_ci)
+        reloaded = BootstrapReport.model_validate(report.bootstrap.model_dump())
+        self.assertIsNone(reloaded.pearson_r_ci)
+
     def test_summary_to_robustness_report_does_not_report_time_slice(self) -> None:
         summary = {
             "status": "completed",
@@ -117,7 +140,9 @@ class RobustnessDiagnosticsTest(unittest.TestCase):
         report = summary_to_robustness_report(summary)
 
         self.assertTrue(report.overall.stable)
+        self.assertEqual(report.overall.status, "tested")
         self.assertFalse(report.time_slice.stable)
+        self.assertEqual(report.time_slice.status, "not_run")
         self.assertIn("未运行分时段检验", report.recommendation)
 
     def test_single_calendar_block_never_reports_directional_stability(self) -> None:
@@ -138,11 +163,31 @@ class RobustnessDiagnosticsTest(unittest.TestCase):
         report = summary_to_robustness_report(summary)
 
         self.assertFalse(report.overall.stable)
+        self.assertEqual(report.overall.status, "inconclusive")
+        self.assertEqual(report.time_slice.status, "not_run")
         self.assertTrue(report.bootstrap.insufficient_blocks)
         self.assertEqual(report.bootstrap.n_nonempty_blocks, 1)
         self.assertEqual(report.bootstrap.min_blocks, 2)
         self.assertIn("低于预登记最小块数", report.overall.concern or "")
         self.assertIn("不能据此作方向性稳定结论", report.recommendation or "")
+
+    def test_missing_robustness_summary_is_not_tested(self) -> None:
+        report = summary_to_robustness_report(None)
+
+        self.assertFalse(report.overall.stable)
+        self.assertEqual(report.overall.status, "not_tested")
+        self.assertEqual(report.bootstrap.status, "not_run")
+        self.assertEqual(report.time_slice.status, "not_run")
+
+    def test_empty_bootstrap_summary_is_not_tested(self) -> None:
+        report = summary_to_robustness_report(
+            empty_bootstrap_summary("缺少共同评价样本")
+        )
+
+        self.assertEqual(report.overall.status, "not_tested")
+        self.assertFalse(report.overall.stable)
+        self.assertEqual(report.bootstrap.status, "not_run")
+        self.assertIn("缺少共同评价样本", report.overall.concern or "")
 
 
 if __name__ == "__main__":

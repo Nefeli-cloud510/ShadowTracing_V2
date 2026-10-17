@@ -176,10 +176,10 @@ def paired_calendar_block_bootstrap(
     gain_mae = base_mae - treat_mae
     gain_r = treat_r - base_r
 
-    def _ci(values: np.ndarray) -> list[float]:
+    def _ci(values: np.ndarray) -> list[float] | None:
         finite = values[np.isfinite(values)]
         if len(finite) == 0:
-            return [float("nan"), float("nan")]
+            return None
         lo = (100.0 - ci_level) / 2.0
         hi = 100.0 - lo
         lower, upper = np.nanpercentile(finite, [lo, hi])
@@ -244,9 +244,10 @@ def summary_to_robustness_report(summary: dict[str, Any] | None) -> RobustnessRe
         )
         return RobustnessReport(
             bootstrap=bootstrap,
-            time_slice=TimeSliceReport(stable=False),
+            time_slice=TimeSliceReport(stable=False, status="not_run"),
             overall=RobustnessOverall(
                 stable=False,
+                status="not_tested",
                 concern=f"稳健性检验未运行：{reason}",
             ),
             recommendation="在样本按共同日历对齐后补充配对 bootstrap 再作方向性结论。",
@@ -325,7 +326,11 @@ def summary_to_robustness_report(summary: dict[str, Any] | None) -> RobustnessRe
             point_gain_mae=summary.get("point_gain_mae"),
             point_gain_pearson_r=summary.get("point_gain_pearson_r"),
         ),
-        time_slice=TimeSliceReport(stable=False),
-        overall=RobustnessOverall(stable=stable_rmse, concern=concern),
+        time_slice=TimeSliceReport(stable=False, status="not_run"),
+        overall=RobustnessOverall(
+            stable=stable_rmse,
+            status="inconclusive" if insufficient_blocks else "tested",
+            concern=concern,
+        ),
         recommendation=recommendation,
     )

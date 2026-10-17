@@ -554,6 +554,13 @@ class CandidateExperiment(ShadowBaseModel):
         default=False,
         description="同时改变多个因素时标记为探索性实验，不做单因素归因",
     )
+    next_round_kind: Literal["new_hypothesis_test", "recompute", "reanalysis"] | None = Field(
+        default=None,
+        description=(
+            "本轮相对上一轮的意义：new_hypothesis_test=改变有效实验设计；"
+            "reanalysis=仅新增诊断或重新分析；recompute=无设计或新数据变化，只作复算"
+        ),
+    )
 
     @model_validator(mode="after")
     def resolve_experiment_type(self) -> "CandidateExperiment":
@@ -741,6 +748,13 @@ class ExperimentProtocol(ShadowBaseModel):
     exploratory: bool = Field(
         default=False,
         description="是否标记为探索性实验",
+    )
+    next_round_kind: Literal["new_hypothesis_test", "recompute", "reanalysis"] | None = Field(
+        default=None,
+        description=(
+            "本轮相对上一轮的意义：new_hypothesis_test=改变有效实验设计；"
+            "reanalysis=仅新增诊断或重新分析；recompute=无设计或新数据变化，只作复算"
+        ),
     )
 
 
@@ -936,6 +950,7 @@ class TimeSliceReport(ShadowBaseModel):
 
 class RobustnessOverall(ShadowBaseModel):
     stable: bool
+    status: Literal["tested", "not_tested", "inconclusive"] = "not_tested"
     concern: str | None = None
 
 

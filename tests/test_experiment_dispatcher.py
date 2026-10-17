@@ -1773,6 +1773,7 @@ class ExperimentDispatcherTest(unittest.TestCase):
 
     def test_model_sensitivity_evaluator_reports_stable_positive_per_family(self) -> None:
         evaluation = self._evaluate_sensitivity()
+        self.assertEqual(evaluation.robustness.overall.status, "tested")
         conclusion = evaluation.scientific.three_layer_conclusion
         answer = conclusion.scientific_layer.answer
         self.assertIn("稳定正向增益", answer)
@@ -1816,9 +1817,11 @@ class ExperimentDispatcherTest(unittest.TestCase):
 
     def test_model_sensitivity_evaluator_handles_missing_ci_without_auto_support(self) -> None:
         evaluation = self._evaluate_sensitivity(
-            run_cis=[[0.10, 0.20], None],
+            run_cis=[None, None],
             run_points=[0.15, 0.10],
         )
+        self.assertFalse(evaluation.robustness.overall.stable)
+        self.assertEqual(evaluation.robustness.overall.status, "not_tested")
         answer = evaluation.scientific.three_layer_conclusion.scientific_layer.answer
         self.assertIn("未检出稳定增益", answer)
 

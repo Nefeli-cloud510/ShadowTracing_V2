@@ -26,6 +26,7 @@ from core.unified_schema import (
     EvaluationSpec,
     ExperimentDesign,
     ExperimentMemoryEntry,
+    ExperimentMemoryState,
     ExperimentRun,
     FieldDescriptor,
     HypothesisGenerationRationale,
@@ -206,6 +207,7 @@ class TemporalStabilitySemanticsTest(unittest.TestCase):
         self.assertIn("未获得跨窗口一致支持", trace["responded_prior_finding"])
         self.assertNotIn("E_R02_01", trace["responded_prior_finding"])
         self.assertNotIn("训练/评价时间划分", trace["held_fixed_factors"])
+        self.assertEqual(trace["next_round_kind"], "reanalysis")
         self.assertIn(
             "评价窗口按冻结回测逐窗口分别报告（dev/f1/f2）",
             trace["held_fixed_factors"],
@@ -797,6 +799,72 @@ class DecisionLayerTest(unittest.TestCase):
         self.assertIn("CI 全部落在正区间", candidate.expected_outcome_branches)
         branch_values = list(candidate.expected_outcome_branches.values())
         self.assertTrue(all(isinstance(item, str) and item for item in branch_values))
+        self.assertEqual(candidate.next_round_kind, "new_hypothesis_test")
+
+    def test_traceability_without_meaningful_design_change_marks_recompute(self) -> None:
+        experiment_memory = ExperimentMemoryState(
+            task_id="ST_TEST",
+            current_round=1,
+            last_updated=datetime.now(),
+            entries=[],
+        )
+        experiment_memory.entries.append(
+            ExperimentMemoryEntry(
+                experiment_id="E_HIST_01",
+                round_id=1,
+                status="completed",
+                tested_hypotheses=["H1"],
+                metrics_snapshot=PerformanceMetrics(
+                    experiment_id="E_HIST_01",
+                    round_id=1,
+                    runs=[
+                        ExperimentRun(
+                            run_id="E_HIST_01_treatment",
+                            name="treatment",
+                            model_family="elasticnet",
+                            feature_columns=["By", "DeltaDec"],
+                            parameters={
+                                "forecast_horizon_days": 3,
+                                "past_lag_days": 3,
+                                "window_size": 14,
+                            },
+                        )
+                    ],
+                ),
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+            )
+        )
+        design = ExperimentDesign(
+            target="Vsw",
+            control=["By"],
+            treatment=["By", "DeltaDec"],
+            forecast_horizon_days=3,
+            past_lag_days=3,
+            window_size=14,
+        )
+        record = UncertaintyRecord(
+            uncertainty_id="U_LOCAL_01",
+            question="加入日影后，在相同条件下重跑能否复现逐日预测？",
+            description="复算 evaluator 兼容性验收",
+            status="active",
+            priority="medium",
+            created_at_round=1,
+            created_by="tester",
+        )
+        trace = _candidate_traceability(
+            record=record,
+            design=design,
+            experiment_type="incremental_prediction",
+            experiment_memory=experiment_memory,
+            next_round=2,
+        )
+
+        self.assertEqual(trace["next_round_kind"], "recompute")
+        self.assertEqual(
+            trace["changed_factors"],
+            ["在本轮固定条件下验证/复测与上一轮相关的不确定性"],
+        )
 
     def test_window_inheritance_does_not_rotate_with_history_count(self) -> None:
         experiment_memory = self.repository.load_experiment_memory()
@@ -956,6 +1024,7 @@ class DecisionLayerTest(unittest.TestCase):
             "预测超前 3 天",
             updated.held_fixed_factors,
         )
+        self.assertEqual(updated.next_round_kind, "new_hypothesis_test")
         self.assertIsNotNone(updated.utility_score)
 
         applied_again = recompute_candidate_plan_metadata(
@@ -974,6 +1043,10 @@ class DecisionLayerTest(unittest.TestCase):
         self.assertEqual(
             applied_again.candidates[0].changed_factors,
             updated.changed_factors,
+        )
+        self.assertEqual(
+            applied_again.candidates[0].next_round_kind,
+            updated.next_round_kind,
         )
 
     def test_utility_scorer_demotes_candidates_duplicating_executed_history(self) -> None:

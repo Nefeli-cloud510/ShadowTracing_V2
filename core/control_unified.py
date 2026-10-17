@@ -386,6 +386,7 @@ class CandidateProtocolMapper:
             held_fixed_factors=list(candidate.held_fixed_factors or []),
             expected_outcome_branches=dict(candidate.expected_outcome_branches or {}),
             exploratory=bool(candidate.exploratory),
+            next_round_kind=candidate.next_round_kind,
             notes=deep_clean_text(
                 protocol_notes + refinement_notes,
                 tree=tree,

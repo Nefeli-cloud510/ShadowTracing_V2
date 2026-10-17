@@ -215,6 +215,10 @@ class UnifiedSchemaSmokeTest(unittest.TestCase):
 
         self.assertEqual(result.execution.status, "completed")
         self.assertTrue(payload["robustness"]["overall"]["stable"])
+        self.assertEqual(
+            evaluation.robustness.overall.status,
+            "not_tested",
+        )
         self.assertEqual(payload["remaining_uncertainties"][0]["id"], "U01")
 
     def test_process_and_decision_log(self) -> None:

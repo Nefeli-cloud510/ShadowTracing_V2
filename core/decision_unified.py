@@ -306,6 +306,23 @@ def _candidate_traceability(
     meaningful_changed = [item for item in changed if item != "在本轮固定条件下验证/复测与上一轮相关的不确定性"]
     if len(meaningful_changed) > 1:
         exploratory = True
+    diagnostics_only = bool(
+        design.diagnostics_spec
+        or design.alignment is not None
+        or design.probe_axis == "cross_window_stability"
+        or any(
+            "诊断" in str(item) or "回测" in str(item) or "diagnostic" in str(item).lower()
+            for item in design.notes
+        )
+    )
+    if latest_entry is None:
+        next_round_kind = "reanalysis" if (is_external_diagnostic or diagnostics_only) else "new_hypothesis_test"
+    elif meaningful_changed:
+        next_round_kind = "new_hypothesis_test"
+    elif is_external_diagnostic or diagnostics_only:
+        next_round_kind = "reanalysis"
+    else:
+        next_round_kind = "recompute"
 
     type_key = experiment_type or "incremental_prediction"
     branches: dict[str, str] = {}
@@ -336,6 +353,7 @@ def _candidate_traceability(
         "held_fixed_factors": list(dict.fromkeys(held_fixed)),
         "expected_outcome_branches": branches,
         "exploratory": exploratory,
+        "next_round_kind": next_round_kind,
     }
 
 
@@ -785,6 +803,7 @@ class CandidateExperimentGenerator:
             candidate.held_fixed_factors = traceability["held_fixed_factors"]
             candidate.expected_outcome_branches = traceability["expected_outcome_branches"]
             candidate.exploratory = traceability["exploratory"]
+            candidate.next_round_kind = traceability["next_round_kind"]
             try:
                 _validate_candidate_design(candidate)
             except ValueError as exc:
@@ -934,6 +953,7 @@ def recompute_candidate_plan_metadata(
         candidate.held_fixed_factors = traceability["held_fixed_factors"]
         candidate.expected_outcome_branches = traceability["expected_outcome_branches"]
         candidate.exploratory = traceability["exploratory"]
+        candidate.next_round_kind = traceability["next_round_kind"]
         _annotate_candidate_estimates(
             candidate=candidate,
             task=task,

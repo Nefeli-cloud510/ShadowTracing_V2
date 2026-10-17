@@ -65,6 +65,50 @@ class AdvisoryQuestioningRulesTest(unittest.TestCase):
         )
         self.assertEqual(status, "observing")
 
+    def test_advisory_reasoning_cannot_keep_or_restore_converged(self) -> None:
+        history = [
+            SupportHistoryEntry(
+                round=1,
+                score=0.80,
+                event="evaluation_writeback:E1",
+                evidence_source="experimental",
+                evidence_classification="stable_improvement",
+                direction_matched=True,
+            ),
+            SupportHistoryEntry(
+                round=2,
+                score=0.82,
+                event="evaluation_writeback:E2",
+                evidence_source="experimental",
+                evidence_classification="stable_improvement",
+                direction_matched=True,
+            ),
+        ]
+        advisory = compute_support_update_from_reasoning(
+            current_support=0.84,
+            impact_direction="supports",
+            impact_strength=1.0,
+            confidence=1.0,
+            previous_status="converged",
+            support_history=history,
+            current_round=3,
+            evidence_source="advisory",
+        )
+        experimental = compute_support_update_from_reasoning(
+            current_support=0.84,
+            impact_direction="supports",
+            impact_strength=1.0,
+            confidence=1.0,
+            previous_status="converged",
+            support_history=history,
+            current_round=3,
+            evidence_source="experimental",
+        )
+
+        self.assertNotIn(advisory.status, {"supported", "converged"})
+        self.assertEqual(advisory.status, "active")
+        self.assertEqual(experimental.status, "converged")
+
     def test_advisory_cannot_converge_but_experimental_can(self) -> None:
         history = [
             SupportHistoryEntry(

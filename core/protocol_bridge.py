@@ -370,5 +370,6 @@ def legacy_config_to_protocol(
             name="ElasticNet",
             parameters=model_parameters,
         ),
+        next_round_kind="recompute",
         notes=[config.reasoning] if config.reasoning else [],
     )

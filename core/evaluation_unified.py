@@ -310,8 +310,12 @@ def build_minimal_robustness_report(result: ExperimentResult) -> RobustnessRepor
     )
     return RobustnessReport(
         bootstrap=BootstrapReport(stable=False, n_iterations=0, status="not_run"),
-        time_slice=TimeSliceReport(stable=False),
-        overall=RobustnessOverall(stable=False, concern=concern),
+        time_slice=TimeSliceReport(stable=False, status="not_run"),
+        overall=RobustnessOverall(
+            stable=False,
+            status="not_tested",
+            concern=concern,
+        ),
         recommendation="补充配对日历块 bootstrap 后再作方向性支持度结论。",
     )
 
