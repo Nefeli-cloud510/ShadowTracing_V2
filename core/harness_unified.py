@@ -13,9 +13,11 @@ from core.calendar_samples import (
     FrozenEvaluationPlan,
     SamplePlan,
     build_sample_plan,
+    canonicalize_feature_lags,
     compute_default_test_start,
     freeze_evaluation_plan,
     is_blind_sealed,
+    is_legacy_uniform_lags,
     load_or_freeze_evaluation_plan,
     make_calendar_split,
 )
@@ -55,6 +57,26 @@ def _normalize_model_family(name: str) -> str | None:
     if normalized in {"ridge", "elasticnet"}:
         return normalized
     return None
+
+
+def _canonical_feature_lags(
+    protocol: ExperimentProtocol,
+    feature_columns: list[str],
+    past_lag_days: int,
+) -> dict[str, list[int]]:
+    """Resolve one authoritative sparse-lag map for the compiled plan.
+
+    An empty protocol ``lags`` keeps the legacy uniform expansion so existing
+    non-sparse protocols run unchanged; a non-empty declaration must cover
+    every feature column actually trained by the plan.
+    """
+
+    columns = list(dict.fromkeys(str(column) for column in feature_columns))
+    return canonicalize_feature_lags(
+        protocol.features.lags or None,
+        columns,
+        past_lag_days=past_lag_days,
+    )
 
 
 class UnifiedExperimentHarness:
@@ -131,6 +153,11 @@ class UnifiedExperimentHarness:
                 )
             ),
         }
+        feature_lags = _canonical_feature_lags(
+            protocol,
+            [*baseline_features, *treatment_features],
+            int(past_lag_days),
+        )
         runs = [
             RunSpec(
                 run_id="baseline",
@@ -170,6 +197,7 @@ class UnifiedExperimentHarness:
             round_id=protocol.round_id,
             model_parameters=dict(parameters),
             time_parameters=time_parameters,
+            feature_lags=feature_lags,
             runs=runs,
             contrasts=contrasts,
             diagnostics=[],
@@ -220,26 +248,41 @@ class UnifiedExperimentHarness:
     ) -> ExperimentResult:
         """Execute a validated multi-run protocol on one shared calendar sample."""
 
+        run_models = [
+            RunSpec.model_validate(item.model_dump())
+            for item in run_specs
+        ]
+        batch_time_parameters = {
+            key: protocol.model.parameters[key]
+            for key in (
+                "forecast_horizon_days",
+                "past_lag_days",
+                "window_size",
+                "test_split_ratio",
+            )
+            if protocol.model.parameters.get(key) is not None
+        }
+        feature_lags = _canonical_feature_lags(
+            protocol,
+            [
+                column
+                for run in run_models
+                for column in run.feature_columns
+            ],
+            int(
+                batch_time_parameters.get("past_lag_days")
+                or protocol.model.parameters.get("window_size", 3)
+            ),
+        )
         plan = CompiledExperimentPlan(
             experiment_type=protocol.experiment_type,
             target=protocol.target,
             experiment_id=protocol.experiment_id,
             round_id=protocol.round_id,
             model_parameters=dict(protocol.model.parameters),
-            time_parameters={
-                key: protocol.model.parameters[key]
-                for key in (
-                    "forecast_horizon_days",
-                    "past_lag_days",
-                    "window_size",
-                    "test_split_ratio",
-                )
-                if protocol.model.parameters.get(key) is not None
-            },
-            runs=[
-                RunSpec.model_validate(item.model_dump())
-                for item in run_specs
-            ],
+            time_parameters=batch_time_parameters,
+            feature_lags=feature_lags,
+            runs=run_models,
             contrasts=[
                 ContrastSpec.model_validate(item.model_dump())
                 for item in contrasts_spec
@@ -298,6 +341,7 @@ class UnifiedExperimentHarness:
             round_id=protocol.round_id,
             model_parameters=canonical_parameters,
             time_parameters=dict(plan.time_parameters),
+            feature_lags=dict(plan.feature_lags),
             runs=run_specs,
             contrasts=plan.contrasts,
             diagnostics=plan.diagnostics,
@@ -313,6 +357,17 @@ class UnifiedExperimentHarness:
             shared_features,
         )
         merged = runner.load_and_merge_data(shared_config)
+        plan_lags = (
+            dict(plan.feature_lags)
+            or shared_config.time_window_config.feature_lags
+            or None
+        )
+        if is_legacy_uniform_lags(
+            plan_lags,
+            shared_config.time_window_config.past_lag_days
+            or shared_config.time_window_config.window_size,
+        ):
+            plan_lags = None
         sample_plan = build_sample_plan(
             merged.X,
             merged.y,
@@ -322,6 +377,7 @@ class UnifiedExperimentHarness:
             past_lag_days=shared_config.time_window_config.past_lag_days
             or shared_config.time_window_config.window_size,
             forecast_horizon_days=shared_config.time_window_config.forecast_horizon_days,
+            feature_lags=plan_lags,
         )
         retained_records = sample_plan.retained_records()
         if not retained_records:

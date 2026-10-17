@@ -82,6 +82,7 @@ class SamplePlan:
     target_name: str
     past_lag_days: int
     forecast_horizon_days: int
+    feature_lags: dict[str, list[int]] = field(default_factory=dict)
     original_days: int = 0
     quality_available_days: int = 0
     field_drop_counts: dict[str, int] = field(default_factory=dict)
@@ -132,6 +133,10 @@ class SamplePlan:
             "drop_reasons": self.drop_reason_counts(),
             "field_drop_counts": self.field_drop_counts,
             "past_lag_days": self.past_lag_days,
+            "feature_lags": {
+                key: list(values)
+                for key, values in self.feature_lags.items()
+            },
             "forecast_horizon_days": self.forecast_horizon_days,
             "generated_at": self.generated_at,
         }
@@ -377,6 +382,83 @@ def check_unique_calendar_dates(time_raw: pd.Series) -> None:
         )
 
 
+def canonicalize_feature_lags(
+    feature_lags: dict[str, list[int]] | None,
+    feature_columns,
+    *,
+    past_lag_days: int | None = None,
+) -> dict[str, list[int]]:
+    """Return the authoritative per-variable sparse lag map.
+
+    ``None``/empty maps keep the legacy uniform ``0..past_lag_days-1``
+    expansion. Non-empty sparse maps must declare every requested feature
+    column with integer lags >= 0; duplicate/out-of-order entries are
+    normalized. Missing columns are rejected instead of falling back to the
+    uniform window, so a sparse declaration can never silently widen an arm.
+    """
+
+    columns = list(dict.fromkeys(str(column) for column in feature_columns))
+    if not columns:
+        raise ValueError("feature_columns 不能为空，无法声明稀疏滞后。")
+    if not feature_lags:
+        if past_lag_days is None:
+            raise ValueError(
+                "feature_lags 为空时必须有 past_lag_days 作为统一滞后回退。"
+            )
+        return {column: list(range(int(past_lag_days))) for column in columns}
+
+    canonical: dict[str, list[int]] = {}
+    for column, lags in feature_lags.items():
+        if lags is None:
+            continue
+        if isinstance(lags, (str, bytes)) or not hasattr(lags, "__iter__"):
+            raise ValueError(f"feature_lags[{column!r}] 必须是滞后整数列表。")
+        values: list[int] = []
+        for lag in lags:
+            if isinstance(lag, bool) or not isinstance(lag, int):
+                raise ValueError(
+                    f"feature_lags[{column!r}] 只允许整数滞后，收到 {lag!r}。"
+                )
+            if lag < 0:
+                raise ValueError(
+                    f"feature_lags[{column!r}] 只允许非负整数滞后，收到 {lag!r}。"
+                )
+            values.append(int(lag))
+        if values:
+            canonical[str(column)] = sorted(set(values))
+
+    canonical = {
+        str(column): values
+        for column, values in canonical.items()
+        if str(column) in columns
+    }
+    missing = [column for column in columns if not canonical.get(column)]
+    if missing:
+        raise ValueError(
+            f"feature_lags 必须为非空声明，缺少: {missing}。" 
+        )
+    return canonical
+
+
+def is_legacy_uniform_lags(
+    feature_lags: dict[str, list[int]] | None,
+    past_lag_days: int | None,
+) -> bool:
+    """Return whether a resolved map is the legacy ``0..past_lag_days-1`` window.
+
+    Validated sparse declarations cannot contain lag 0, so a map that matches
+    the uniform expansion can only have come from the legacy path. Callers
+    feeding a resolved plan back into the calendar planner should convert it
+    back to ``None`` to preserve the uniform fallback instead of re-running
+    strict sparse validation on a zero-containing map.
+    """
+
+    if not feature_lags or past_lag_days is None:
+        return False
+    expected = list(range(int(past_lag_days)))
+    return all(list(values) == expected for values in feature_lags.values())
+
+
 def build_sample_plan(
     X_raw: pd.DataFrame,
     y_raw: pd.Series,
@@ -386,13 +468,16 @@ def build_sample_plan(
     target_name: str,
     past_lag_days: int,
     forecast_horizon_days: int,
+    feature_lags: dict[str, list[int]] | None = None,
 ) -> SamplePlan:
     """Construct the comparison-level complete-case calendar sample plan.
 
-    Feature dates are ``issue_date - lag`` for ``lag`` in ``0..past_lag_days-1``;
-    the target is ``issue_date + forecast_horizon_days`` calendar days. A record
-    is retained only when both arms' union feature columns and the target date
-    are available; missing values are never interpolated.
+    Feature dates are ``issue_date - lag``. When ``feature_lags`` is provided it
+    is the authoritative per-variable sparse lag map; otherwise the legacy
+    uniform ``0..past_lag_days-1`` expansion is used. The target is
+    ``issue_date + forecast_horizon_days`` calendar days. A record is retained
+    only when both arms' union feature columns and the target date are
+    available; missing values are never interpolated.
     """
 
     if not isinstance(X_raw, pd.DataFrame) or X_raw.shape[1] == 0:
@@ -413,6 +498,12 @@ def build_sample_plan(
 
     check_unique_calendar_dates(time_raw)
     times = _normalize_dates(time_raw)
+    column_index = {column: index for index, column in enumerate(feature_columns)}
+    resolved_lags = canonicalize_feature_lags(
+        feature_lags,
+        feature_columns,
+        past_lag_days=past_lag_days,
+    )
 
     feature_values = X_raw[feature_columns].astype(float)
     numeric_ok = feature_values.notna().to_numpy(dtype=bool)
@@ -425,7 +516,7 @@ def build_sample_plan(
     specs = tuple(
         FeatureSpec(variable=column, offset_days=-lag)
         for column in feature_columns
-        for lag in range(0, past_lag_days)
+        for lag in resolved_lags[column]
     )
     feature_names = [spec.feature_name() for spec in specs]
 
@@ -449,7 +540,8 @@ def build_sample_plan(
     for origin_index, origin_value in enumerate(dates):
         origin = pd.Timestamp(origin_value).normalize()
         feature_dates = tuple(
-            origin - pd.Timedelta(days=lag) for lag in range(0, past_lag_days)
+            origin + pd.Timedelta(days=int(spec.offset_days))
+            for spec in specs
         )
         target_date = origin + pd.Timedelta(days=forecast_horizon_days)
         sample_id = f"{origin.date().isoformat()}__h{forecast_horizon_days}"
@@ -479,16 +571,18 @@ def build_sample_plan(
             continue
 
         feature_rows = [date_to_index[value] for value in history_dates]
-        missing_rows = [
-            row_index
-            for row_index in feature_rows
-            if not bool(numeric_ok[row_index].all())
+        missing_specs = [
+            spec
+            for spec, row_index in zip(specs, feature_rows)
+            if not bool(
+                numeric_ok[row_index, column_index[spec.variable]]
+            )
         ]
-        if missing_rows:
-            for col_idx, column in enumerate(feature_columns):
-                for row_index in feature_rows:
-                    if not bool(numeric_ok[row_index, col_idx]):
-                        field_drop_counts[column] = field_drop_counts.get(column, 0) + 1
+        if missing_specs:
+            for spec in missing_specs:
+                field_drop_counts[spec.variable] = (
+                    field_drop_counts.get(spec.variable, 0) + 1
+                )
             records.append(
                 CalendarSample(
                     **common_args,
@@ -526,6 +620,7 @@ def build_sample_plan(
         records=records,
         feature_specs=specs,
         feature_columns=feature_columns,
+        feature_lags=resolved_lags,
         target_name=str(target_name),
         past_lag_days=past_lag_days,
         forecast_horizon_days=forecast_horizon_days,

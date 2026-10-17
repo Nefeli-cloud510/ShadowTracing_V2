@@ -67,7 +67,11 @@ class UnifiedExecutionTest(unittest.TestCase):
                 "target": "Vsw",
                 "control": ["By", "Bz"],
                 "treatment": ["By", "Bz", "DeltaDec"],
-                "lags": {"DeltaDec": [1, 2]},
+                "lags": {
+                    "By": [0, 1, 2, 3],
+                    "Bz": [0, 1, 2, 3],
+                    "DeltaDec": [1, 2],
+                },
             },
             model=ModelSpec(
                 name="ElasticNet",
@@ -121,7 +125,11 @@ class UnifiedExecutionTest(unittest.TestCase):
                 "target": "Vsw",
                 "control": ["By", "Bz"],
                 "treatment": ["By", "Bz", "DeltaDec"],
-                "lags": {"DeltaDec": [1, 2]},
+                "lags": {
+                    "By": [0, 1, 2, 3],
+                    "Bz": [0, 1, 2, 3],
+                    "DeltaDec": [1, 2],
+                },
             },
             model=ModelSpec(
                 name="ElasticNet",
@@ -293,7 +301,11 @@ class UnifiedExecutionTest(unittest.TestCase):
                 "target": "Vsw",
                 "control": ["By", "Bz"],
                 "treatment": ["By", "Bz", "PFSS_Bt"],
-                "lags": {"PFSS_Bt": [1, 2]},
+                "lags": {
+                    "By": [0, 1, 2, 3],
+                    "Bz": [0, 1, 2, 3],
+                    "PFSS_Bt": [1, 2],
+                },
             },
             model=ModelSpec(
                 name="ElasticNet",
@@ -346,7 +358,11 @@ class UnifiedExecutionTest(unittest.TestCase):
                 "target": "Vsw",
                 "control": ["By", "Bz"],
                 "treatment": ["By", "Bz", "DeltaDec"],
-                "lags": {"DeltaDec": [1, 2]},
+                "lags": {
+                    "By": [0, 1, 2, 3],
+                    "Bz": [0, 1, 2, 3],
+                    "DeltaDec": [1, 2],
+                },
             },
             model=ModelSpec(
                 name="ElasticNet",

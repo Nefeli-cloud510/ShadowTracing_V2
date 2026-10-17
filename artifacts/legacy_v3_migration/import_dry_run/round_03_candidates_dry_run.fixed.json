@@ -1,0 +1,1109 @@
+{
+  "declaration": "Round-3 candidate dry run fixed for protocol/metric consistency after importing the frozen external outer-backtest evidence. 修订后仍为研究者导入外部诊断的 dry-run 草案：系统关联假设、重排未决问题，并生成下一轮候选；不批准执行、不写入闭环状态、不宣称系统自主发现诊断，也不宣称队列第一即完成最优选择。",
+  "source": "external_diagnostic:legacy_v3_outer_backtest",
+  "session_root": "D:\\ShadowTracing\\runtime\\live_session\\sessions\\session_20261016_235451_805278",
+  "candidate_set": {
+    "round": 3,
+    "generated_at": "2026-10-17T07:29:00.098534",
+    "candidates": [
+      {
+        "experiment_id": "E_R03_01",
+        "type": "cross_window_stability",
+        "experiment_type": "model_sensitivity",
+        "purpose": "承接科学不确定性：外部补充回测中，dev 段 mag -> mag_both（提前 3 天、训练内自动选参）的唯一不跨零 RMSE 改善未在 f1/f2 获得跨窗口一致支持；本候选按冻结特征、各自滞后、模型家族与选参规则，在 dev/f1/f2 三个窗口逐窗口报告双方向日影增量，检验该结果主要反映估计不精确还是条件依赖。",
+        "scientific_question": "当前结果不足，主要反映估计不精确，还是存在条件依赖？",
+        "tested_hypotheses": [
+          "H_shadow_incremental_gain",
+          "H_window_stability"
+        ],
+        "related_uncertainties": [
+          "U_EXT_L3_01"
+        ],
+        "disagreement_context": {
+          "U_EXT_L3_01": {
+            "H_shadow_incremental_gain": {
+              "hypothesis_id": "H_shadow_incremental_gain",
+              "expected": "positive",
+              "status": "active",
+              "support_score": 0.8919,
+              "rationale_trigger": "llm_hypothesis_H1",
+              "source_summary": "假设 H1 继承上一轮轮末状态，当前支持度 0.88，本轮科学质询后按证据调整。"
+            },
+            "H_window_stability": {
+              "hypothesis_id": "H_window_stability",
+              "expected": "positive",
+              "status": "active",
+              "support_score": 0.427,
+              "rationale_trigger": "llm_hypothesis_H5",
+              "source_summary": "假设 H5 继承上一轮轮末状态，当前支持度 0.427，本轮科学质询后按证据调整。"
+            }
+          }
+        },
+        "hypothesis_source_context": {
+          "H_shadow_incremental_gain": {
+            "trigger": "llm_hypothesis_H1",
+            "summary": "假设 H1 继承上一轮轮末状态，当前支持度 0.88，本轮科学质询后按证据调整。",
+            "linked_uncertainties": [],
+            "derived_features": [],
+            "source_signals": [],
+            "confidence": 0.88
+          },
+          "H_window_stability": {
+            "trigger": "llm_hypothesis_H5",
+            "summary": "假设 H5 继承上一轮轮末状态，当前支持度 0.427，本轮科学质询后按证据调整。",
+            "linked_uncertainties": [],
+            "derived_features": [],
+            "source_signals": [],
+            "confidence": 0.427
+          }
+        },
+        "design": {
+          "target": "SW Plasma Speed, km/s",
+          "control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值",
+            "p1_x中心值"
+          ],
+          "lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ],
+            "p1_x中心值": [
+              9
+            ]
+          },
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "window_size": 9,
+          "control_lag_days": 9,
+          "treatment_lag_days": 9,
+          "control_forecast_horizon_days": 3,
+          "treatment_forecast_horizon_days": 3,
+          "notes": [
+            "generated_from:U_EXT_L3_01",
+            "design_focus:p2_y中心值,p1_x中心值",
+            "probe_axis:cross_window_stability",
+            "compare frozen mag baseline vs baseline+treatment",
+            "frozen_source:scripts/diag_legacy_v3_migration.py",
+            "frozen_manifest:artifacts/legacy_v3_migration/outer_backtest/outer_backtest_manifest.json",
+            "frozen_lags:BY[4,5,7,8],BZ[1,2],Scalar B[1,2],p2_y[1],p1_x[9]",
+            "model_selection:family-specific training-internal auto selection",
+            "window_reporting:dev/f1/f2 shared-calendar windows reported separately",
+            "bootstrap_paired_block_ci:bootstrap_draft_only；配对块 bootstrap 保留为 E_R03_03 robustness_diagnostic 独立草案，不随 E_R03_01 训练协议执行",
+            "假设触发来源：H1（LLM 起草）,H5（LLM 起草）",
+            "假设来源摘要：H1:假设 H1 继承上一轮轮末状态，当前支持度 0.88，本轮科学质询后按证据调整。 | H5:假设 H5 继承上一轮轮末状态，当前支持度 0.427，本轮科学质询后按证据调整。",
+            "待区分假设：H1,H5",
+            "process_note:研究者导入外部诊断后，系统关联假设、重排未决问题，并生成下一轮候选草案；本 dry-run 不批准执行、不写入闭环状态，也不宣称 LLM 独立完成选择。"
+          ],
+          "design_focus": "p2_y中心值,p1_x中心值",
+          "display_target": "SW Plasma Speed, km/s",
+          "display_control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "display_treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值（南北日影）",
+            "p1_x中心值（东西日影）"
+          ],
+          "display_design_focus": "p2_y中心值（南北日影）＋p1_x中心值（东西日影）",
+          "model_families": [
+            "ridge",
+            "elasticnet"
+          ],
+          "runs_spec": [
+            {
+              "run_id": "ridge_baseline",
+              "label": "ridge 对照组",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT"
+              ],
+              "model_family": "ridge",
+              "parameters": {},
+              "retrain": true
+            },
+            {
+              "run_id": "ridge_treatment",
+              "label": "ridge 实验组（双方向日影）",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT",
+                "p2_y中心值",
+                "p1_x中心值"
+              ],
+              "model_family": "ridge",
+              "parameters": {},
+              "retrain": true
+            },
+            {
+              "run_id": "elasticnet_baseline",
+              "label": "elasticnet 对照组",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT"
+              ],
+              "model_family": "elasticnet",
+              "parameters": {},
+              "retrain": true
+            },
+            {
+              "run_id": "elasticnet_treatment",
+              "label": "elasticnet 实验组（双方向日影）",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT",
+                "p2_y中心值",
+                "p1_x中心值"
+              ],
+              "model_family": "elasticnet",
+              "parameters": {},
+              "retrain": true
+            }
+          ],
+          "contrasts_spec": [
+            {
+              "contrast_id": "gain_ridge",
+              "name": "ridge 家族内双方向日影增量",
+              "kind": "incremental_gain",
+              "run_ids": [
+                "ridge_baseline",
+                "ridge_treatment"
+              ],
+              "contrast_ids": [],
+              "direction": "mixed",
+              "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+            },
+            {
+              "contrast_id": "gain_elasticnet",
+              "name": "elasticnet 家族内双方向日影增量",
+              "kind": "incremental_gain",
+              "run_ids": [
+                "elasticnet_baseline",
+                "elasticnet_treatment"
+              ],
+              "contrast_ids": [],
+              "direction": "mixed",
+              "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+            }
+          ],
+          "probe_axis": "cross_window_stability"
+        },
+        "hypothesis_predictions": {
+          "H_shadow_incremental_gain": {
+            "expected_effect": "positive",
+            "expected_range": [
+              0.02,
+              0.12
+            ],
+            "metric": "Pearson_r_delta"
+          },
+          "H_window_stability": {
+            "expected_effect": "positive",
+            "expected_range": [
+              0.75,
+              1.0
+            ],
+            "metric": "stability_rate"
+          }
+        },
+        "distinguishing_insight": "在相同冻结特征、滞后、训练内选参与提前 3 天条件下，仅改变“磁场基线 vs 磁场+双方向日影”，并按 dev/f1/f2 逐窗口共同样本报告 RMSE 主证据与 Pearson_r_delta 辅助证据；结果只回答双方向日影的跨窗口可重复性，不扩展到滞后敏感性或其他机制。",
+        "estimated_information_gain": {
+          "value": 0.5,
+          "rationale": "语义校验后不直接比较 Pearson_r_delta 与 stability_rate：前者是预测相关增量，后者是跨窗口稳定率，二者统计量与结论语义不一致，不能由区间不重叠推导 IG=1.0。修正为无同语义可区分预测区间，按中性 0.5 处理。本评分是实验前的预期区分度启发式评分，不是严格贝叶斯 EIG；实验完成后以实际观测 Δ 计算后验 KL 散度审计并写入评估结果。"
+        },
+        "estimated_performance_gain": {
+          "value": 0.0,
+          "rationale": "第一轮、尚无历史实验结果、或没有同类型可比的对照组/实验组 RMSE 时，按规则将 PG_expected 置为 0，不参与综合价值计算。"
+        },
+        "estimated_risk": {
+          "value": 0.2422,
+          "rationale": "按 Risk(E)=0.35·D1+0.25·D2+0.25·D3+0.15·D4 计算；D1=0.4405（支持度先验：2 条假设平均支持度 0.6594、支持度跨度 0.4649），D2=0.1500（数据质量/对齐：样本量风险 0.0000、多源对齐风险 0.50、未来信息泄露风险 0.00），D3=0.1200（实验设计：设计复杂度 0.3000、对照充分性 0.00、历史可重复性 0.00），D4=0.1367（资源执行：估算 tokens 5687/200000、估算耗时 10.0s/300s、人工审核 0.50）；当前最高风险分项为“支持度先验”。"
+        },
+        "estimated_cost": {
+          "value": 0.1685,
+          "rationale": "按 Cost(E)=max(0.50·C1+0.35·C2+0.15·C3, 0.05) 计算；估算输入 tokens=4187、输出 tokens=1500（合计 5687）；qwen3.8-flash 真实计费（输入 0.80 元/百万 tokens、输出 2.70 元/百万 tokens）估算约 0.0074 元，本轮费用上限=0.5400 元；C1=0.0137(LLM真实费用占比), C2=0.0333(计算时间占比 10.0s/300s), C3=1.0000(人工审核成本)。"
+        },
+        "requires_human_review": true,
+        "novelty": "new uncertainty-focused experiment",
+        "responded_prior_finding": "触发证据：dev 小幅正向；f1 点估计转负；f2 点估计同向但区间跨零。dev 参考值：RMSE 增益 0.4809（95% CI [0.0142, 0.8504]）；f1：-0.2728（CI [-1.5070, 0.5066]）；f2：0.5301（CI [-0.3274, 1.6772]）。因此改变：优先核验跨时段可重复性，并保持原始特征协议。拟检验问题：当前结果不足，主要反映估计不精确，还是存在条件依赖？结论统一表述为“未获得跨窗口一致支持”。",
+        "target_uncertainty_focus": "外部补充回测中，dev 段 mag -> mag_both（提前 3 天、训练内自动选参）的唯一不跨零 RMSE 改善未在 f1/f2 复现；需区分跨窗口稳定性与滞后敏感性。",
+        "changed_factors": [
+          "实验类型：model_sensitivity（4 组两家族双臂执行结构；科学轴=cross_window_stability；原误标 lag_sensitivity）",
+          "特征集：恢复冻结回测的 mag -> mag_both（p2_y 南北日影 + p1_x 东西日影）",
+          "评价：与滞后敏感性解耦，dev/f1/f2 逐窗口分别报告共同样本、RMSE 与 Pearson_r_delta 增量区间；配对块 bootstrap 拆为 E_R03_03 robustness_diagnostic 独立草案"
+        ],
+        "held_fixed_factors": [
+          "目标变量：SW Plasma Speed, km/s（预测速度标量，不扩展为方向）",
+          "冻结特征与各自滞后：BY[4,5,7,8]、BZ[1,2]、Scalar B[1,2]、p2_y[1]、p1_x[9]",
+          "预测时距：3 天（发报日与目标日分别记录）",
+          "模型与选参：Ridge / ElasticNet，各自在训练期内自动选参（alpha 0.01..1000，l1_ratio 0.1..0.9）",
+          "bootstrap：不随 E_R03_01 训练协议执行；配对块 bootstrap 保留为 E_R03_03 robustness_diagnostic 独立草案（block=7、draws=2000、seed=20261017、min_blocks=2）",
+          "评价窗口：dev/f1/f2 按冻结回测逐窗口分别报告共同样本，不合并缺口日期"
+        ],
+        "expected_outcome_branches": {
+          "dev/f1/f2 三个窗口点估计同向且区间均不跨零": "把该方向作为暂定证据，下一轮只变更一个因素复核其稳健性。",
+          "仅 dev 不跨零，f1/f2 未获得跨窗口一致支持": "结论写“未获得跨窗口一致支持”，下一步区分估计不精确与条件依赖。",
+          "窗口间方向相反": "不把均值当成稳定结论，先核对日历共同样本、缺失掩码与日影特征进入模型的证据，再决定是否继续。",
+          "预测完全相同或无法形成可变预测": "阻断科学结论，先检查日影特征是否被缺失、筛零或固定参数压掉。"
+        },
+        "exploratory": false
+      },
+      {
+        "experiment_id": "E_R03_02",
+        "type": "distinguishing",
+        "experiment_type": "model_sensitivity",
+        "purpose": "承接科学不确定性：在冻结特征、各自滞后、训练内自动选参和 dev/f1/f2 逐窗口共同样本下，区分 RMSE 主证据与 Pearson_r_delta 辅助证据；检验南北日影（mag -> mag_ns）是否只改变相关结构而不改变误差尺度，禁止用相关提升替代误差改善。",
+        "scientific_question": "南北日影是否只改变预测与真实值的相关结构而不改变误差尺度？",
+        "tested_hypotheses": [
+          "H_shadow_incremental_gain",
+          "H_window_stability"
+        ],
+        "related_uncertainties": [
+          "U_R02_08"
+        ],
+        "disagreement_context": {
+          "U_R02_08": {
+            "H_shadow_incremental_gain": {
+              "hypothesis_id": "H_shadow_incremental_gain",
+              "expected": "positive",
+              "status": "active",
+              "support_score": 0.8919,
+              "rationale_trigger": "llm_hypothesis_H1",
+              "source_summary": "假设 H1 继承上一轮轮末状态，当前支持度 0.88，本轮科学质询后按证据调整。"
+            },
+            "H_window_stability": {
+              "hypothesis_id": "H_window_stability",
+              "expected": "positive",
+              "status": "active",
+              "support_score": 0.427,
+              "rationale_trigger": "llm_hypothesis_H5",
+              "source_summary": "假设 H5 继承上一轮轮末状态，当前支持度 0.427，本轮科学质询后按证据调整。"
+            }
+          }
+        },
+        "hypothesis_source_context": {
+          "H_shadow_incremental_gain": {
+            "trigger": "llm_hypothesis_H1",
+            "summary": "假设 H1 继承上一轮轮末状态，当前支持度 0.88，本轮科学质询后按证据调整。",
+            "linked_uncertainties": [],
+            "derived_features": [],
+            "source_signals": [],
+            "confidence": 0.88
+          },
+          "H_window_stability": {
+            "trigger": "llm_hypothesis_H5",
+            "summary": "假设 H5 继承上一轮轮末状态，当前支持度 0.427，本轮科学质询后按证据调整。",
+            "linked_uncertainties": [],
+            "derived_features": [],
+            "source_signals": [],
+            "confidence": 0.427
+          }
+        },
+        "design": {
+          "target": "SW Plasma Speed, km/s",
+          "control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值"
+          ],
+          "lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ]
+          },
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "window_size": 9,
+          "control_lag_days": 9,
+          "treatment_lag_days": 9,
+          "control_forecast_horizon_days": 3,
+          "treatment_forecast_horizon_days": 3,
+          "notes": [
+            "generated_from:U_R02_08",
+            "design_focus:p2_y中心值",
+            "probe_axis:metric_semantics",
+            "compare frozen mag baseline vs baseline+treatment",
+            "frozen_source:scripts/diag_legacy_v3_migration.py",
+            "frozen_manifest:artifacts/legacy_v3_migration/outer_backtest/outer_backtest_manifest.json",
+            "frozen_lags:BY[4,5,7,8],BZ[1,2],Scalar B[1,2],p2_y[1],p1_x[9]",
+            "model_selection:family-specific training-internal auto selection",
+            "window_reporting:dev/f1/f2 shared-calendar windows reported separately",
+            "假设触发来源：H1（LLM 起草）,H5（LLM 起草）",
+            "假设来源摘要：H1:假设 H1 继承上一轮轮末状态，当前支持度 0.88，本轮科学质询后按证据调整。 | H5:假设 H5 继承上一轮轮末状态，当前支持度 0.427，本轮科学质询后按证据调整。",
+            "待区分假设：H1,H5",
+            "process_note:研究者导入外部诊断后，系统关联假设、重排未决问题，并生成下一轮候选草案；本 dry-run 不批准执行、不写入闭环状态，也不宣称 LLM 独立完成选择。"
+          ],
+          "design_focus": "p2_y中心值",
+          "display_target": "SW Plasma Speed, km/s",
+          "display_control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "display_treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值（南北日影）"
+          ],
+          "display_design_focus": "p2_y中心值（南北日影）",
+          "model_families": [
+            "ridge",
+            "elasticnet"
+          ],
+          "runs_spec": [
+            {
+              "run_id": "ridge_baseline",
+              "label": "ridge 对照组",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT"
+              ],
+              "model_family": "ridge",
+              "parameters": {},
+              "retrain": true
+            },
+            {
+              "run_id": "ridge_treatment",
+              "label": "ridge 实验组（南北日影）",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT",
+                "p2_y中心值"
+              ],
+              "model_family": "ridge",
+              "parameters": {},
+              "retrain": true
+            },
+            {
+              "run_id": "elasticnet_baseline",
+              "label": "elasticnet 对照组",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT"
+              ],
+              "model_family": "elasticnet",
+              "parameters": {},
+              "retrain": true
+            },
+            {
+              "run_id": "elasticnet_treatment",
+              "label": "elasticnet 实验组（南北日影）",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT",
+                "p2_y中心值"
+              ],
+              "model_family": "elasticnet",
+              "parameters": {},
+              "retrain": true
+            }
+          ],
+          "contrasts_spec": [
+            {
+              "contrast_id": "gain_ridge",
+              "name": "ridge 家族内南北日影增量",
+              "kind": "incremental_gain",
+              "run_ids": [
+                "ridge_baseline",
+                "ridge_treatment"
+              ],
+              "contrast_ids": [],
+              "direction": "mixed",
+              "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+            },
+            {
+              "contrast_id": "gain_elasticnet",
+              "name": "elasticnet 家族内南北日影增量",
+              "kind": "incremental_gain",
+              "run_ids": [
+                "elasticnet_baseline",
+                "elasticnet_treatment"
+              ],
+              "contrast_ids": [],
+              "direction": "mixed",
+              "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+            }
+          ],
+          "diagnostics_spec": [
+            {
+              "diagnostic_id": "paired_block_bootstrap_gain_ci",
+              "name": "配对块 bootstrap 增益区间（dev/f1/f2 逐窗口）",
+              "source_run_ids": [
+                "ridge_baseline",
+                "ridge_treatment",
+                "elasticnet_baseline",
+                "elasticnet_treatment"
+              ],
+              "parameters": {
+                "block_size": 7,
+                "n_draws": 2000,
+                "seed": 20261017,
+                "min_blocks": 2
+              },
+              "retrain": false,
+              "note": "在冻结回测的 dev/f1/f2 共同样本窗口内分别计算 RMSE 与 Pearson_r_delta 的配对块 bootstrap 95% 区间；保留有效时间块数，不以扩大 n_draws 掩盖信息不足。"
+            }
+          ],
+          "probe_axis": "metric_semantics"
+        },
+        "hypothesis_predictions": {
+          "H_shadow_incremental_gain": {
+            "expected_effect": "positive",
+            "expected_range": [
+              0.02,
+              0.12
+            ],
+            "metric": "Pearson_r_delta"
+          },
+          "H_window_stability": {
+            "expected_effect": "positive",
+            "expected_range": [
+              0.75,
+              1.0
+            ],
+            "metric": "stability_rate"
+          }
+        },
+        "distinguishing_insight": "通过同一冻结协议内 mag -> mag_ns 的两模型家族对比，分别报告 RMSE 与 Pearson_r_delta；二者统计量与结论语义分开，禁止把相关提升替代为误差改善。",
+        "estimated_information_gain": {
+          "value": 0.5,
+          "rationale": "语义校验后不直接比较 Pearson_r_delta 与 stability_rate：前者是预测相关增量，后者是跨窗口稳定率，二者统计量与结论语义不一致，不能由区间不重叠推导 IG=1.0。修正为无同语义可区分预测区间，按中性 0.5 处理。本评分是实验前的预期区分度启发式评分，不是严格贝叶斯 EIG；实验完成后以实际观测 Δ 计算后验 KL 散度审计并写入评估结果。"
+        },
+        "estimated_performance_gain": {
+          "value": 0.0,
+          "rationale": "第一轮、尚无历史实验结果、或没有同类型可比的对照组/实验组 RMSE 时，按规则将 PG_expected 置为 0，不参与综合价值计算。"
+        },
+        "estimated_risk": {
+          "value": 0.2388,
+          "rationale": "按 Risk(E)=0.35·D1+0.25·D2+0.25·D3+0.15·D4 计算；D1=0.4405（支持度先验：2 条假设平均支持度 0.6594、支持度跨度 0.4649），D2=0.1500（数据质量/对齐：样本量风险 0.0000、多源对齐风险 0.50、未来信息泄露风险 0.00），D3=0.1000（实验设计：设计复杂度 0.1000、对照充分性 0.00、历史可重复性 0.20），D4=0.1472（资源执行：估算 tokens 6256/200000、估算耗时 19.0s/300s、人工审核 0.50）；当前最高风险分项为“支持度先验”。"
+        },
+        "estimated_cost": {
+          "value": 0.1794,
+          "rationale": "按 Cost(E)=max(0.50·C1+0.35·C2+0.15·C3, 0.05) 计算；估算输入 tokens=4756、输出 tokens=1500（合计 6256）；qwen3.8-flash 真实计费（输入 0.80 元/百万 tokens、输出 2.70 元/百万 tokens）估算约 0.0079 元，本轮费用上限=0.5400 元；C1=0.0145(LLM真实费用占比), C2=0.0633(计算时间占比 19.0s/300s), C3=1.0000(人工审核成本)。"
+        },
+        "requires_human_review": true,
+        "novelty": "new uncertainty-focused experiment",
+        "responded_prior_finding": "上一轮 E_R02_01 模型敏感性实验判定“未检出稳定增益”；外部补充回测显示 dev 中仅有 mag_both（h=3, auto）的 RMSE 区间不跨零，Pearson_r 增益区间跨零，f1/f2 未获得跨窗口一致支持。本候选把 RMSE 与 Pearson_r_delta分开评价，并按冻结协议恢复 BY/BZ/Scalar B 磁场基线。",
+        "target_uncertainty_focus": "在 Ridge 与 ElasticNet 中，Pearson_r 小幅上升而 RMSE 点估计变差，需区分 RMSE 主证据与 Pearson_r_delta 辅助证据。",
+        "changed_factors": [
+          "特征集：恢复冻结回测磁场基线 BY/BZ/Scalar B（移除 BX）",
+          "评价语义：RMSE 主证据与 Pearson_r_delta 辅助证据分开判定"
+        ],
+        "held_fixed_factors": [
+          "目标变量：SW Plasma Speed, km/s（预测速度标量，不扩展为方向）",
+          "冻结特征与各自滞后：BY[4,5,7,8]、BZ[1,2]、Scalar B[1,2]、p2_y[1]、p1_x[9]",
+          "预测时距：3 天（发报日与目标日分别记录）",
+          "模型与选参：Ridge / ElasticNet，各自在训练期内自动选参（alpha 0.01..1000，l1_ratio 0.1..0.9）",
+          "bootstrap：block=7、draws=2000、seed=20261017、min_blocks=2",
+          "评价窗口：dev/f1/f2 按冻结回测逐窗口分别报告共同样本，不合并缺口日期"
+        ],
+        "expected_outcome_branches": {
+          "RMSE 与 Pearson_r_delta 都给出同向支持": "按主证据 RMSE 优先陈述，辅助指标保持一致。",
+          "RMSE 支持但 Pearson_r_delta 不支持或相反": "只陈述 RMSE 增量，不把相关提升写成误差尺度改善。",
+          "RMSE 不支持但 Pearson_r_delta 支持": "把 Pearson 变化表述为相关结构变化，不升级为误差改善。",
+          "两者都未检出": "写“未检出稳定增益”，下一步核查数据质量或日影特征进入模型的情况。"
+        },
+        "exploratory": false
+      },
+      {
+        "experiment_id": "E_R03_03",
+        "type": "validation_followup",
+        "experiment_type": "incremental_prediction",
+        "purpose": "承接科学不确定性：配对块 bootstrap 置信区间跨零是否说明增益主要由 35 天共同测试中的局部时间块或少数高相关日期驱动；本候选按冻结协议在 dev/f1/f2 逐窗口重复 block bootstrap（block=7、draws=2000、min_blocks=2），报告有效时间块数与 RMSE/Pearson_r_delta 增量区间，不再套用滞后敏感性模板。",
+        "scientific_question": "配对块 bootstrap 置信区间跨零是否说明增益主要由局部时间块或少数日期驱动？",
+        "tested_hypotheses": [
+          "H_window_stability",
+          "H_shadow_incremental_gain"
+        ],
+        "related_uncertainties": [
+          "U_R02_05"
+        ],
+        "disagreement_context": {
+          "U_R02_05": {
+            "H_window_stability": {
+              "hypothesis_id": "H_window_stability",
+              "expected": "positive",
+              "status": "active",
+              "support_score": 0.427,
+              "rationale_trigger": "llm_hypothesis_H5",
+              "source_summary": "假设 H5 继承上一轮轮末状态，当前支持度 0.427，本轮科学质询后按证据调整。"
+            },
+            "H_shadow_incremental_gain": {
+              "hypothesis_id": "H_shadow_incremental_gain",
+              "expected": "positive",
+              "status": "active",
+              "support_score": 0.8919,
+              "rationale_trigger": "llm_hypothesis_H1",
+              "source_summary": "假设 H1 继承上一轮轮末状态，当前支持度 0.88，本轮科学质询后按证据调整。"
+            }
+          }
+        },
+        "hypothesis_source_context": {
+          "H_window_stability": {
+            "trigger": "llm_hypothesis_H5",
+            "summary": "假设 H5 继承上一轮轮末状态，当前支持度 0.427，本轮科学质询后按证据调整。",
+            "linked_uncertainties": [],
+            "derived_features": [],
+            "source_signals": [],
+            "confidence": 0.427
+          },
+          "H_shadow_incremental_gain": {
+            "trigger": "llm_hypothesis_H1",
+            "summary": "假设 H1 继承上一轮轮末状态，当前支持度 0.88，本轮科学质询后按证据调整。",
+            "linked_uncertainties": [],
+            "derived_features": [],
+            "source_signals": [],
+            "confidence": 0.88
+          }
+        },
+        "design": {
+          "target": "SW Plasma Speed, km/s",
+          "control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值"
+          ],
+          "lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ]
+          },
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "window_size": 9,
+          "control_lag_days": 9,
+          "treatment_lag_days": 9,
+          "control_forecast_horizon_days": 3,
+          "treatment_forecast_horizon_days": 3,
+          "notes": [
+            "generated_from:U_R02_05",
+            "design_focus:p2_y中心值",
+            "probe_axis:bootstrap_robustness",
+            "compare frozen mag baseline vs baseline+treatment",
+            "frozen_source:scripts/diag_legacy_v3_migration.py",
+            "frozen_manifest:artifacts/legacy_v3_migration/outer_backtest/outer_backtest_manifest.json",
+            "frozen_lags:BY[4,5,7,8],BZ[1,2],Scalar B[1,2],p2_y[1],p1_x[9]",
+            "model_selection:family-specific training-internal auto selection",
+            "window_reporting:dev/f1/f2 shared-calendar windows reported separately",
+            "假设触发来源：H5（LLM 起草）,H1（LLM 起草）",
+            "假设来源摘要：H5:假设 H5 继承上一轮轮末状态，当前支持度 0.427，本轮科学质询后按证据调整。 | H1:假设 H1 继承上一轮轮末状态，当前支持度 0.88，本轮科学质询后按证据调整。",
+            "待区分假设：H5,H1",
+            "process_note:研究者导入外部诊断后，系统关联假设、重排未决问题，并生成下一轮候选草案；本 dry-run 不批准执行、不写入闭环状态，也不宣称 LLM 独立完成选择。"
+          ],
+          "design_focus": "p2_y中心值",
+          "display_target": "SW Plasma Speed, km/s",
+          "display_control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "display_treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值（南北日影）"
+          ],
+          "display_design_focus": "p2_y中心值（南北日影）",
+          "model_families": [
+            "ridge",
+            "elasticnet"
+          ],
+          "runs_spec": [
+            {
+              "run_id": "ridge_baseline",
+              "label": "ridge 对照组",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT"
+              ],
+              "model_family": "ridge",
+              "parameters": {},
+              "retrain": true
+            },
+            {
+              "run_id": "ridge_treatment",
+              "label": "ridge 实验组（南北日影）",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT",
+                "p2_y中心值"
+              ],
+              "model_family": "ridge",
+              "parameters": {},
+              "retrain": true
+            },
+            {
+              "run_id": "elasticnet_baseline",
+              "label": "elasticnet 对照组",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT"
+              ],
+              "model_family": "elasticnet",
+              "parameters": {},
+              "retrain": true
+            },
+            {
+              "run_id": "elasticnet_treatment",
+              "label": "elasticnet 实验组（南北日影）",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT",
+                "p2_y中心值"
+              ],
+              "model_family": "elasticnet",
+              "parameters": {},
+              "retrain": true
+            }
+          ],
+          "contrasts_spec": [
+            {
+              "contrast_id": "gain_ridge",
+              "name": "ridge 家族内南北日影增量",
+              "kind": "incremental_gain",
+              "run_ids": [
+                "ridge_baseline",
+                "ridge_treatment"
+              ],
+              "contrast_ids": [],
+              "direction": "mixed",
+              "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+            },
+            {
+              "contrast_id": "gain_elasticnet",
+              "name": "elasticnet 家族内南北日影增量",
+              "kind": "incremental_gain",
+              "run_ids": [
+                "elasticnet_baseline",
+                "elasticnet_treatment"
+              ],
+              "contrast_ids": [],
+              "direction": "mixed",
+              "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+            }
+          ],
+          "diagnostics_spec": [
+            {
+              "diagnostic_id": "paired_block_bootstrap_gain_ci",
+              "name": "配对块 bootstrap 增益区间（dev/f1/f2 逐窗口）",
+              "source_run_ids": [
+                "ridge_baseline",
+                "ridge_treatment",
+                "elasticnet_baseline",
+                "elasticnet_treatment"
+              ],
+              "parameters": {
+                "block_size": 7,
+                "n_draws": 2000,
+                "seed": 20261017,
+                "min_blocks": 2
+              },
+              "retrain": false,
+              "note": "在冻结回测的 dev/f1/f2 共同样本窗口内分别计算 RMSE 与 Pearson_r_delta 的配对块 bootstrap 95% 区间；保留有效时间块数，不以扩大 n_draws 掩盖信息不足。"
+            }
+          ],
+          "probe_axis": "bootstrap_robustness"
+        },
+        "hypothesis_predictions": {
+          "H_window_stability": {
+            "expected_effect": "positive",
+            "expected_range": [
+              0.75,
+              1.0
+            ],
+            "metric": "stability_rate"
+          },
+          "H_shadow_incremental_gain": {
+            "expected_effect": "positive",
+            "expected_range": [
+              0.02,
+              0.12
+            ],
+            "metric": "Pearson_r_delta"
+          }
+        },
+        "distinguishing_insight": "在相同冻结协议内，仅改变 bootstrap 评价口径并保留有效时间块数与逐窗口报告，用于判断区间跨零是否由局部块或少数日期驱动；它构成稳健性验证，不构成滞后扫描。",
+        "estimated_information_gain": {
+          "value": 0.5,
+          "rationale": "语义校验后不直接比较 Pearson_r_delta 与 stability_rate：前者是预测相关增量，后者是跨窗口稳定率，二者统计量与结论语义不一致，不能由区间不重叠推导 IG=1.0。修正为无同语义可区分预测区间，按中性 0.5 处理。本评分是实验前的预期区分度启发式评分，不是严格贝叶斯 EIG；实验完成后以实际观测 Δ 计算后验 KL 散度审计并写入评估结果。"
+        },
+        "estimated_performance_gain": {
+          "value": 0.0,
+          "rationale": "第一轮、尚无历史实验结果、或没有同类型可比的对照组/实验组 RMSE 时，按规则将 PG_expected 置为 0，不参与综合价值计算。"
+        },
+        "estimated_risk": {
+          "value": 0.2422,
+          "rationale": "按 Risk(E)=0.35·D1+0.25·D2+0.25·D3+0.15·D4 计算；D1=0.4405（支持度先验：2 条假设平均支持度 0.6594、支持度跨度 0.4649），D2=0.1500（数据质量/对齐：样本量风险 0.0000、多源对齐风险 0.50、未来信息泄露风险 0.00），D3=0.1200（实验设计：设计复杂度 0.3000、对照充分性 0.00、历史可重复性 0.00），D4=0.1367（资源执行：估算 tokens 5684/200000、估算耗时 10.0s/300s、人工审核 0.50）；当前最高风险分项为“支持度先验”。"
+        },
+        "estimated_cost": {
+          "value": 0.1685,
+          "rationale": "按 Cost(E)=max(0.50·C1+0.35·C2+0.15·C3, 0.05) 计算；估算输入 tokens=4184、输出 tokens=1500（合计 5684）；qwen3.8-flash 真实计费（输入 0.80 元/百万 tokens、输出 2.70 元/百万 tokens）估算约 0.0074 元，本轮费用上限=0.5400 元；C1=0.0137(LLM真实费用占比), C2=0.0333(计算时间占比 10.0s/300s), C3=1.0000(人工审核成本)。"
+        },
+        "requires_human_review": true,
+        "novelty": "new uncertainty-focused experiment",
+        "responded_prior_finding": "上一轮（E_R02_01）CI 跨零按保守规则判定为“未检出稳定增益”；外部补充回测进一步显示，dev 中唯一不跨零的RMSE 改善在 f1/f2 未获得跨窗口一致支持。本候选核验区间跨零是否主要由局部时间块或少数日期驱动。",
+        "target_uncertainty_focus": "配对块 bootstrap 置信区间跨零是否说明增益主要由 35 天共同测试中的局部时间块或少数高相关日期驱动；按 7 天时间块重抽样后，RMSE 改善方向是否仍稳定？",
+        "changed_factors": [
+          "实验类型：validation_followup（原误标 lag_sensitivity）",
+          "特征与滞后：采用冻结回测的 mag -> mag_ns 特征与各自滞后，不使用 [1,2,3] 人工滞后扫描",
+          "评价：保留有效时间块数与逐窗口区间，不以扩大 n_draws 掩盖信息不足"
+        ],
+        "held_fixed_factors": [
+          "目标变量：SW Plasma Speed, km/s（预测速度标量，不扩展为方向）",
+          "冻结特征与各自滞后：BY[4,5,7,8]、BZ[1,2]、Scalar B[1,2]、p2_y[1]、p1_x[9]",
+          "预测时距：3 天（发报日与目标日分别记录）",
+          "模型与选参：Ridge / ElasticNet，各自在训练期内自动选参（alpha 0.01..1000，l1_ratio 0.1..0.9）",
+          "bootstrap：block=7、draws=2000、seed=20261017、min_blocks=2",
+          "评价窗口：dev/f1/f2 按冻结回测逐窗口分别报告共同样本，不合并缺口日期"
+        ],
+        "expected_outcome_branches": {
+          "有效时间块充足且区间不跨零": "把该窗口结论作为暂定证据，下一轮仅变更一个因素复核。",
+          "有效时间块不足（<min_blocks）": "阻断方向性判定，报告单块退化，不以扩大 n_draws 掩盖。",
+          "有效块充足但区间跨零": "写“未检出稳定增益”，不自动改变假设支持度。",
+          "两个模型方向相反": "不把点估计方向当作稳定证据，先核查样本与正则化设置。"
+        },
+        "exploratory": false
+      },
+      {
+        "experiment_id": "E_R03_04",
+        "type": "distinguishing",
+        "experiment_type": "model_sensitivity",
+        "purpose": "承接科学不确定性：在相同冻结协议下，检查 Ridge 与 ElasticNet 的日影增量是否对训练内自动选参结果稳健；按冻结特征与各自滞后（不使用 1/3/5 天人工滞后扫描），在 dev/f1/f2 逐窗口共同样本分别报告 RMSE 主证据与Pearson_r_delta 辅助证据。",
+        "scientific_question": "日影增量是否主要来自特定模型家族或特定训练内选参结果，而非稳定的特征贡献？",
+        "tested_hypotheses": [
+          "H_shadow_incremental_gain"
+        ],
+        "related_uncertainties": [
+          "U_R02_01"
+        ],
+        "disagreement_context": {
+          "U_R02_01": {
+            "H_shadow_incremental_gain": {
+              "hypothesis_id": "H_shadow_incremental_gain",
+              "expected": "positive",
+              "status": "active",
+              "support_score": 0.8919,
+              "rationale_trigger": "llm_hypothesis_H1",
+              "source_summary": "假设 H1 继承上一轮轮末状态，当前支持度 0.88，本轮科学质询后按证据调整。"
+            }
+          }
+        },
+        "hypothesis_source_context": {
+          "H_shadow_incremental_gain": {
+            "trigger": "llm_hypothesis_H1",
+            "summary": "假设 H1 继承上一轮轮末状态，当前支持度 0.88，本轮科学质询后按证据调整。",
+            "linked_uncertainties": [],
+            "derived_features": [],
+            "source_signals": [],
+            "confidence": 0.88
+          }
+        },
+        "design": {
+          "target": "SW Plasma Speed, km/s",
+          "control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值"
+          ],
+          "lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ]
+          },
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "window_size": 9,
+          "control_lag_days": 9,
+          "treatment_lag_days": 9,
+          "control_forecast_horizon_days": 3,
+          "treatment_forecast_horizon_days": 3,
+          "notes": [
+            "generated_from:U_R02_01",
+            "design_focus:p2_y中心值",
+            "probe_axis:selection_robustness",
+            "compare frozen mag baseline vs baseline+treatment",
+            "frozen_source:scripts/diag_legacy_v3_migration.py",
+            "frozen_manifest:artifacts/legacy_v3_migration/outer_backtest/outer_backtest_manifest.json",
+            "frozen_lags:BY[4,5,7,8],BZ[1,2],Scalar B[1,2],p2_y[1],p1_x[9]",
+            "model_selection:family-specific training-internal auto selection",
+            "window_reporting:dev/f1/f2 shared-calendar windows reported separately",
+            "假设触发来源：H1（LLM 起草）",
+            "假设来源摘要：H1:假设 H1 继承上一轮轮末状态，当前支持度 0.88，本轮科学质询后按证据调整。",
+            "待区分假设：H1",
+            "process_note:研究者导入外部诊断后，系统关联假设、重排未决问题，并生成下一轮候选草案；本 dry-run 不批准执行、不写入闭环状态，也不宣称 LLM 独立完成选择。"
+          ],
+          "design_focus": "p2_y中心值",
+          "display_target": "SW Plasma Speed, km/s",
+          "display_control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "display_treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值（南北日影）"
+          ],
+          "display_design_focus": "p2_y中心值（南北日影）",
+          "model_families": [
+            "ridge",
+            "elasticnet"
+          ],
+          "runs_spec": [
+            {
+              "run_id": "ridge_baseline",
+              "label": "ridge 对照组",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT"
+              ],
+              "model_family": "ridge",
+              "parameters": {},
+              "retrain": true
+            },
+            {
+              "run_id": "ridge_treatment",
+              "label": "ridge 实验组（南北日影）",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT",
+                "p2_y中心值"
+              ],
+              "model_family": "ridge",
+              "parameters": {},
+              "retrain": true
+            },
+            {
+              "run_id": "elasticnet_baseline",
+              "label": "elasticnet 对照组",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT"
+              ],
+              "model_family": "elasticnet",
+              "parameters": {},
+              "retrain": true
+            },
+            {
+              "run_id": "elasticnet_treatment",
+              "label": "elasticnet 实验组（南北日影）",
+              "feature_columns": [
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT",
+                "p2_y中心值"
+              ],
+              "model_family": "elasticnet",
+              "parameters": {},
+              "retrain": true
+            }
+          ],
+          "contrasts_spec": [
+            {
+              "contrast_id": "gain_ridge",
+              "name": "ridge 家族内南北日影增量",
+              "kind": "incremental_gain",
+              "run_ids": [
+                "ridge_baseline",
+                "ridge_treatment"
+              ],
+              "contrast_ids": [],
+              "direction": "mixed",
+              "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+            },
+            {
+              "contrast_id": "gain_elasticnet",
+              "name": "elasticnet 家族内南北日影增量",
+              "kind": "incremental_gain",
+              "run_ids": [
+                "elasticnet_baseline",
+                "elasticnet_treatment"
+              ],
+              "contrast_ids": [],
+              "direction": "mixed",
+              "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+            }
+          ],
+          "diagnostics_spec": [
+            {
+              "diagnostic_id": "paired_block_bootstrap_gain_ci",
+              "name": "配对块 bootstrap 增益区间（dev/f1/f2 逐窗口）",
+              "source_run_ids": [
+                "ridge_baseline",
+                "ridge_treatment",
+                "elasticnet_baseline",
+                "elasticnet_treatment"
+              ],
+              "parameters": {
+                "block_size": 7,
+                "n_draws": 2000,
+                "seed": 20261017,
+                "min_blocks": 2
+              },
+              "retrain": false,
+              "note": "在冻结回测的 dev/f1/f2 共同样本窗口内分别计算 RMSE 与 Pearson_r_delta 的配对块 bootstrap 95% 区间；保留有效时间块数，不以扩大 n_draws 掩盖信息不足。"
+            }
+          ],
+          "probe_axis": "selection_robustness"
+        },
+        "hypothesis_predictions": {
+          "H_shadow_incremental_gain": {
+            "expected_effect": "positive",
+            "expected_range": [
+              0.02,
+              0.12
+            ],
+            "metric": "Pearson_r_delta"
+          }
+        },
+        "distinguishing_insight": "通过两个线性模型家族在完全相同的冻结特征、滞后、选参与窗口下分别做 mag -> mag_ns 对比，判断结论是否依赖于模型家族或选参；不扩展为滞后扫描。",
+        "estimated_information_gain": {
+          "value": 0.5,
+          "rationale": "候选实验当前关联的可区分假设不足 2 个，无法按 IG_pair=1-overlap 计算，按文档约定退化为中性信息增益 0.5；后续关联到至少 2 个假设后，将改用同统计量、同实验条件的预测区间重新计算。"
+        },
+        "estimated_performance_gain": {
+          "value": 0.0,
+          "rationale": "第一轮、尚无历史实验结果、或没有同类型可比的对照组/实验组 RMSE 时，按规则将 PG_expected 置为 0，不参与综合价值计算。"
+        },
+        "estimated_risk": {
+          "value": 0.1424,
+          "rationale": "按 Risk(E)=0.35·D1+0.25·D2+0.25·D3+0.15·D4 计算；D1=0.1081（支持度先验：1 条假设平均支持度 0.8919、支持度跨度 0.0000），D2=0.1500（数据质量/对齐：样本量风险 0.0000、多源对齐风险 0.50、未来信息泄露风险 0.00），D3=0.1800（实验设计：设计复杂度 0.3000、对照充分性 0.00、历史可重复性 0.20），D4=0.1472（资源执行：估算 tokens 6240/200000、估算耗时 19.0s/300s、人工审核 0.50）；当前最高风险分项为“实验设计”。"
+        },
+        "estimated_cost": {
+          "value": 0.1794,
+          "rationale": "按 Cost(E)=max(0.50·C1+0.35·C2+0.15·C3, 0.05) 计算；估算输入 tokens=4740、输出 tokens=1500（合计 6240）；qwen3.8-flash 真实计费（输入 0.80 元/百万 tokens、输出 2.70 元/百万 tokens）估算约 0.0078 元，本轮费用上限=0.5400 元；C1=0.0145(LLM真实费用占比), C2=0.0633(计算时间占比 19.0s/300s), C3=1.0000(人工审核成本)。"
+        },
+        "requires_human_review": true,
+        "novelty": "new uncertainty-focused experiment",
+        "responded_prior_finding": "上一轮（E_R02_01）两组家族内对比均未检出稳定增益；外部补充回测中仅 dev 的 mag_both（h=3, auto）一处 RMSE 区间不跨零。本候选在冻结协议下检查该信号是否仅依赖特定模型家族或选参结果。",
+        "target_uncertainty_focus": "在相同 3 天超前下，Ridge 与 ElasticNet 加入南北日影后的 RMSE 下降是否超过配对块 bootstrap 区间下界，且 Pearson_r_delta 与 RMSE 的结论语义分开。",
+        "changed_factors": [
+          "实验类型：distinguishing（原误标 lag_sensitivity）",
+          "特征与滞后：采用冻结回测的 mag -> mag_ns 特征与各自滞后，移除 [1,3,5] 人工滞后扫描",
+          "评价：模型家族与选参稳健性，RMSE 与 Pearson_r_delta 分开"
+        ],
+        "held_fixed_factors": [
+          "目标变量：SW Plasma Speed, km/s（预测速度标量，不扩展为方向）",
+          "冻结特征与各自滞后：BY[4,5,7,8]、BZ[1,2]、Scalar B[1,2]、p2_y[1]、p1_x[9]",
+          "预测时距：3 天（发报日与目标日分别记录）",
+          "模型与选参：Ridge / ElasticNet，各自在训练期内自动选参（alpha 0.01..1000，l1_ratio 0.1..0.9）",
+          "bootstrap：block=7、draws=2000、seed=20261017、min_blocks=2",
+          "评价窗口：dev/f1/f2 按冻结回测逐窗口分别报告共同样本，不合并缺口日期"
+        ],
+        "expected_outcome_branches": {
+          "两个模型家族均检出稳定同向增益": "作为暂定证据，下一轮只变更一个因素复核。",
+          "仅一个模型家族稳定支持": "把结论限制在该模型的设置边界，不做跨家族稳定断言。",
+          "两个家族均跨零或方向相反": "写“未检出稳定增益”，先核查特征进入模型与缺失日历。",
+          "系数被筛零或预测退化为常数": "阻断结论，检查正则化与日影特征是否真正进入模型。"
+        },
+        "exploratory": false
+      }
+    ],
+    "rejected_candidates": [],
+    "minimum_required": 3,
+    "current_count": 4
+  },
+  "fix_reference": "round_03_fix_audit.json"
+}

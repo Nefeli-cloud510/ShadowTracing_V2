@@ -1,0 +1,450 @@
+{
+  "schema_version": "legacy-v3-import-dry-run-fix-v1",
+  "generated_at": "2026-10-17T01:20:27.740651+00:00",
+  "scope": "仅修复候选 dry-run 文件；未执行实验、未修改实时会话、未运行 import_legacy_v3_outer_evidence.py、未改变冻结回测结论。",
+  "original_file": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\import_dry_run\\round_03_candidates_dry_run.json",
+  "fixed_file": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\import_dry_run\\round_03_candidates_dry_run.fixed.json",
+  "original_sha256": "744be11cfa80efa8eb05ad7ec27f5da6707f0488f1c2fedf93aa9b8a015c6ef9",
+  "fixed_sha256": "8fddb5babce28bd9db67c505d680c1ac97de225310d023ab2ad5b8c0cb7438a9",
+  "schema_validation": {
+    "model": "CandidateExperimentSet",
+    "command": "CandidateExperimentSet.model_validate(payload['candidate_set'])",
+    "passed": true,
+    "error": null
+  },
+  "scientific_boundaries": [
+    "修复仅针对候选协议、特征范围、滞后、窗口口径与指标语义一致性。",
+    "数字口径来自 outer_backtest_manifest.json 与 outer_backtest_reproducibility_conclusion.json。",
+    "dev/f1/f2 为冻结补充回测的迭代/补充窗口，不宣称独立盲测。",
+    "未对任何假设计分、会话状态或科学结论进行修改；未执行实验。",
+    "本 dry-run 为研究者导入外部诊断后的程序化候选草案，队列编号不等于大模型完成最优选择。"
+  ],
+  "changes": {
+    "E_R03_01": {
+      "before": {
+        "type": "lag_sensitivity",
+        "experiment_type": "incremental_prediction",
+        "probe_axis": null,
+        "control": [
+          "BY, nT (GSE)",
+          "Scalar B, nT",
+          "BX, nT (GSE, GSM)"
+        ],
+        "treatment": [
+          "BY, nT (GSE)",
+          "Scalar B, nT",
+          "BX, nT (GSE, GSM)",
+          "p2_y中心值"
+        ],
+        "lags": {
+          "p2_y中心值": [
+            1,
+            3,
+            5
+          ]
+        },
+        "forecast_horizon_days": 3,
+        "past_lag_days": 3,
+        "window_size": 14,
+        "model_families": [],
+        "run_count": 0,
+        "metrics": {
+          "H_shadow_incremental_gain": "Pearson_r",
+          "H_window_stability": "Pearson_r"
+        },
+        "ig_value": 1.0,
+        "responded_prior_finding": "实验 E_R02_01 的上一轮发现：模型敏感性实验结果为“未检出稳定增益”：ridge: RMSE 增量=0.5869, CI=[-0.1607, 1.194]；elasticnet: RMSE 增量=0.375, CI=[-0.01004, 0.5918]。点估计方向与稳定证据分开判断，该结果不自动改变假设支持度。；target 预测效果专项分析：模型敏感性实验共 4 组运行、2 个家族内对比；ridge ΔRMSE=0.5869（CI=[-0.1607, 1.1940]）；elasticnet ΔRMSE=0.3750（CI=[-0.0100, 0.5918]）。CI 跨零时按保守规则判定为未检出稳定增益，不自动改变假设支持度。"
+      },
+      "after": {
+        "type": "cross_window_stability",
+        "experiment_type": "model_sensitivity",
+        "probe_axis": "cross_window_stability",
+        "control": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT"
+        ],
+        "treatment": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT",
+          "p2_y中心值",
+          "p1_x中心值"
+        ],
+        "lags": {
+          "BY, nT (GSE)": [
+            4,
+            5,
+            7,
+            8
+          ],
+          "BZ, nT (GSE)": [
+            1,
+            2
+          ],
+          "Scalar B, nT": [
+            1,
+            2
+          ],
+          "p2_y中心值": [
+            1
+          ],
+          "p1_x中心值": [
+            9
+          ]
+        },
+        "forecast_horizon_days": 3,
+        "past_lag_days": 9,
+        "window_size": 9,
+        "model_families": [
+          "ridge",
+          "elasticnet"
+        ],
+        "run_count": 4,
+        "metrics": {
+          "H_shadow_incremental_gain": "Pearson_r_delta",
+          "H_window_stability": "stability_rate"
+        },
+        "ig_value": 0.5,
+        "responded_prior_finding": "触发证据：dev 小幅正向；f1 点估计转负；f2 点估计同向但区间跨零。dev 参考值：RMSE 增益 0.4809（95% CI [0.0142, 0.8504]）；f1：-0.2728（CI [-1.5070, 0.5066]）；f2：0.5301（CI [-0.3274, 1.6772]）。因此改变：优先核验跨时段可重复性，并保持原始特征协议。拟检验问题：当前结果不足，主要反映估计不精确，还是存在条件依赖？结论统一表述为“未获得跨窗口一致支持”。"
+      },
+      "semantic_justification": "跨窗口稳定性实验恢复冻结回测的 mag -> mag_both，移除滞后敏感性误分类；执行类型固定为已注册的 model_sensitivity（4 组两家族双臂），配对块 bootstrap 不作为普通训练协议诊断，拆为 E_R03_03 robustness_diagnostic 独立草案。",
+      "changed_fields": [
+        "type",
+        "experiment_type",
+        "design.probe_axis",
+        "design.control",
+        "design.treatment",
+        "design.lags",
+        "design.notes",
+        "design.forecast_horizon_days",
+        "design.past_lag_days",
+        "design.window_size",
+        "design.model_families",
+        "design.runs_spec",
+        "design.contrasts_spec",
+        "hypothesis_predictions",
+        "estimated_information_gain",
+        "responded_prior_finding",
+        "changed_factors",
+        "held_fixed_factors"
+      ]
+    },
+    "E_R03_02": {
+      "before": {
+        "type": "distinguishing",
+        "experiment_type": "model_sensitivity",
+        "probe_axis": null,
+        "control": [
+          "BY, nT (GSE)",
+          "Scalar B, nT",
+          "BX, nT (GSE, GSM)"
+        ],
+        "treatment": [
+          "BY, nT (GSE)",
+          "Scalar B, nT",
+          "BX, nT (GSE, GSM)",
+          "p2_y中心值"
+        ],
+        "lags": {},
+        "forecast_horizon_days": 3,
+        "past_lag_days": 3,
+        "window_size": 14,
+        "model_families": [
+          "ridge",
+          "elasticnet"
+        ],
+        "run_count": 4,
+        "metrics": {
+          "H_shadow_incremental_gain": "Pearson_r",
+          "H_window_stability": "Pearson_r"
+        },
+        "ig_value": 1.0,
+        "responded_prior_finding": "实验 E_R02_01 的上一轮发现：模型敏感性实验结果为“未检出稳定增益”：ridge: RMSE 增量=0.5869, CI=[-0.1607, 1.194]；elasticnet: RMSE 增量=0.375, CI=[-0.01004, 0.5918]。点估计方向与稳定证据分开判断，该结果不自动改变假设支持度。；target 预测效果专项分析：模型敏感性实验共 4 组运行、2 个家族内对比；ridge ΔRMSE=0.5869（CI=[-0.1607, 1.1940]）；elasticnet ΔRMSE=0.3750（CI=[-0.0100, 0.5918]）。CI 跨零时按保守规则判定为未检出稳定增益，不自动改变假设支持度。"
+      },
+      "after": {
+        "type": "distinguishing",
+        "experiment_type": "model_sensitivity",
+        "probe_axis": "metric_semantics",
+        "control": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT"
+        ],
+        "treatment": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT",
+          "p2_y中心值"
+        ],
+        "lags": {
+          "BY, nT (GSE)": [
+            4,
+            5,
+            7,
+            8
+          ],
+          "BZ, nT (GSE)": [
+            1,
+            2
+          ],
+          "Scalar B, nT": [
+            1,
+            2
+          ],
+          "p2_y中心值": [
+            1
+          ]
+        },
+        "forecast_horizon_days": 3,
+        "past_lag_days": 9,
+        "window_size": 9,
+        "model_families": [
+          "ridge",
+          "elasticnet"
+        ],
+        "run_count": 4,
+        "metrics": {
+          "H_shadow_incremental_gain": "Pearson_r_delta",
+          "H_window_stability": "stability_rate"
+        },
+        "ig_value": 0.5,
+        "responded_prior_finding": "上一轮 E_R02_01 模型敏感性实验判定“未检出稳定增益”；外部补充回测显示 dev 中仅有 mag_both（h=3, auto）的 RMSE 区间不跨零，Pearson_r 增益区间跨零，f1/f2 未获得跨窗口一致支持。本候选把 RMSE 与 Pearson_r_delta分开评价，并按冻结协议恢复 BY/BZ/Scalar B 磁场基线。"
+      },
+      "semantic_justification": "RMSE 主证据与 Pearson_r_delta 辅助证据分开语义判定；特征基线恢复 BY/BZ/Scalar B，移除 BX。",
+      "changed_fields": [
+        "type",
+        "experiment_type",
+        "design.probe_axis",
+        "design.control",
+        "design.treatment",
+        "design.lags",
+        "design.forecast_horizon_days",
+        "design.past_lag_days",
+        "design.window_size",
+        "design.model_families",
+        "design.runs_spec",
+        "design.contrasts_spec",
+        "design.diagnostics_spec",
+        "hypothesis_predictions",
+        "estimated_information_gain",
+        "responded_prior_finding",
+        "changed_factors",
+        "held_fixed_factors"
+      ]
+    },
+    "E_R03_03": {
+      "before": {
+        "type": "lag_sensitivity",
+        "experiment_type": "incremental_prediction",
+        "probe_axis": null,
+        "control": [
+          "BY, nT (GSE)",
+          "Scalar B, nT",
+          "BX, nT (GSE, GSM)"
+        ],
+        "treatment": [
+          "BY, nT (GSE)",
+          "Scalar B, nT",
+          "BX, nT (GSE, GSM)",
+          "p2_y中心值"
+        ],
+        "lags": {
+          "p2_y中心值": [
+            1,
+            2,
+            3
+          ]
+        },
+        "forecast_horizon_days": 3,
+        "past_lag_days": 3,
+        "window_size": 14,
+        "model_families": [],
+        "run_count": 0,
+        "metrics": {
+          "H_window_stability": "Pearson_r",
+          "H_shadow_incremental_gain": "Pearson_r"
+        },
+        "ig_value": 1.0,
+        "responded_prior_finding": "实验 E_R02_01 的上一轮发现：模型敏感性实验结果为“未检出稳定增益”：ridge: RMSE 增量=0.5869, CI=[-0.1607, 1.194]；elasticnet: RMSE 增量=0.375, CI=[-0.01004, 0.5918]。点估计方向与稳定证据分开判断，该结果不自动改变假设支持度。；target 预测效果专项分析：模型敏感性实验共 4 组运行、2 个家族内对比；ridge ΔRMSE=0.5869（CI=[-0.1607, 1.1940]）；elasticnet ΔRMSE=0.3750（CI=[-0.0100, 0.5918]）。CI 跨零时按保守规则判定为未检出稳定增益，不自动改变假设支持度。"
+      },
+      "after": {
+        "type": "validation_followup",
+        "experiment_type": "incremental_prediction",
+        "probe_axis": "bootstrap_robustness",
+        "control": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT"
+        ],
+        "treatment": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT",
+          "p2_y中心值"
+        ],
+        "lags": {
+          "BY, nT (GSE)": [
+            4,
+            5,
+            7,
+            8
+          ],
+          "BZ, nT (GSE)": [
+            1,
+            2
+          ],
+          "Scalar B, nT": [
+            1,
+            2
+          ],
+          "p2_y中心值": [
+            1
+          ]
+        },
+        "forecast_horizon_days": 3,
+        "past_lag_days": 9,
+        "window_size": 9,
+        "model_families": [
+          "ridge",
+          "elasticnet"
+        ],
+        "run_count": 4,
+        "metrics": {
+          "H_window_stability": "stability_rate",
+          "H_shadow_incremental_gain": "Pearson_r_delta"
+        },
+        "ig_value": 0.5,
+        "responded_prior_finding": "上一轮（E_R02_01）CI 跨零按保守规则判定为“未检出稳定增益”；外部补充回测进一步显示，dev 中唯一不跨零的RMSE 改善在 f1/f2 未获得跨窗口一致支持。本候选核验区间跨零是否主要由局部时间块或少数日期驱动。"
+      },
+      "semantic_justification": "bootstrap 稳健性不再作为 lag_sensitivity；冻结滞后替代 [1,2,3]，保留有效时间块数。",
+      "changed_fields": [
+        "type",
+        "experiment_type",
+        "design.probe_axis",
+        "design.control",
+        "design.treatment",
+        "design.lags",
+        "design.forecast_horizon_days",
+        "design.past_lag_days",
+        "design.window_size",
+        "design.model_families",
+        "design.runs_spec",
+        "design.contrasts_spec",
+        "design.diagnostics_spec",
+        "hypothesis_predictions",
+        "estimated_information_gain",
+        "responded_prior_finding",
+        "changed_factors",
+        "held_fixed_factors"
+      ]
+    },
+    "E_R03_04": {
+      "before": {
+        "type": "lag_sensitivity",
+        "experiment_type": "model_sensitivity",
+        "probe_axis": null,
+        "control": [
+          "BY, nT (GSE)",
+          "Scalar B, nT",
+          "BX, nT (GSE, GSM)"
+        ],
+        "treatment": [
+          "BY, nT (GSE)",
+          "Scalar B, nT",
+          "BX, nT (GSE, GSM)",
+          "p2_y中心值"
+        ],
+        "lags": {
+          "p2_y中心值": [
+            1,
+            3,
+            5
+          ]
+        },
+        "forecast_horizon_days": 3,
+        "past_lag_days": 3,
+        "window_size": 14,
+        "model_families": [
+          "ridge",
+          "elasticnet"
+        ],
+        "run_count": 4,
+        "metrics": {
+          "H_shadow_incremental_gain": "Pearson_r"
+        },
+        "ig_value": 0.5,
+        "responded_prior_finding": "实验 E_R02_01 的上一轮发现：模型敏感性实验结果为“未检出稳定增益”：ridge: RMSE 增量=0.5869, CI=[-0.1607, 1.194]；elasticnet: RMSE 增量=0.375, CI=[-0.01004, 0.5918]。点估计方向与稳定证据分开判断，该结果不自动改变假设支持度。；target 预测效果专项分析：模型敏感性实验共 4 组运行、2 个家族内对比；ridge ΔRMSE=0.5869（CI=[-0.1607, 1.1940]）；elasticnet ΔRMSE=0.3750（CI=[-0.0100, 0.5918]）。CI 跨零时按保守规则判定为未检出稳定增益，不自动改变假设支持度。"
+      },
+      "after": {
+        "type": "distinguishing",
+        "experiment_type": "model_sensitivity",
+        "probe_axis": "selection_robustness",
+        "control": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT"
+        ],
+        "treatment": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT",
+          "p2_y中心值"
+        ],
+        "lags": {
+          "BY, nT (GSE)": [
+            4,
+            5,
+            7,
+            8
+          ],
+          "BZ, nT (GSE)": [
+            1,
+            2
+          ],
+          "Scalar B, nT": [
+            1,
+            2
+          ],
+          "p2_y中心值": [
+            1
+          ]
+        },
+        "forecast_horizon_days": 3,
+        "past_lag_days": 9,
+        "window_size": 9,
+        "model_families": [
+          "ridge",
+          "elasticnet"
+        ],
+        "run_count": 4,
+        "metrics": {
+          "H_shadow_incremental_gain": "Pearson_r_delta"
+        },
+        "ig_value": 0.5,
+        "responded_prior_finding": "上一轮（E_R02_01）两组家族内对比均未检出稳定增益；外部补充回测中仅 dev 的 mag_both（h=3, auto）一处 RMSE 区间不跨零。本候选在冻结协议下检查该信号是否仅依赖特定模型家族或选参结果。"
+      },
+      "semantic_justification": "模型/选参稳健性检查不再作为 lag_sensitivity；冻结滞后替代 [1,3,5]，Pearson_r_delta 语义修正。",
+      "changed_fields": [
+        "type",
+        "experiment_type",
+        "design.probe_axis",
+        "design.control",
+        "design.treatment",
+        "design.lags",
+        "design.forecast_horizon_days",
+        "design.past_lag_days",
+        "design.window_size",
+        "design.model_families",
+        "design.runs_spec",
+        "design.contrasts_spec",
+        "design.diagnostics_spec",
+        "hypothesis_predictions",
+        "estimated_information_gain",
+        "responded_prior_finding",
+        "changed_factors",
+        "held_fixed_factors"
+      ]
+    }
+  }
+}

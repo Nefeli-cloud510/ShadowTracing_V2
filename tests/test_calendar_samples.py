@@ -11,6 +11,7 @@ from models.elasticnet_runner import (
     ExperimentConfig,
     FileConfig,
     TimeWindowConfig,
+    build_sliding_window,
     load_and_merge_data,
 )
 
@@ -165,6 +166,142 @@ class CalendarSamplePlanTest(unittest.TestCase):
                 and record.drop_reason == "feature_missing"
             ]
             self.assertTrue(dropped, "source-missing day should survive merge and be judged at sample layer")
+
+    def test_sparse_feature_lags_are_authoritative(self) -> None:
+        dates = pd.date_range("2021-01-01", periods=16, freq="D")
+        frame = pd.DataFrame(
+            {
+                "A": np.arange(16, dtype=float),
+                "B": np.arange(16, dtype=float) * 2,
+            }
+        )
+        plan = build_sample_plan(
+            frame,
+            frame["A"],
+            pd.Series(dates.strftime("%Y%m%d")),
+            feature_columns=["A", "B"],
+            target_name="A",
+            past_lag_days=3,
+            forecast_horizon_days=1,
+            feature_lags={"A": [3, 1], "B": [9]},
+        )
+        self.assertEqual(plan.feature_lags, {"A": [1, 3], "B": [9]})
+        self.assertEqual(
+            [spec.feature_name() for spec in plan.feature_specs],
+            ["A_t-1", "A_t-3", "B_t-9"],
+        )
+        self.assertEqual(plan.past_lag_days, 3)
+
+    def test_sparse_feature_lag_missing_follows_feature_date(self) -> None:
+        dates = pd.date_range("2021-01-01", periods=15, freq="D")
+        frame = pd.DataFrame(
+            {
+                "A": np.arange(15, dtype=float),
+                "B": np.arange(15, dtype=float),
+            }
+        )
+        frame.loc[3, "B"] = np.nan
+        plan = build_sample_plan(
+            frame,
+            frame["A"],
+            pd.Series(dates.strftime("%Y%m%d")),
+            feature_columns=["A", "B"],
+            target_name="A",
+            past_lag_days=1,
+            forecast_horizon_days=1,
+            feature_lags={"A": [1], "B": [9]},
+        )
+        dropped = [
+            record
+            for record in plan.records
+            if record.issue_date == pd.Timestamp("2021-01-13")
+            and record.drop_reason == "feature_missing"
+        ]
+        self.assertTrue(dropped, "B 在对应特征日期缺失时应拒绝该样本")
+        retained = [
+            record
+            for record in plan.records
+            if record.issue_date == pd.Timestamp("2021-01-12")
+            and record.drop_reason is None
+        ]
+        self.assertTrue(retained, "特征日期完整时应保留该样本")
+        self.assertEqual(plan.field_drop_counts.get("B"), 1)
+
+    def test_sparse_feature_lags_filter_keys_not_in_run_columns(self) -> None:
+        dates = pd.date_range("2021-01-01", periods=12, freq="D")
+        frame = pd.DataFrame({"A": np.arange(12, dtype=float)})
+        plan = build_sample_plan(
+            frame,
+            frame["A"],
+            pd.Series(dates.strftime("%Y%m%d")),
+            feature_columns=["A"],
+            target_name="A",
+            past_lag_days=1,
+            forecast_horizon_days=1,
+            feature_lags={"A": [1], "B": [9]},
+        )
+        self.assertEqual(plan.feature_lags, {"A": [1]})
+        self.assertEqual(
+            [spec.feature_name() for spec in plan.feature_specs],
+            ["A_t-1"],
+        )
+
+    def test_without_sparse_lags_keeps_uniform_window(self) -> None:
+        dates = pd.date_range("2021-01-01", periods=12, freq="D")
+        frame = pd.DataFrame({"A": np.arange(12, dtype=float)})
+        plan = build_sample_plan(
+            frame,
+            frame["A"],
+            pd.Series(dates.strftime("%Y%m%d")),
+            feature_columns=["A"],
+            target_name="A",
+            past_lag_days=3,
+            forecast_horizon_days=3,
+        )
+        self.assertEqual(plan.feature_lags, {"A": [0, 1, 2]})
+        self.assertEqual(
+            [spec.feature_name() for spec in plan.feature_specs],
+            ["A_t", "A_t-1", "A_t-2"],
+        )
+
+    def test_sparse_feature_lags_require_every_run_column(self) -> None:
+        dates = pd.date_range("2021-01-01", periods=12, freq="D")
+        frame = pd.DataFrame(
+            {
+                "A": np.arange(12, dtype=float),
+                "B": np.arange(12, dtype=float),
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "缺少"):
+            build_sample_plan(
+                frame,
+                frame["A"],
+                pd.Series(dates.strftime("%Y%m%d")),
+                feature_columns=["A", "B"],
+                target_name="A",
+                past_lag_days=1,
+                forecast_horizon_days=1,
+                feature_lags={"A": [1]},
+            )
+
+    def test_build_sliding_window_rejects_sparse_lags_without_intersection(self) -> None:
+        dates = pd.date_range("2021-01-01", periods=12, freq="D")
+        frame = pd.DataFrame({"A": np.arange(12, dtype=float)})
+        tw_cfg = TimeWindowConfig(
+            window_size=2,
+            test_split_ratio=0.2,
+            forecast_horizon_days=1,
+            past_lag_days=3,
+            feature_lags={"A": [1, 3]},
+        )
+        with self.assertRaisesRegex(ValueError, "没有交集"):
+            build_sliding_window(
+                frame,
+                frame["A"],
+                pd.Series(dates.strftime("%Y%m%d")),
+                tw_cfg,
+                feature_columns=["B"],
+            )
 
 
 if __name__ == "__main__":

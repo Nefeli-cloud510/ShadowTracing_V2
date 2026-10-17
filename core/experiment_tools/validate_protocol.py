@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from core.calendar_samples import canonicalize_feature_lags
 from core.experiment_tools.compiled_plan import (
     CompiledExperimentPlan,
     normalize_diagnostic_id,
@@ -163,6 +164,49 @@ def _family_tag(family: str) -> str:
     return family
 
 
+def _canonical_feature_lags(
+    protocol: ExperimentProtocol,
+    compiled_runs: list[RunSpec],
+    time_parameters: dict[str, object],
+    reasons: list[str],
+) -> dict[str, list[int]]:
+    """Resolve one authoritative sparse lag map for connected training tools.
+
+    Every feature column actually trained by a run must have a declared lag.
+    An empty protocol lags map keeps the legacy uniform expansion; a non-empty
+    map is authoritative and rejects missing variables instead of silently
+    widening a run's input window.
+    """
+
+    columns = list(
+        dict.fromkeys(
+            str(column)
+            for run in compiled_runs
+            for column in run.feature_columns
+        )
+    )
+    if not columns:
+        reasons.append("编译计划缺少特征列，无法声明稀疏滞后。")
+        return {}
+    declared = {
+        key: list(values)
+        for key, values in (protocol.features.lags or {}).items()
+    }
+    try:
+        return canonicalize_feature_lags(
+            declared or None,
+            columns,
+            past_lag_days=(
+                int(time_parameters["past_lag_days"])
+                if time_parameters.get("past_lag_days") is not None
+                else None
+            ),
+        )
+    except ValueError as exc:
+        reasons.append(str(exc))
+        return {}
+
+
 def _finalize_protocol_validation(
     protocol: ExperimentProtocol,
     result: ProtocolValidationResult,
@@ -181,6 +225,20 @@ def _finalize_protocol_validation(
     )
     for legacy_key in ("feature_groups", "arm_time_windows", "model_families"):
         model_parameters.pop(legacy_key, None)
+    feature_lags: dict[str, list[int]] = {}
+    if protocol.experiment_type in {
+        "incremental_prediction",
+        "baseline_benchmark",
+        "model_sensitivity",
+    }:
+        feature_lags = _canonical_feature_lags(
+            protocol,
+            result.compiled_runs,
+            result.time_parameters,
+            result.reasons,
+        )
+        if not result.valid:
+            return result
     result.compiled_plan = CompiledExperimentPlan(
         experiment_type=protocol.experiment_type,
         target=protocol.target,
@@ -188,10 +246,14 @@ def _finalize_protocol_validation(
         round_id=protocol.round_id,
         model_parameters=model_parameters,
         time_parameters={
-            key: value
-            for key, value in result.time_parameters.items()
-            if value is not None
+            **{
+                key: value
+                for key, value in result.time_parameters.items()
+                if value is not None
+            },
+            "feature_lags": feature_lags,
         },
+        feature_lags=feature_lags,
         runs=[
             RunSpec.model_validate(item.model_dump())
             for item in result.compiled_runs

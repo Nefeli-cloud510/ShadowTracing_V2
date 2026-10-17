@@ -58,6 +58,32 @@ class ElasticNetProtocolBridge:
             raise KeyError(f"特征列在数据源中不存在: {missing}")
         return valid_columns
 
+    def _resolve_feature_lags(
+        self,
+        feature_lags: dict[str, list[int]] | None,
+    ) -> dict[str, list[int]] | None:
+        """Resolve sparse-lag keys through the data dictionary aliases.
+
+        Protocol lags may name physical-meaning display labels such as
+        ``BY, nT (GSE)`` while the merged frame stores the canonical field
+        name. Resolve both forms to the actual frame column so the runner
+        never silently falls back to a uniform lag window.
+        """
+
+        if not feature_lags:
+            return None
+        available_columns = self._available_columns()
+        resolved: dict[str, list[int]] = {}
+        for key, values in feature_lags.items():
+            actual = self._resolve_column_name(str(key), available_columns)
+            if actual is not None:
+                resolved[actual] = [int(value) for value in values]
+        if not resolved:
+            raise ValueError(
+                f"feature_lags 未解析到任何可用特征列: {list(feature_lags)}"
+            )
+        return resolved
+
     def build_runner_config(
         self,
         protocol: ExperimentProtocol,
@@ -84,6 +110,7 @@ class ElasticNetProtocolBridge:
             window_size=window_size,
             forecast_horizon_days=forecast_horizon_days,
             past_lag_days=past_lag_days,
+            feature_lags=protocol.features.lags or None,
             test_split_ratio=float(
                 model_parameters.get(
                     "test_split_ratio",
@@ -153,6 +180,11 @@ class ElasticNetProtocolBridge:
                 if time_parameters["past_lag_days"] is not None
                 else None
             ),
+            feature_lags=(
+                dict(compiled_plan.feature_lags or {})
+                or time_parameters.get("feature_lags")
+                or None
+            ),
             test_split_ratio=float(time_parameters["test_split_ratio"]),
             model_family=self._normalize_model_family_value(
                 run_spec.model_family
@@ -169,6 +201,7 @@ class ElasticNetProtocolBridge:
         window_size: int,
         forecast_horizon_days: int,
         past_lag_days: int | None,
+        feature_lags: dict[str, list[int]] | None,
         test_split_ratio: float,
         model_family: str,
         model_parameters: dict,
@@ -194,6 +227,7 @@ class ElasticNetProtocolBridge:
                     if past_lag_days is not None
                     else None
                 ),
+                feature_lags=self._resolve_feature_lags(feature_lags),
             ),
             elasticnet_config=RunnerElasticNetConfig(
                 model_family=model_family,

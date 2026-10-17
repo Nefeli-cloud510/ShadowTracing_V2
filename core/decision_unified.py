@@ -201,8 +201,16 @@ def _candidate_traceability(
     """Pre-register what this candidate responds to and which factors it alters."""
 
     held_fixed: list[str] = ["目标变量", "评价指标与日历对齐规则", "训练/评价时间划分"]
+    if design.probe_axis == "cross_window_stability":
+        held_fixed = [item for item in held_fixed if item != "训练/评价时间划分"]
+        held_fixed.append("评价窗口按冻结回测逐窗口分别报告（dev/f1/f2）")
     changed: list[str] = []
     prior_finding = None
+    mining_sources = list(getattr(record, "mining_sources", None) or [])
+    is_external_diagnostic = (
+        str(getattr(record, "uncertainty_id", "")).startswith("U_EXT_")
+        or any(str(item).startswith("external_diagnostic:") for item in mining_sources)
+    )
     completed = (
         [entry for entry in experiment_memory.entries if entry.status == "completed"]
         if experiment_memory
@@ -284,6 +292,14 @@ def _candidate_traceability(
                 if item
             ]
         )
+    if is_external_diagnostic:
+        prior_finding = (
+            "外部补充回测的上一轮发现：dev 段 mag_both（提前 3 天、训练内自动选参）"
+            "唯一不跨零的 RMSE 改善未获得跨窗口一致支持。"
+            "触发证据：dev 小幅正向；f1 点估计转负；f2 点估计同向但区间跨零。"
+            "因此改变：优先核验跨时段可重复性，并保持原始特征协议。"
+            "拟检验问题：当前结果不足，主要反映估计不精确，还是存在条件依赖？"
+        )
     if not changed:
         changed.append("在本轮固定条件下验证/复测与上一轮相关的不确定性")
     exploratory = False
@@ -293,7 +309,13 @@ def _candidate_traceability(
 
     type_key = experiment_type or "incremental_prediction"
     branches: dict[str, str] = {}
-    if type_key == "model_sensitivity":
+    if design.probe_axis == "cross_window_stability":
+        branches = {
+            "dev、f1、f2 增益点估计同向且区间均不跨零": "记录跨窗口一致支持，并继续在未参与选择的时段做独立验证。",
+            "窗口间方向不一致或点估计同向但区间跨零": "结论写“未获得跨窗口一致支持”，仅保留局部窗口的探索性证据，不将其更新为稳定增益支持。",
+            "所有窗口均未检出增益": "保留“未检出稳定增益”的保守结论，下一轮核查数据质量与协议边界。",
+        }
+    elif type_key == "model_sensitivity":
         branches = {
             "两个模型家族均检出稳定正向日影增益": "把稳定性作为下一轮核心结论的暂定支持证据，继续做固定任务下的正则化敏感性核查。",
             "两个模型家族均检出稳定负向增益": "系统性地加入日影反而带来一致退化，先检查数据对齐、缺失掩码与样本范围，再决定是否调整特征构造。",
@@ -1129,13 +1151,32 @@ def _estimate_uncertainty_cost(record: UncertaintyRecord) -> float:
     return 0.35
 
 
+_TEMPORAL_STABILITY_TOKENS = (
+    "跨时段",
+    "跨窗口",
+    "跨时间",
+    "temporal stability",
+    "cross-window",
+    "cross_window",
+)
+
+
+def _mentions_temporal_stability(text: str) -> bool:
+    """True when the uncertainty explicitly asks about stability across windows."""
+
+    lowered = text.lower()
+    return any(token in lowered for token in _TEMPORAL_STABILITY_TOKENS)
+
+
 def _candidate_type(record: UncertaintyRecord) -> str:
     if record.resolution_status == "partially_resolved":
         return "validation_followup"
     text = f"{record.question} {record.description}".lower()
     if any(token in text for token in ("mediat", "中介", "through")):
         return "mediator_test"
-    if any(token in text for token in ("lag", "滞后", "跨时间", "stability", "稳定")):
+    if _mentions_temporal_stability(text):
+        return "cross_window_stability"
+    if any(token in text for token in ("lag", "滞后")):
         return "lag_sensitivity"
     if any(token in text for token in ("independent", "独立")):
         return "incremental_gain"
@@ -1248,7 +1289,7 @@ def _uncertainty_design_strategy(
     has_non_primary_focus: bool,
 ) -> str:
     """Pick an experiment structure from the uncertainty's scientific signal."""
-    has_lag = any(token in text for token in ("lag", "滞后", "时滞", "跨时间", "stability", "稳定", "窗口"))
+    has_lag = any(token in text for token in ("lag", "滞后", "时滞"))
     has_mediator = any(token in text for token in ("mediat", "中介", "through", "via", "路径"))
     has_independent = any(token in text for token in ("independent", "独立增量", "独立预测"))
     has_condition = any(
@@ -1271,6 +1312,8 @@ def _uncertainty_design_strategy(
 
     if is_partial:
         return "validation_followup"
+    if _mentions_temporal_stability(text):
+        return "temporal_stability_probe"
     if has_lag:
         return "lag_stability"
     if has_residual:
@@ -1299,9 +1342,20 @@ def _uncertainty_design_strategy(
 def _lag_stability_values(record: UncertaintyRecord) -> list[int]:
     """Keep time-stability and prediction-horizon questions on distinct axes."""
     text = f"{record.question} {record.description}".lower()
-    if any(token in text for token in ("horizon", "lead time", "超前", "提前量", "窗口")):
+    if any(token in text for token in ("horizon", "lead time", "超前", "提前量")):
         return [1, 3, 5]
-    return [1, 2, 3]
+    if any(token in text for token in ("lag", "滞后", "时滞")):
+        return [1, 2, 3]
+    return []
+
+
+_FROZEN_MAG_BOTH_LAGS: dict[str, list[int]] = {
+    "BY, nT (GSE)": [4, 5, 7, 8],
+    "BZ, nT (GSE)": [1, 2],
+    "Scalar B, nT": [1, 2],
+    "p2_y中心值": [1],
+    "p1_x中心值": [9],
+}
 
 
 def _build_design_for_strategy(
@@ -1336,19 +1390,54 @@ def _build_design_for_strategy(
             feature for feature in baseline_features
             if feature not in {primary_x, target}
         ]
+    if strategy == "temporal_stability_probe":
+        magnetic_base = [
+            feature
+            for feature in ("BY, nT (GSE)", "BZ, nT (GSE)", "Scalar B, nT")
+            if feature in {*baseline_features, *feature_pool}
+            and feature not in {primary_x, target}
+        ]
+        if magnetic_base:
+            baseline_features = magnetic_base
+        else:
+            baseline_features = [
+                feature
+                for feature in baseline_features
+                if feature not in {primary_x, target, "p2_y中心值", "p1_x中心值"}
+            ]
     control = baseline_features
-    treatment = _unique_preserve_order([*baseline_features, primary_x])
-    lags = (
-        {primary_x: lag_values or [1, 2, 3]}
-        if strategy == "lag_stability"
-        else {}
-    )
+    if strategy == "temporal_stability_probe":
+        shadow_axes = _unique_preserve_order(
+            feature
+            for feature in [primary_x, *feature_pool]
+            if feature in {"p2_y中心值", "p1_x中心值"}
+        )
+        treatment = _unique_preserve_order([*baseline_features, *shadow_axes])
+        if not shadow_axes:
+            treatment = _unique_preserve_order([*baseline_features, primary_x])
+        lags = {
+            feature: list(_FROZEN_MAG_BOTH_LAGS[feature])
+            for feature in treatment
+            if feature in _FROZEN_MAG_BOTH_LAGS
+        }
+    else:
+        treatment = _unique_preserve_order([*baseline_features, primary_x])
+        lags = (
+            {primary_x: lag_values or [1, 2, 3]}
+            if strategy == "lag_stability"
+            else {}
+        )
 
     return ExperimentDesign(
         target=target,
         control=_normalize_design_features(control),
         treatment=_normalize_design_features(treatment),
         lags=lags,
+        probe_axis=(
+            "cross_window_stability"
+            if strategy == "temporal_stability_probe"
+            else None
+        ),
         design_focus=primary_x,
     ), primary_x
 
@@ -1462,6 +1551,7 @@ def _design_from_uncertainty(
             "competition_probe": f"probe_primary_gain_over_competitor:{effective_focus}",
             "conditional_path": f"probe_conditioned_contribution_with_focus:{effective_focus}",
             "lag_stability": f"probe_lagged_stability_across_windows:{effective_focus}",
+            "temporal_stability_probe": f"probe_cross_window_stability:{effective_focus}",
             "residual_probe": f"probe_residual_source_with_focus:{effective_focus}",
             "validation_followup": f"validation_followup_rerun_focus:{effective_focus}",
         }
@@ -1564,6 +1654,7 @@ def _design_signature(
             design.treatment_forecast_horizon_days,
         ),
         experiment_type,
+        design.probe_axis,
         tuple(sorted({normalize_model_family(name) for name in design.model_families})),
         tuple(sorted(_run_spec_signature(spec) for spec in design.runs_spec)),
         tuple(sorted(_contrast_spec_signature(spec) for spec in design.contrasts_spec)),
@@ -1868,6 +1959,28 @@ def _expected_range_from_effect(*, expected_effect: str, support_score: float) -
     return [round(center - width, 4), round(center + width, 4)]
 
 
+def _prediction_metric_domain(metric: str | None) -> str | None:
+    """Map prediction metrics to semantic domains so units are never compared loosely."""
+
+    if not metric:
+        return None
+    normalized = metric.strip().lower()
+    aliases = {
+        "pearson_r": "pearson_r_absolute",
+        "pearson r": "pearson_r_absolute",
+        "pearson_r_absolute": "pearson_r_absolute",
+        "r_abs": "pearson_r_absolute",
+        "pearson_r_delta": "pearson_r_delta",
+        "delta_pearson_r": "pearson_r_delta",
+        "delta_r": "pearson_r_delta",
+        "stability_rate": "stability_rate",
+        "stable_window_rate": "stability_rate",
+        "rmse_delta": "rmse_delta",
+        "delta_rmse": "rmse_delta",
+    }
+    return aliases.get(normalized, f"exact:{normalized}")
+
+
 def _formal_information_gain(
     candidate: CandidateExperiment,
     *,
@@ -1903,8 +2016,9 @@ def _formal_information_gain(
     elif incomparable_pairs:
         return (
             0.5,
-            "候选实验关联假设的预测区间使用不同指标（metric 不一致），无法直接计算区分度；"
-            f"{incomparable_pairs} 组区间因指标单位不同被标记为不可比，按中性 0.5 处理。"
+            "候选实验关联假设的预测区间使用不同指标或缺失指标，统计量/语义不一致，"
+            "无法直接计算区分度；"
+            f"{incomparable_pairs} 组区间因统计量/语义不一致被标记为不可比，按中性 0.5 处理。"
             "请让关联假设在同一指标上给出预测区间后再做严格比较。",
         )
     else:
@@ -1928,7 +2042,7 @@ def _formal_information_gain(
     rationale = (
         "按可比的预测区间对计算 IG_pair=1-overlap、IG(E)=avg(IG_pair)；"
         f"{focus_text}{len(predictions)} 个相关竞争假设、{len(pair_scores)} 组可比预测区间"
-        f"（{incomparable_pairs} 组因指标不一致不可比），"
+        f"（{incomparable_pairs} 组因统计量/语义不一致不可比），"
         f"平均区分度为 {ig:.4f}{metric_text}。"
     )
     if current_round > 1:
@@ -1946,11 +2060,15 @@ def _prediction_overlap(
     left_metric: str | None = None,
     right_metric: str | None = None,
 ) -> float | None:
-    if left_metric or right_metric:
-        left_norm = (left_metric or "").strip().lower()
-        right_norm = (right_metric or "").strip().lower()
-        if left_norm != right_norm:
-            return None
+    left_domain = _prediction_metric_domain(left_metric)
+    right_domain = _prediction_metric_domain(right_metric)
+    # Two missing metrics come from the same program fallback heuristic, so their
+    # ranges remain mutually comparable. A known metric mixed with an unknown one
+    # is rejected because the units are not auditable.
+    if left_domain is None and right_domain is None:
+        pass
+    elif left_domain is None or right_domain is None or left_domain != right_domain:
+        return None
     if not left_range or not right_range:
         return 0.5
     left_mu = (left_range[0] + left_range[1]) / 2

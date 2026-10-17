@@ -39,6 +39,7 @@ class CompiledExperimentPlan:
     contrasts: list[ContrastSpec] = field(default_factory=list)
     diagnostics: list[DiagnosticSpec] = field(default_factory=list)
     alignment: ProtocolAlignmentSpec | None = None
+    feature_lags: dict[str, list[int]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +49,10 @@ class CompiledExperimentPlan:
             "round_id": self.round_id,
             "model_parameters": dict(self.model_parameters),
             "time_parameters": dict(self.time_parameters),
+            "feature_lags": {
+                key: list(values)
+                for key, values in self.feature_lags.items()
+            },
             "runs": [item.model_dump(mode="json", exclude_none=True) for item in self.runs],
             "contrasts": [
                 item.model_dump(mode="json", exclude_none=True) for item in self.contrasts

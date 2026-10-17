@@ -24,6 +24,7 @@ from core.calendar_samples import (
     CalendarSplit,
     SamplePlan,
     build_sample_plan,
+    is_legacy_uniform_lags,
     make_calendar_split,
 )
 from core.data_provenance import (
@@ -82,6 +83,10 @@ class TimeWindowConfig(BaseModel):
     max_lag_day: int = Field(default=0, ge=0, le=196)
     forecast_horizon_days: int = Field(default=1, ge=1, le=30, description="预测超前天数，>=1 的严格预测回测")
     past_lag_days: int | None = Field(default=None, ge=1, le=196, description="仅保留最近 N 天滞后特征")
+    feature_lags: dict[str, list[int]] | None = Field(
+        default=None,
+        description="逐变量稀疏滞后；非空时作为权威滞后声明，不再按 past_lag_days 统一展开",
+    )
 
 
 class ElasticNetConfig(BaseModel):
@@ -418,6 +423,21 @@ def build_sliding_window(
             for item in (feature_columns if feature_columns is not None else X_raw.columns)
         )
     )
+    resolved_lags = tw_cfg.feature_lags
+    if is_legacy_uniform_lags(resolved_lags, past_lag_days):
+        resolved_lags = None
+    sparse_lags = None
+    if resolved_lags:
+        sparse_lags = {
+            str(key): list(values)
+            for key, values in resolved_lags.items()
+            if str(key) in columns
+        }
+        if not sparse_lags:
+            raise ValueError(
+                "time_window_config.feature_lags 与当前 run 特征列没有交集，"
+                "禁止回退为统一滞后展开。"
+            )
     plan = build_sample_plan(
         X_raw,
         y_raw,
@@ -426,6 +446,7 @@ def build_sliding_window(
         target_name=y_raw.name or "target",
         past_lag_days=past_lag_days,
         forecast_horizon_days=forecast_horizon,
+        feature_lags=sparse_lags,
     )
     records = plan.retained_records()
     retained_before_filter = len(records)

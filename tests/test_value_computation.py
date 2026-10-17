@@ -4,6 +4,7 @@ from core.decision_unified import (
     _build_hypothesis_predictions,
     _formal_expected_performance_gain,
     _formal_information_gain,
+    _prediction_overlap,
 )
 from core.evaluation_unified import (
     build_performance_metrics,
@@ -177,6 +178,54 @@ class ValueComputationTest(unittest.TestCase):
         self.assertIsNotNone(metrics.information_gain_kl)
         self.assertGreater(metrics.information_gain_kl, 0.0)
         self.assertGreater(metrics.ig_posterior_probs["H1"], metrics.ig_prior_probs["H1"])
+
+    def test_mixed_statistic_metrics_are_not_compared(self) -> None:
+        predictions = {
+            "H_shadow_incremental_gain": HypothesisPrediction(
+                expected_effect="positive",
+                expected_range=[0.02, 0.12],
+                metric="Pearson_r_delta",
+            ),
+            "H_window_stability": HypothesisPrediction(
+                expected_effect="positive",
+                expected_range=[0.75, 1.0],
+                metric="stability_rate",
+            ),
+        }
+        ig, rationale = _formal_information_gain(
+            _candidate(predictions=predictions),
+            current_round=3,
+        )
+        self.assertEqual(ig, 0.5)
+        self.assertIn("统计量/语义不一致", rationale)
+        self.assertIsNone(
+            _prediction_overlap(
+                [0.02, 0.12],
+                [0.75, 1.0],
+                left_metric="Pearson_r_delta",
+                right_metric="stability_rate",
+            )
+        )
+
+    def test_pearson_absolute_and_pearson_delta_are_incomparable(self) -> None:
+        predictions = {
+            "H_shadow_incremental_gain": HypothesisPrediction(
+                expected_effect="positive",
+                expected_range=[0.02, 0.12],
+                metric="Pearson_r_absolute",
+            ),
+            "H_window_stability": HypothesisPrediction(
+                expected_effect="positive",
+                expected_range=[0.75, 1.0],
+                metric="Pearson_r_delta",
+            ),
+        }
+        ig, rationale = _formal_information_gain(
+            _candidate(predictions=predictions),
+            current_round=3,
+        )
+        self.assertEqual(ig, 0.5)
+        self.assertIn("统计量/语义不一致", rationale)
 
     def test_expected_pg_is_zero_in_first_round(self) -> None:
         predictions = {

@@ -1,0 +1,599 @@
+{
+  "generated_at": "2026-10-17T02:25:42.918608+00:00",
+  "repo_head": "65f3b9861afa117a2a3f35cb3377c16872f3b733",
+  "fixed_candidate_file": "D:\\ShadowTracing\\artifacts\\legacy_v3_migration\\import_dry_run\\round_03_candidates_dry_run.fixed.json",
+  "execution_boundary": "执行器当前架构只自动执行 dev 单窗口；f1/f2 是冻结外部回测清单中的只读参照，三窗口自动执行尚未接通。",
+  "process_boundary": "本次验收不调用大模型规划：E_R03_01 为研究者导入外部诊断后生成的候选草案，由程序化映射转正式协议并执行；不宣称跨窗口一致支持。",
+  "protocol_smoke": {
+    "protocol_experiment_id": "E_R03_01",
+    "experiment_type": "model_sensitivity",
+    "task_id": "ST_ACCEPTANCE_SPARSE_LAGS",
+    "round_id": 3,
+    "target": "SW Plasma Speed, km/s",
+    "protocol_features": {
+      "control": [
+        "BY, nT (GSE)",
+        "BZ, nT (GSE)",
+        "Scalar B, nT"
+      ],
+      "treatment": [
+        "BY, nT (GSE)",
+        "BZ, nT (GSE)",
+        "Scalar B, nT",
+        "p2_y中心值",
+        "p1_x中心值"
+      ],
+      "lags": {
+        "BY, nT (GSE)": [
+          4,
+          5,
+          7,
+          8
+        ],
+        "BZ, nT (GSE)": [
+          1,
+          2
+        ],
+        "Scalar B, nT": [
+          1,
+          2
+        ],
+        "p2_y中心值": [
+          1
+        ],
+        "p1_x中心值": [
+          9
+        ]
+      },
+      "forecast_horizon_days": 3,
+      "past_lag_days": 9,
+      "window_size": 9
+    },
+    "model_parameters": {
+      "model_families": [
+        "ridge",
+        "elasticnet"
+      ],
+      "window_size": 9,
+      "forecast_horizon_days": 3,
+      "past_lag_days": 9,
+      "param_search_mode": null
+    },
+    "checks": [
+      {
+        "check": "candidate_type_is_model_sensitivity",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "check": "protocol_run_count_is_four",
+        "passed": true,
+        "detail": "['ridge_baseline', 'ridge_treatment', 'elasticnet_baseline', 'elasticnet_treatment']"
+      },
+      {
+        "check": "protocol_contrast_count_is_two",
+        "passed": true,
+        "detail": "['gain_ridge', 'gain_elasticnet']"
+      },
+      {
+        "check": "protocol_frozen_lags_preserved",
+        "passed": true,
+        "detail": "{'BY, nT (GSE)': [4, 5, 7, 8], 'BZ, nT (GSE)': [1, 2], 'Scalar B, nT': [1, 2], 'p2_y中心值': [1], 'p1_x中心值': [9]}"
+      },
+      {
+        "check": "protocol_validation_valid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "check": "compiled_plan_has_four_runs",
+        "passed": true,
+        "detail": "['ridge_baseline', 'ridge_treatment', 'elasticnet_baseline', 'elasticnet_treatment']"
+      },
+      {
+        "check": "compiled_plan_has_two_contrasts",
+        "passed": true,
+        "detail": "['gain_ridge', 'gain_elasticnet']"
+      },
+      {
+        "check": "compiled_plan_feature_lags_exact",
+        "passed": true,
+        "detail": "{'BY, nT (GSE)': [4, 5, 7, 8], 'BZ, nT (GSE)': [1, 2], 'Scalar B, nT': [1, 2], 'p2_y中心值': [1], 'p1_x中心值': [9]}"
+      },
+      {
+        "check": "compiled_time_parameters_exact",
+        "passed": true,
+        "detail": "{'forecast_horizon_days': 3, 'past_lag_days': 9, 'window_size': 9, 'test_split_ratio': 0.2, 'feature_lags': {'BY, nT (GSE)': [4, 5, 7, 8], 'BZ, nT (GSE)': [1, 2], 'Scalar B, nT': [1, 2], 'p2_y中心值': [1], 'p1_x中心值': [9]}}"
+      }
+    ],
+    "all_passed": true,
+    "compiled_plan": {
+      "experiment_type": "model_sensitivity",
+      "target": "SW Plasma Speed, km/s",
+      "experiment_id": "E_R03_01",
+      "round_id": 3,
+      "model_parameters": {
+        "window_size": 9,
+        "alpha": 0.3,
+        "l1_ratio": 0.5,
+        "use_lag_feature": true,
+        "max_lag_day": 9,
+        "forecast_horizon_days": 3,
+        "past_lag_days": 9,
+        "random_state": 42,
+        "test_split_ratio": 0.2,
+        "candidate_design_snapshot": {
+          "candidate_id": "E_R03_01",
+          "experiment_type": "model_sensitivity",
+          "target": "SW Plasma Speed, km/s",
+          "control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值",
+            "p1_x中心值"
+          ],
+          "model_families": [
+            "ridge",
+            "elasticnet"
+          ],
+          "lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ],
+            "p1_x中心值": [
+              9
+            ]
+          },
+          "probe_axis": "cross_window_stability",
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "window_size": 9,
+          "control_lag_days": 9,
+          "treatment_lag_days": 9,
+          "control_forecast_horizon_days": 3,
+          "treatment_forecast_horizon_days": 3
+        }
+      },
+      "time_parameters": {
+        "forecast_horizon_days": 3,
+        "past_lag_days": 9,
+        "window_size": 9,
+        "test_split_ratio": 0.2,
+        "feature_lags": {
+          "BY, nT (GSE)": [
+            4,
+            5,
+            7,
+            8
+          ],
+          "BZ, nT (GSE)": [
+            1,
+            2
+          ],
+          "Scalar B, nT": [
+            1,
+            2
+          ],
+          "p2_y中心值": [
+            1
+          ],
+          "p1_x中心值": [
+            9
+          ]
+        }
+      },
+      "feature_lags": {
+        "BY, nT (GSE)": [
+          4,
+          5,
+          7,
+          8
+        ],
+        "BZ, nT (GSE)": [
+          1,
+          2
+        ],
+        "Scalar B, nT": [
+          1,
+          2
+        ],
+        "p2_y中心值": [
+          1
+        ],
+        "p1_x中心值": [
+          9
+        ]
+      },
+      "runs": [
+        {
+          "run_id": "ridge_baseline",
+          "label": "ridge 对照组",
+          "feature_columns": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "model_family": "ridge",
+          "parameters": {},
+          "retrain": true
+        },
+        {
+          "run_id": "ridge_treatment",
+          "label": "ridge 实验组（双方向日影）",
+          "feature_columns": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值",
+            "p1_x中心值"
+          ],
+          "model_family": "ridge",
+          "parameters": {},
+          "retrain": true
+        },
+        {
+          "run_id": "elasticnet_baseline",
+          "label": "elasticnet 对照组",
+          "feature_columns": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "model_family": "elasticnet",
+          "parameters": {},
+          "retrain": true
+        },
+        {
+          "run_id": "elasticnet_treatment",
+          "label": "elasticnet 实验组（双方向日影）",
+          "feature_columns": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值",
+            "p1_x中心值"
+          ],
+          "model_family": "elasticnet",
+          "parameters": {},
+          "retrain": true
+        }
+      ],
+      "contrasts": [
+        {
+          "contrast_id": "gain_ridge",
+          "name": "ridge 家族内双方向日影增量",
+          "kind": "incremental_gain",
+          "run_ids": [
+            "ridge_baseline",
+            "ridge_treatment"
+          ],
+          "contrast_ids": [],
+          "direction": "mixed",
+          "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+        },
+        {
+          "contrast_id": "gain_elasticnet",
+          "name": "elasticnet 家族内双方向日影增量",
+          "kind": "incremental_gain",
+          "run_ids": [
+            "elasticnet_baseline",
+            "elasticnet_treatment"
+          ],
+          "contrast_ids": [],
+          "direction": "mixed",
+          "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+        }
+      ],
+      "diagnostics": [],
+      "alignment": null
+    }
+  },
+  "draft_type_checks": {
+    "checks": [
+      {
+        "check": "bootstrap_robustness_not_in_ALL_EXPERIMENT_TYPES",
+        "passed": true,
+        "detail": "['baseline_benchmark', 'baseline_redundancy', 'conditional_effect', 'incremental_prediction', 'model_sensitivity', 'robustness_diagnostic', 'temporal_sensitivity']"
+      },
+      {
+        "check": "bootstrap_robustness_not_selectable",
+        "passed": true,
+        "detail": "['baseline_benchmark', 'incremental_prediction', 'model_sensitivity']"
+      },
+      {
+        "check": "bootstrap_robustness_tool_absent",
+        "passed": true,
+        "detail": "None"
+      },
+      {
+        "check": "bootstrap_robustness_mapper_rejects_with_unregistered",
+        "passed": true,
+        "detail": "实验类型 'bootstrap_robustness' 未注册，禁止静默降级为普通增量实验，无法生成执行协议。"
+      },
+      {
+        "check": "selection_robustness_not_in_ALL_EXPERIMENT_TYPES",
+        "passed": true,
+        "detail": "['baseline_benchmark', 'baseline_redundancy', 'conditional_effect', 'incremental_prediction', 'model_sensitivity', 'robustness_diagnostic', 'temporal_sensitivity']"
+      },
+      {
+        "check": "selection_robustness_not_selectable",
+        "passed": true,
+        "detail": "['baseline_benchmark', 'incremental_prediction', 'model_sensitivity']"
+      },
+      {
+        "check": "selection_robustness_tool_absent",
+        "passed": true,
+        "detail": "None"
+      },
+      {
+        "check": "selection_robustness_mapper_rejects_with_unregistered",
+        "passed": true,
+        "detail": "实验类型 'selection_robustness' 未注册，禁止静默降级为普通增量实验，无法生成执行协议。"
+      }
+    ],
+    "all_passed": true,
+    "selectable_types": [
+      "baseline_benchmark",
+      "incremental_prediction",
+      "model_sensitivity"
+    ]
+  },
+  "isolated_execution": {
+    "temporary_project_root": "C:\\Users\\admin\\AppData\\Local\\Temp\\shadow_acceptance_sparse_1mvbv84l",
+    "run_id": "E_R03_01_r1",
+    "duration_seconds": 11.301,
+    "execution_status": "completed",
+    "evaluation_plan": {
+      "schema_version": "evaluation-plan-v1",
+      "split_label": "dev_backtest",
+      "test_ratio": 0.2,
+      "n_internal_folds": 2,
+      "test_start": "2021-08-26",
+      "created_at": "",
+      "updated_at": "",
+      "notes": [
+        "isolated executor acceptance: dev single-window execution only; f1/f2 are frozen external backtest references, not auto-executed here."
+      ]
+    },
+    "archived_compiled_plan": {
+      "experiment_type": "model_sensitivity",
+      "runs": [
+        "ridge_baseline",
+        "ridge_treatment",
+        "elasticnet_baseline",
+        "elasticnet_treatment"
+      ],
+      "contrasts": [
+        "gain_ridge",
+        "gain_elasticnet"
+      ],
+      "feature_lags": {
+        "BY, nT (GSE)": [
+          4,
+          5,
+          7,
+          8
+        ],
+        "BZ, nT (GSE)": [
+          1,
+          2
+        ],
+        "Scalar B, nT": [
+          1,
+          2
+        ],
+        "p2_y中心值": [
+          1
+        ],
+        "p1_x中心值": [
+          9
+        ]
+      },
+      "time_parameters": {
+        "forecast_horizon_days": 3,
+        "past_lag_days": 9,
+        "window_size": 9,
+        "test_split_ratio": 0.2,
+        "feature_lags": {
+          "BY, nT (GSE)": [
+            4,
+            5,
+            7,
+            8
+          ],
+          "BZ, nT (GSE)": [
+            1,
+            2
+          ],
+          "Scalar B, nT": [
+            1,
+            2
+          ],
+          "p2_y中心值": [
+            1
+          ],
+          "p1_x中心值": [
+            9
+          ]
+        }
+      }
+    },
+    "coefficient_summary": {
+      "ridge_baseline": {
+        "n_features": 8,
+        "features": [
+          "BY, nT (GSE)_t-4",
+          "BY, nT (GSE)_t-5",
+          "BY, nT (GSE)_t-7",
+          "BY, nT (GSE)_t-8",
+          "BZ, nT (GSE)_t-1",
+          "BZ, nT (GSE)_t-2",
+          "Scalar B, nT_t-1",
+          "Scalar B, nT_t-2"
+        ]
+      },
+      "ridge_treatment": {
+        "n_features": 10,
+        "features": [
+          "BY, nT (GSE)_t-4",
+          "BY, nT (GSE)_t-5",
+          "BY, nT (GSE)_t-7",
+          "BY, nT (GSE)_t-8",
+          "BZ, nT (GSE)_t-1",
+          "BZ, nT (GSE)_t-2",
+          "Scalar B, nT_t-1",
+          "Scalar B, nT_t-2",
+          "p1_x中心值_t-9",
+          "p2_y中心值_t-1"
+        ]
+      },
+      "elasticnet_baseline": {
+        "n_features": 8,
+        "features": [
+          "BY, nT (GSE)_t-4",
+          "BY, nT (GSE)_t-5",
+          "BY, nT (GSE)_t-7",
+          "BY, nT (GSE)_t-8",
+          "BZ, nT (GSE)_t-1",
+          "BZ, nT (GSE)_t-2",
+          "Scalar B, nT_t-1",
+          "Scalar B, nT_t-2"
+        ]
+      },
+      "elasticnet_treatment": {
+        "n_features": 10,
+        "features": [
+          "BY, nT (GSE)_t-4",
+          "BY, nT (GSE)_t-5",
+          "BY, nT (GSE)_t-7",
+          "BY, nT (GSE)_t-8",
+          "BZ, nT (GSE)_t-1",
+          "BZ, nT (GSE)_t-2",
+          "Scalar B, nT_t-1",
+          "Scalar B, nT_t-2",
+          "p1_x中心值_t-9",
+          "p2_y中心值_t-1"
+        ]
+      }
+    },
+    "checks": [
+      {
+        "check": "execution_completed",
+        "passed": true,
+        "detail": "completed"
+      },
+      {
+        "check": "archived_compiled_feature_lags_exact",
+        "passed": true,
+        "detail": "{'BY, nT (GSE)': [4, 5, 7, 8], 'BZ, nT (GSE)': [1, 2], 'Scalar B, nT': [1, 2], 'p2_y中心值': [1], 'p1_x中心值': [9]}"
+      },
+      {
+        "check": "archived_compiled_has_four_runs",
+        "passed": true,
+        "detail": "['ridge_baseline', 'ridge_treatment', 'elasticnet_baseline', 'elasticnet_treatment']"
+      },
+      {
+        "check": "archived_protocol_lags_exact",
+        "passed": true,
+        "detail": "{'BY, nT (GSE)': [4, 5, 7, 8], 'BZ, nT (GSE)': [1, 2], 'Scalar B, nT': [1, 2], 'p2_y中心值': [1], 'p1_x中心值': [9]}"
+      },
+      {
+        "check": "evaluation_split_label_dev_backtest",
+        "passed": true,
+        "detail": "dev_backtest"
+      },
+      {
+        "check": "evaluation_test_start_2021_08_26",
+        "passed": true,
+        "detail": "2021-08-26"
+      },
+      {
+        "check": "ridge_baseline_feature_count_matches",
+        "passed": true,
+        "detail": "n=8"
+      },
+      {
+        "check": "ridge_baseline_feature_set_matches",
+        "passed": true,
+        "detail": "['BY, nT (GSE)_t-4', 'BY, nT (GSE)_t-5', 'BY, nT (GSE)_t-7', 'BY, nT (GSE)_t-8', 'BZ, nT (GSE)_t-1', 'BZ, nT (GSE)_t-2', 'Scalar B, nT_t-1', 'Scalar B, nT_t-2']"
+      },
+      {
+        "check": "ridge_treatment_feature_count_matches",
+        "passed": true,
+        "detail": "n=10"
+      },
+      {
+        "check": "ridge_treatment_feature_set_matches",
+        "passed": true,
+        "detail": "['BY, nT (GSE)_t-4', 'BY, nT (GSE)_t-5', 'BY, nT (GSE)_t-7', 'BY, nT (GSE)_t-8', 'BZ, nT (GSE)_t-1', 'BZ, nT (GSE)_t-2', 'Scalar B, nT_t-1', 'Scalar B, nT_t-2', 'p1_x中心值_t-9', 'p2_y中心值_t-1']"
+      },
+      {
+        "check": "ridge_treatment_contains_p2_y中心值_t-1",
+        "passed": true,
+        "detail": "p2_y中心值_t-1"
+      },
+      {
+        "check": "ridge_treatment_contains_p1_x中心值_t-9",
+        "passed": true,
+        "detail": "p1_x中心值_t-9"
+      },
+      {
+        "check": "elasticnet_baseline_feature_count_matches",
+        "passed": true,
+        "detail": "n=8"
+      },
+      {
+        "check": "elasticnet_baseline_feature_set_matches",
+        "passed": true,
+        "detail": "['BY, nT (GSE)_t-4', 'BY, nT (GSE)_t-5', 'BY, nT (GSE)_t-7', 'BY, nT (GSE)_t-8', 'BZ, nT (GSE)_t-1', 'BZ, nT (GSE)_t-2', 'Scalar B, nT_t-1', 'Scalar B, nT_t-2']"
+      },
+      {
+        "check": "elasticnet_treatment_feature_count_matches",
+        "passed": true,
+        "detail": "n=10"
+      },
+      {
+        "check": "elasticnet_treatment_feature_set_matches",
+        "passed": true,
+        "detail": "['BY, nT (GSE)_t-4', 'BY, nT (GSE)_t-5', 'BY, nT (GSE)_t-7', 'BY, nT (GSE)_t-8', 'BZ, nT (GSE)_t-1', 'BZ, nT (GSE)_t-2', 'Scalar B, nT_t-1', 'Scalar B, nT_t-2', 'p1_x中心值_t-9', 'p2_y中心值_t-1']"
+      },
+      {
+        "check": "elasticnet_treatment_contains_p2_y中心值_t-1",
+        "passed": true,
+        "detail": "p2_y中心值_t-1"
+      },
+      {
+        "check": "elasticnet_treatment_contains_p1_x中心值_t-9",
+        "passed": true,
+        "detail": "p1_x中心值_t-9"
+      },
+      {
+        "check": "predictions_csv_present",
+        "passed": true,
+        "detail": "C:\\Users\\admin\\AppData\\Local\\Temp\\shadow_acceptance_sparse_1mvbv84l\\results\\round_03\\archive\\E_R03_01_r1\\predictions.csv"
+      }
+    ],
+    "all_passed": true
+  },
+  "all_passed": true
+}

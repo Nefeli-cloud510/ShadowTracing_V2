@@ -10,7 +10,12 @@ from core.decision_unified import (
     UncertaintyPrioritizer,
     UtilityScorer,
     _apply_model_sensitivity_design,
+    _build_design_for_strategy,
+    _candidate_traceability,
     _candidate_experiment_type,
+    _candidate_type,
+    _lag_stability_values,
+    _uncertainty_design_strategy,
     recompute_candidate_plan_metadata,
 )
 from core.state_repository import UnifiedStateRepository
@@ -119,6 +124,101 @@ class CandidateTypeSemanticsTest(unittest.TestCase):
                 note.startswith("capability_boundary:model_sensitivity")
                 for note in design.notes
             )
+        )
+
+
+class TemporalStabilitySemanticsTest(unittest.TestCase):
+    def _external_record(self) -> UncertaintyRecord:
+        return UncertaintyRecord(
+            uncertainty_id="U_EXT_L3_01",
+            question="外部补充回测中，dev 段 mag -> mag_both（提前 3 天、训练内自动选参）"
+            "的唯一不跨零 RMSE 改善是否具有跨时段稳定性？",
+            description="需要在 dev/f1/f2 三个窗口逐窗口报告增益与 CI；跨窗口未复现时不得写成已稳定支持。",
+            mining_sources=["external_diagnostic:legacy_v3_outer_backtest"],
+            status="active",
+            priority="high",
+            created_at_round=3,
+            created_by="external_diagnostic_import",
+        )
+
+    def test_cross_window_uncertainty_maps_to_cross_window_candidate(self) -> None:
+        record = self._external_record()
+        self.assertEqual(_candidate_type(record), "cross_window_stability")
+        self.assertEqual(
+            _uncertainty_design_strategy(
+                record,
+                f"{record.notes or ''} {record.question} {record.description}",
+                has_non_primary_focus=True,
+            ),
+            "temporal_stability_probe",
+        )
+        self.assertEqual(_lag_stability_values(record), [])
+
+    def test_temporal_stability_probe_inherits_both_shadow_axes_and_frozen_lags(self) -> None:
+        record = self._external_record()
+        design, _ = _build_design_for_strategy(
+            strategy="temporal_stability_probe",
+            focus="p2_y中心值",
+            primary_x="p2_y中心值",
+            target="SW Plasma Speed, km/s",
+            feature_pool=[
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT",
+                "p2_y中心值",
+                "p1_x中心值",
+            ],
+        )
+        self.assertIn("p2_y中心值", design.treatment)
+        self.assertIn("p1_x中心值", design.treatment)
+        for shadow in ("p2_y中心值", "p1_x中心值"):
+            self.assertNotIn(shadow, design.control)
+        self.assertEqual(design.lags["p2_y中心值"], [1])
+        self.assertEqual(design.lags["p1_x中心值"], [9])
+        self.assertEqual(design.lags["BY, nT (GSE)"], [4, 5, 7, 8])
+        self.assertEqual(design.lags["BZ, nT (GSE)"], [1, 2])
+        self.assertEqual(design.lags["Scalar B, nT"], [1, 2])
+        self.assertNotIn([1, 3, 5], list(design.lags.values()))
+        self.assertEqual(design.probe_axis, "cross_window_stability")
+
+    def test_external_traceability_does_not_cite_round_two_or_freeze_time_split(self) -> None:
+        record = self._external_record()
+        design, _ = _build_design_for_strategy(
+            strategy="temporal_stability_probe",
+            focus="p2_y中心值",
+            primary_x="p2_y中心值",
+            target="SW Plasma Speed, km/s",
+            feature_pool=[
+                "BY, nT (GSE)",
+                "BZ, nT (GSE)",
+                "Scalar B, nT",
+                "p2_y中心值",
+                "p1_x中心值",
+            ],
+        )
+        trace = _candidate_traceability(
+            record=record,
+            design=design,
+            experiment_type="incremental_prediction",
+            experiment_memory=None,
+            next_round=3,
+        )
+        self.assertIn("未获得跨窗口一致支持", trace["responded_prior_finding"])
+        self.assertNotIn("E_R02_01", trace["responded_prior_finding"])
+        self.assertNotIn("训练/评价时间划分", trace["held_fixed_factors"])
+        self.assertIn(
+            "评价窗口按冻结回测逐窗口分别报告（dev/f1/f2）",
+            trace["held_fixed_factors"],
+        )
+        self.assertTrue(
+            any(
+                "未获得跨窗口一致支持" in value
+                for value in trace["expected_outcome_branches"].values()
+            )
+        )
+        self.assertIn(
+            "external_diagnostic:legacy_v3_outer_backtest",
+            record.mining_sources,
         )
 
 

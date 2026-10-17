@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+from pydantic import ValidationError
 
 from core.experiment_tools.dispatcher import ExperimentDispatcher
 from core.experiment_tools.evaluators import evaluate_experiment_result
@@ -295,6 +296,85 @@ class ExperimentDispatcherTest(unittest.TestCase):
                 round_id=1,
             )
         self.assertEqual(candidate.experiment_type, "temporal_sensitivity")
+
+    def test_sparse_feature_lags_executed_as_declared(self) -> None:
+        protocol = self._base_protocol(
+            "incremental_prediction",
+            "E_SPARSE_LAG_01",
+            features=ExperimentDesign(
+                target="Vsw",
+                control=["By", "Bz"],
+                treatment=["By", "Bz", "DeltaDec"],
+                lags={"By": [1, 2], "Bz": [1], "DeltaDec": [3]},
+            ),
+        )
+        result = ExperimentDispatcher(self._harness()).execute(protocol)
+        self.assertEqual(result.status, "completed", "；".join(result.warnings))
+        self.assertIsNotNone(result.run_id)
+
+        archive_dir = self.root / "results" / "round_01" / "archive" / result.run_id
+        compiled = json.loads(
+            (archive_dir / "compiled_plan.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            compiled["feature_lags"],
+            {"By": [1, 2], "Bz": [1], "DeltaDec": [3]},
+        )
+        expected_features = {
+            "baseline": {"By_t-1", "By_t-2", "Bz_t-1"},
+            "treatment": {"By_t-1", "By_t-2", "Bz_t-1", "DeltaDec_t-3"},
+        }
+        for run_id, features in expected_features.items():
+            coef_path = archive_dir / run_id / "coefficients.csv"
+            coefs = pd.read_csv(coef_path)
+            self.assertEqual(set(coefs["feature"]), features, run_id)
+            self.assertEqual(len(coefs), len(features), run_id)
+
+    def test_bootstrap_selection_robustness_remain_draft_only(self) -> None:
+        self.assertNotIn("bootstrap_robustness", ALL_EXPERIMENT_TYPES)
+        self.assertNotIn("selection_robustness", ALL_EXPERIMENT_TYPES)
+        self.assertNotIn("bootstrap_robustness", candidate_selectable_types())
+        self.assertNotIn("selection_robustness", candidate_selectable_types())
+        self.assertIsNone(get_tool("bootstrap_robustness"))
+        self.assertIsNone(get_tool("selection_robustness"))
+
+        task = self._task()
+        for experiment_type in ("bootstrap_robustness", "selection_robustness"):
+            candidate = CandidateExperiment(
+                experiment_id=f"E_DRAFT_{experiment_type.upper()}",
+                type="distinguishing",
+                experiment_type=experiment_type,
+                purpose="跨时段稳定性草案",
+                design=ExperimentDesign(
+                    target="Vsw",
+                    control=["By", "Bz"],
+                    treatment=["By", "Bz", "DeltaDec"],
+                    design_focus="DeltaDec",
+                ),
+            )
+            with self.assertRaisesRegex(ValueError, "未注册"):
+                CandidateProtocolMapper().to_protocol(
+                    task=task,
+                    candidate=candidate,
+                    round_id=1,
+                )
+            self.assertEqual(candidate.experiment_type, experiment_type)
+
+        for experiment_type in ("bootstrap_robustness", "selection_robustness"):
+            with self.assertRaises(ValidationError):
+                ExperimentProtocol(
+                    experiment_id=f"E_FORMAL_{experiment_type.upper()}",
+                    round_id=1,
+                    task_id="ST_DISPATCH",
+                    target="Vsw",
+                    experiment_type=experiment_type,
+                    features=ExperimentDesign(
+                        target="Vsw",
+                        control=["By", "Bz"],
+                        treatment=["By", "Bz", "DeltaDec"],
+                    ),
+                    model=ModelSpec(name="ElasticNet"),
+                )
 
     def test_invalid_incremental_design_is_rejected_not_rerouted(self) -> None:
         protocol = self._base_protocol(
