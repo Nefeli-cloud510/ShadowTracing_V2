@@ -219,7 +219,19 @@ These files contain:
 4. Run `tests.test_full_llm_closed_loop`
 5. Review `state/*.json` audit outputs
 
-## 8. If The Real API Call Fails
+## 8. Executor Acceptance For Frozen Sparse Lags (2026-10-17)
+
+Human-readable acceptance record:
+`artifacts/legacy_v3_migration/executor_acceptance/executor_sparse_lags_acceptance.md`
+
+Verified items:
+- `E_R03_01` compiles from a draft candidate into a formal `model_sensitivity` protocol.
+- The executor preserves per-variable sparse lags: baseline 8 features, treatment
+  + two shadow offsets 10 features.
+- Isolated execution completes without modifying the live session directory.
+- `bootstrap_robustness` / `selection_robustness` remain unregistered and are rejected.
+
+## 9. If The Real API Call Fails
 
 Check in this order:
 

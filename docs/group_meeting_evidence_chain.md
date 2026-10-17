@@ -67,3 +67,9 @@
 - [ ] 样本数据或数据版本说明
 - [ ] 一键重跑脚本和一轮完整输出归档
 - [ ] 组会前补全上表中的文献出处
+
+## 6. 执行器验收补充（2026-10-17）
+
+答辩前补的最后两项执行器验收已通过：`E_R03_01` 的逐变量稀疏滞后能够从候选草案原样转成正式 `model_sensitivity` 协议并隔离执行；`bootstrap_robustness`、`selection_robustness` 保持未注册草案，不能假接通。验收只覆盖 dev 单窗口自动执行，`f1/f2` 是冻结外部回测参照；该验收不构成“跨窗口一致支持”或性能结论。完整记录见：
+
+`artifacts/legacy_v3_migration/executor_acceptance/executor_sparse_lags_acceptance.md`

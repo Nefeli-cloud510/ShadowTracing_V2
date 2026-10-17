@@ -1,0 +1,330 @@
+{
+  "package": {
+    "name": "final_defense_evidence_chain",
+    "created_for": "final defense of ShadowTracing_V2",
+    "freeze_mode": "read_only_snapshot",
+    "session_runtime_root_actual": "D:\\ShadowTracing\\runtime\\live_session\\_rebuild_probe",
+    "evidence_package_dir": "D:\\ShadowTracing\\artifacts\\final_defense_evidence_chain"
+  },
+  "session": {
+    "task_id": "ST_LIVE_20260903_201814",
+    "question": "LHAASO观测到的宇宙线日影南北偏移是否包含能够提前改善未来太阳风速度预测的有效信息？",
+    "target": "SW Plasma Speed, km/s",
+    "session_status_file": "runtime\\live_session\\_rebuild_probe\\session_status.json",
+    "status": "awaiting_approval",
+    "current_round": 3,
+    "status_message": "第 3 轮候选实验已生成，等待审批。",
+    "model": "qwen-plus",
+    "runRoot_claimed": "D:\\ShadowTracing\\runtime\\live_session\\current",
+    "runRoot_reality": "D:\\ShadowTracing\\runtime\\live_session\\_rebuild_probe",
+    "code_version_frozen_at": "08a15dc",
+    "process_state_path": "runtime\\live_session\\_rebuild_probe\\state\\process.json",
+    "process_phase": "experiment_planning",
+    "process_step": "awaiting_human_approval"
+  },
+  "rounds_executed": [
+    {
+      "round": 1,
+      "experiment_id": "E_R01_01",
+      "protocol_path": "runtime\\live_session\\_rebuild_probe\\results\\round_01\\protocol.json",
+      "result_unified_path": "runtime\\live_session\\_rebuild_probe\\results\\round_01\\result_unified.json",
+      "evaluation_unified_path": "runtime\\live_session\\_rebuild_probe\\results\\round_01\\evaluation_unified.json",
+      "round_snapshot_path": "runtime\\live_session\\_rebuild_probe\\state\\round_snapshots\\round_01.json",
+      "status": "completed"
+    },
+    {
+      "round": 2,
+      "experiment_id": "E_R02_01",
+      "protocol_path": "runtime\\live_session\\_rebuild_probe\\results\\round_02\\protocol.json",
+      "result_unified_path": "runtime\\live_session\\_rebuild_probe\\results\\round_02\\result_unified.json",
+      "evaluation_unified_path": "runtime\\live_session\\_rebuild_probe\\results\\round_02\\evaluation_unified.json",
+      "round_snapshot_path": "runtime\\live_session\\_rebuild_probe\\state\\round_snapshots\\round_02.json",
+      "status": "completed"
+    }
+  ],
+  "round3": {
+    "experiment_id": "E_R03_01",
+    "status": "pending_human_approval",
+    "executed": false,
+    "requested_decision": "D022",
+    "utility_score": 0.1047,
+    "planner_source": "LCP001",
+    "target_uncertainty": "U_LLM_R01_10"
+  },
+  "protocol_common": {
+    "model": "ElasticNet",
+    "forecast_horizon_days": 3,
+    "control_features": [
+      "Scalar B, nT",
+      "BY, nT (GSE)",
+      "BZ, nT (GSE)",
+      "BY, nT (GSM)",
+      "BZ, nT (GSM)",
+      "Kp*10 index"
+    ],
+    "treatment_features": [
+      "Scalar B, nT",
+      "BY, nT (GSE)",
+      "BZ, nT (GSE)",
+      "BY, nT (GSM)",
+      "BZ, nT (GSM)",
+      "Kp*10 index",
+      "p2_y中心值"
+    ],
+    "lags": {},
+    "window_size": 3,
+    "alpha": 0.3,
+    "l1_ratio": 0.5,
+    "use_lag_feature": false,
+    "max_lag_day": 0,
+    "random_state": 42,
+    "test_split_ratio": 0.2,
+    "primary_metric": "Pearson_r",
+    "secondary_metrics": [
+      "RMSE",
+      "MAE"
+    ],
+    "feature_expansion_note": "lags={} 与 window_size=3 按执行器口径展开为 lag 0,1,2；预测 CSV 只有 time,y_true,y_pred，未保留 issue_date/feature_date/target_date 列。"
+  },
+  "prediction_files": [
+    {
+      "artifact": "runtime\\live_session\\_rebuild_probe\\results\\round_01\\E_R01_01\\predictions\\E_R01_01_baseline.csv",
+      "sha256": "142FB176EEE0E3C9ED7620AB5B7AA943C612FA903664A7EB232B8FDA0A450320",
+      "rows": 36,
+      "headers": [
+        "time",
+        "y_true",
+        "y_pred"
+      ],
+      "date_range": "2021-08-25..2021-10-02",
+      "missing_dates": [
+        "2021-08-27",
+        "2021-09-05",
+        "2021-09-21"
+      ]
+    },
+    {
+      "artifact": "runtime\\live_session\\_rebuild_probe\\results\\round_01\\E_R01_01\\predictions\\E_R01_01_treatment.csv",
+      "sha256": "C9BF05CA62D5B71D87B9D82C2732248BF661F882EFE423766175ECC3CC703C6B",
+      "rows": 36,
+      "headers": [
+        "time",
+        "y_true",
+        "y_pred"
+      ],
+      "date_range": "2021-08-25..2021-10-02",
+      "missing_dates": [
+        "2021-08-27",
+        "2021-09-05",
+        "2021-09-21"
+      ]
+    },
+    {
+      "artifact": "runtime\\live_session\\_rebuild_probe\\results\\round_02\\E_R02_01\\predictions\\E_R02_01_baseline.csv",
+      "sha256": "142FB176EEE0E3C9ED7620AB5B7AA943C612FA903664A7EB232B8FDA0A450320",
+      "rows": 36,
+      "headers": [
+        "time",
+        "y_true",
+        "y_pred"
+      ],
+      "date_range": "2021-08-25..2021-10-02",
+      "missing_dates": [
+        "2021-08-27",
+        "2021-09-05",
+        "2021-09-21"
+      ]
+    },
+    {
+      "artifact": "runtime\\live_session\\_rebuild_probe\\results\\round_02\\E_R02_01\\predictions\\E_R02_01_treatment.csv",
+      "sha256": "C9BF05CA62D5B71D87B9D82C2732248BF661F882EFE423766175ECC3CC703C6B",
+      "rows": 36,
+      "headers": [
+        "time",
+        "y_true",
+        "y_pred"
+      ],
+      "date_range": "2021-08-25..2021-10-02",
+      "missing_dates": [
+        "2021-08-27",
+        "2021-09-05",
+        "2021-09-21"
+      ]
+    }
+  ],
+  "metrics_identical_both_rounds": {
+    "baseline": {
+      "rmse": 49.25384857191404,
+      "mae": 39.5986254968859,
+      "pearson_r": 0.39448958586943433,
+      "r2": -0.05852141690524881
+    },
+    "treatment": {
+      "rmse": 48.42758229119842,
+      "mae": 38.40749317745875,
+      "pearson_r": 0.4119936080368105,
+      "r2": -0.023304498564322484
+    },
+    "delta": {
+      "rmse": -0.8262662807156218,
+      "mae": -1.1911323194271546,
+      "pearson_r": 0.017504022167376176,
+      "r2": 0.03521691834092633
+    },
+    "pg_actual_signed": 0.016775669408030432,
+    "pg_actual_clipped": 0.016775669408030432
+  },
+  "robustness_raw": {
+    "bootstrap": {
+      "stable": true,
+      "n_iterations": 0
+    },
+    "time_slice": {
+      "splits": "",
+      "stable": true
+    },
+    "overall": {
+      "stable": true
+    },
+    "recommendation": "可以进入下一轮假设解释，但建议补充 bootstrap/time-slice 稳健性检验。"
+  },
+  "decisions": [
+    {
+      "id": "D002",
+      "round": 1,
+      "type": "experiment_selection_requested",
+      "made_by": "system",
+      "experiment_id": "E_R01_01",
+      "utility_score": 0.2589
+    },
+    {
+      "id": "D003",
+      "round": 1,
+      "type": "experiment_approved",
+      "made_by": "human_pi",
+      "experiment_id": "E_R01_01",
+      "utility_score": 0.2589
+    },
+    {
+      "id": "D005",
+      "round": 1,
+      "type": "scientific_interpreter_applied",
+      "made_by": "system",
+      "experiment_id": "E_R01_01"
+    },
+    {
+      "id": "D006",
+      "round": 1,
+      "type": "round_review_requested",
+      "made_by": "system",
+      "experiment_id": "E_R01_01"
+    },
+    {
+      "id": "D007",
+      "round": 1,
+      "type": "continue_next_round",
+      "made_by": "human_pi"
+    },
+    {
+      "id": "D012",
+      "round": 2,
+      "type": "experiment_selection_requested",
+      "made_by": "system",
+      "experiment_id": "E_R02_01",
+      "utility_score": 0.0345
+    },
+    {
+      "id": "D013",
+      "round": 2,
+      "type": "experiment_approved",
+      "made_by": "human_pi",
+      "experiment_id": "E_R02_01",
+      "utility_score": 0.0345
+    },
+    {
+      "id": "D015",
+      "round": 2,
+      "type": "scientific_interpreter_applied",
+      "made_by": "system",
+      "experiment_id": "E_R02_01",
+      "enhancement_ids": [
+        "IE001",
+        "LIE_INT_001"
+      ]
+    },
+    {
+      "id": "D016",
+      "round": 2,
+      "type": "round_review_requested",
+      "made_by": "system",
+      "experiment_id": "E_R02_01"
+    },
+    {
+      "id": "D017",
+      "round": 2,
+      "type": "continue_next_round",
+      "made_by": "human_pi",
+      "human_feedback": "修复候选实验设计去重：进入下一轮，验证实验设计已按不确定性来源分化。"
+    },
+    {
+      "id": "D022",
+      "round": 3,
+      "type": "experiment_selection_requested",
+      "made_by": "system",
+      "experiment_id": "E_R03_01",
+      "utility_score": 0.1047,
+      "approved": false
+    }
+  ],
+  "candidate_scores": {
+    "E_R01_01": {
+      "type": "incremental_gain",
+      "IG": 0.6663,
+      "IG_rationale": "1-overlap 启发式，只比较 1 组假设预测区间",
+      "PG": 0.0,
+      "Risk": 0.2835,
+      "Cost": 0.1754,
+      "utility": 0.2589
+    },
+    "E_R02_01": {
+      "type": "distinguishing",
+      "IG": 0.2283,
+      "IG_rationale": "1-overlap 启发式，比较 136 组假设预测区间",
+      "PG": 0.0268,
+      "Risk": 0.3352,
+      "Cost": 0.1795,
+      "utility": 0.0345
+    },
+    "E_R03_01": {
+      "type": "distinguishing",
+      "IG": 0.3492,
+      "IG_rationale": "1-overlap 启发式，比较 231 组假设预测区间",
+      "PG": 0.0268,
+      "Risk": 0.2845,
+      "Cost": 0.1831,
+      "utility": 0.1047,
+      "archive_status": "full_snapshot_only_in_planner_output_and_D022"
+    }
+  },
+  "uncertainties_current": {
+    "queue_count": 51,
+    "resolved": [],
+    "top": {
+      "id": "U_LLM_R01_11",
+      "score": 0.854
+    }
+  },
+  "literature_upload": {
+    "manifest_path": "runtime\\live_session\\_rebuild_probe\\state\\upload_manifest.json",
+    "pdf_count": 6,
+    "extraction_status": "placeholder_only",
+    "knowledge_sync_status": "local_session_only",
+    "note": "无正文提取、无 chunk、无页码，不可作为已读文献证据"
+  },
+  "simple_baselines": {
+    "training_mean": "not_executed",
+    "persistence": "not_executed",
+    "vsw_history": "not_executed",
+    "vsw_history_plus_shadow": "not_executed"
+  }
+}
