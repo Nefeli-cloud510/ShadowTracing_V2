@@ -1,0 +1,9 @@
+﻿fold,train_count,eval_count,train_targets_strictly_before_eval_issue,run_id,selected_alpha,selected_l1_ratio,search_mode,converged,search_completed,boundary_hit,solver_converged
+1,41,45,True,ridge_baseline,1000.0,,fixed,True,False,False,True
+2,86,41,True,ridge_baseline,1000.0,,fixed,True,False,False,True
+1,41,45,True,ridge_treatment,1000.0,,fixed,True,False,False,True
+2,86,41,True,ridge_treatment,1000.0,,fixed,True,False,False,True
+1,41,45,True,elasticnet_baseline,10.0,0.7,fixed,True,False,False,True
+2,86,41,True,elasticnet_baseline,10.0,0.7,fixed,True,False,False,True
+1,41,45,True,elasticnet_treatment,10.0,0.7,fixed,True,False,False,True
+2,86,41,True,elasticnet_treatment,10.0,0.7,fixed,True,False,False,True

@@ -1,0 +1,18 @@
+{
+  "elasticnet_baseline": {
+    "alpha": 10.0,
+    "l1_ratio": 0.7
+  },
+  "elasticnet_treatment": {
+    "alpha": 10.0,
+    "l1_ratio": 0.7
+  },
+  "ridge_baseline": {
+    "alpha": 1000.0,
+    "l1_ratio": null
+  },
+  "ridge_treatment": {
+    "alpha": 1000.0,
+    "l1_ratio": null
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": "evaluation-plan-v1",
+  "split_label": "dev_backtest",
+  "test_ratio": 0.2,
+  "n_internal_folds": 2,
+  "test_start": "2021-08-26",
+  "notes": [
+    "real_v3_two_round acceptance: dev single-window execution.",
+    "f1/f2 remain frozen read-only external references."
+  ]
+}

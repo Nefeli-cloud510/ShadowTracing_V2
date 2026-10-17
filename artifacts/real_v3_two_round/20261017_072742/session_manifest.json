@@ -1,0 +1,43 @@
+{
+  "generated_at": "2026-10-17T07:27:42.982926+00:00",
+  "repo_head": "6c01160a14fce38f984efccb6e636440b85a2cbb",
+  "session_id": "RV3TR_20261017_072742",
+  "task_id": "ST_REAL_V3_TWO_ROUND",
+  "evaluation_primary_metric": "Pearson_r",
+  "evaluation_secondary_metrics": [
+    "RMSE",
+    "MAE",
+    "R2"
+  ],
+  "data_sources": {
+    "omni": "omni_2021_full_calendar_v3.csv",
+    "lhaaso": "lhaaso_shadow_pfss_2021_full_calendar_v3.csv",
+    "copied_to": "project/data/raw"
+  },
+  "decision_log": [
+    {
+      "round_id": 1,
+      "decision_source": "human_pi_override",
+      "note": "PI 批准执行冻结 E_R03_01；自动选参为冻结协议，不属于模型自主选择。",
+      "recorded_at": "2026-10-17T07:27:54.782793+00:00",
+      "experiment_id": "E_R03_01"
+    },
+    {
+      "round_id": 2,
+      "decision_source": "human_pi_override",
+      "note": "PI 基于第一轮实际选参结果显式指定固定参数复核；该选择不是模型自主规划，记为 human_pi_override。",
+      "recorded_at": "2026-10-17T07:28:05.648549+00:00",
+      "experiment_id": "E_R03_02_FIXED_PARAM"
+    }
+  ],
+  "rounds": {
+    "round1": "round1_summary.json",
+    "round2": "round2_summary.json"
+  },
+  "artifacts_required": [
+    "round1_execution.json",
+    "round2_execution.json",
+    "prediction CSV archives in each round archive dir"
+  ],
+  "boundary": "dev_backtest is an iterative evaluation segment; f1/f2 remain frozen external read-only references. CI crossing zero is insufficient evidence, not a failed run. No positive-gain target was imposed."
+}

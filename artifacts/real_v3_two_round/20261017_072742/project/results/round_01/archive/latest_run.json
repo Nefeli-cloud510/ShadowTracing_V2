@@ -1,0 +1,14 @@
+{
+  "run_id": "E_R03_01_r1",
+  "archived_at": "2026-10-17T15:27:54.768264",
+  "experiment_protocol.json": "experiment_protocol.json",
+  "compiled_plan.json": "compiled_plan.json",
+  "data_manifest.json": "data_manifest.json",
+  "sample_manifest.csv": "sample_manifest.csv",
+  "cv_results.csv": "cv_results.csv",
+  "predictions.csv": "predictions.csv",
+  "metrics.json": "metrics.json",
+  "diagnostics.json": "diagnostics.json",
+  "run_notes.json": "run_notes.json",
+  "prediction_protocol.json": "prediction_protocol.json"
+}

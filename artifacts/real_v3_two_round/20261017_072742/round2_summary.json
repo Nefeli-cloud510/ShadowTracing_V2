@@ -1,0 +1,1081 @@
+{
+  "round_id": 2,
+  "round_label": "round2_fixed_params",
+  "experiment_id": "E_R03_02_FIXED_PARAM",
+  "run_id": "E_R03_02_FIXED_PARAM_r1",
+  "archive_dir": "artifacts\\real_v3_two_round\\20261017_072742\\project\\results\\round_02\\archive\\E_R03_02_FIXED_PARAM_r1",
+  "summary_metrics": {
+    "run_id": "E_R03_02_FIXED_PARAM_r1",
+    "experiment_id": "E_R03_02_FIXED_PARAM",
+    "round_id": 2,
+    "status": "completed",
+    "experiment_type": "model_sensitivity",
+    "split_label": "dev_backtest",
+    "test_start": "2021-08-26",
+    "evaluation_plan": {
+      "schema_version": "evaluation-plan-v1",
+      "split_label": "dev_backtest",
+      "test_ratio": 0.2,
+      "n_internal_folds": 2,
+      "test_start": "2021-08-26",
+      "created_at": "",
+      "updated_at": "",
+      "notes": [
+        "real_v3_two_round acceptance: dev single-window execution.",
+        "f1/f2 remain frozen read-only external references."
+      ]
+    },
+    "runs": [
+      {
+        "run_id": "ridge_baseline",
+        "name": "ridge 对照组",
+        "prediction_artifact": "results/round_02/E_R03_02_FIXED_PARAM/predictions/E_R03_02_FIXED_PARAM_ridge_baseline.csv",
+        "metrics": {
+          "rmse": 50.225535213855245,
+          "mae": 39.55139366567138,
+          "pearson_r": 0.14849803722487187,
+          "r2": 0.004575329449222121,
+          "unavailable_reasons": {}
+        },
+        "model_family": "ridge",
+        "feature_labels": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT"
+        ],
+        "feature_columns": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT"
+        ],
+        "parameters": {
+          "window_size": 9,
+          "alpha": 1000.0,
+          "l1_ratio": 0.5,
+          "use_lag_feature": true,
+          "max_lag_day": 9,
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "random_state": 42,
+          "test_split_ratio": 0.2,
+          "candidate_design_snapshot": {
+            "candidate_id": "E_R03_02_FIXED_PARAM",
+            "experiment_type": "model_sensitivity",
+            "target": "SW Plasma Speed, km/s",
+            "control": [
+              "BY, nT (GSE)",
+              "BZ, nT (GSE)",
+              "Scalar B, nT"
+            ],
+            "treatment": [
+              "BY, nT (GSE)",
+              "BZ, nT (GSE)",
+              "Scalar B, nT",
+              "p2_y中心值",
+              "p1_x中心值"
+            ],
+            "model_families": [
+              "ridge",
+              "elasticnet"
+            ],
+            "lags": {
+              "BY, nT (GSE)": [
+                4,
+                5,
+                7,
+                8
+              ],
+              "BZ, nT (GSE)": [
+                1,
+                2
+              ],
+              "Scalar B, nT": [
+                1,
+                2
+              ],
+              "p2_y中心值": [
+                1
+              ],
+              "p1_x中心值": [
+                9
+              ]
+            },
+            "probe_axis": "cross_window_stability",
+            "forecast_horizon_days": 3,
+            "past_lag_days": 9,
+            "window_size": 9,
+            "control_lag_days": 9,
+            "treatment_lag_days": 9,
+            "control_forecast_horizon_days": 3,
+            "treatment_forecast_horizon_days": 3
+          },
+          "feature_lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ],
+            "p1_x中心值": [
+              9
+            ]
+          },
+          "param_search_mode": "fixed",
+          "model_family": "ridge"
+        },
+        "n_train": 130,
+        "n_test": 35,
+        "training_mode": "retrained",
+        "protocol_version": "1.0"
+      },
+      {
+        "run_id": "ridge_treatment",
+        "name": "ridge 实验组（双方向日影）",
+        "prediction_artifact": "results/round_02/E_R03_02_FIXED_PARAM/predictions/E_R03_02_FIXED_PARAM_ridge_treatment.csv",
+        "metrics": {
+          "rmse": 49.77983255060184,
+          "mae": 39.257718905074505,
+          "pearson_r": 0.27869589593194843,
+          "r2": 0.02216378857248802,
+          "unavailable_reasons": {}
+        },
+        "model_family": "ridge",
+        "feature_labels": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT",
+          "p2_y中心值",
+          "p1_x中心值"
+        ],
+        "feature_columns": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT",
+          "p2_y中心值",
+          "p1_x中心值"
+        ],
+        "parameters": {
+          "window_size": 9,
+          "alpha": 1000.0,
+          "l1_ratio": 0.5,
+          "use_lag_feature": true,
+          "max_lag_day": 9,
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "random_state": 42,
+          "test_split_ratio": 0.2,
+          "candidate_design_snapshot": {
+            "candidate_id": "E_R03_02_FIXED_PARAM",
+            "experiment_type": "model_sensitivity",
+            "target": "SW Plasma Speed, km/s",
+            "control": [
+              "BY, nT (GSE)",
+              "BZ, nT (GSE)",
+              "Scalar B, nT"
+            ],
+            "treatment": [
+              "BY, nT (GSE)",
+              "BZ, nT (GSE)",
+              "Scalar B, nT",
+              "p2_y中心值",
+              "p1_x中心值"
+            ],
+            "model_families": [
+              "ridge",
+              "elasticnet"
+            ],
+            "lags": {
+              "BY, nT (GSE)": [
+                4,
+                5,
+                7,
+                8
+              ],
+              "BZ, nT (GSE)": [
+                1,
+                2
+              ],
+              "Scalar B, nT": [
+                1,
+                2
+              ],
+              "p2_y中心值": [
+                1
+              ],
+              "p1_x中心值": [
+                9
+              ]
+            },
+            "probe_axis": "cross_window_stability",
+            "forecast_horizon_days": 3,
+            "past_lag_days": 9,
+            "window_size": 9,
+            "control_lag_days": 9,
+            "treatment_lag_days": 9,
+            "control_forecast_horizon_days": 3,
+            "treatment_forecast_horizon_days": 3
+          },
+          "feature_lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ],
+            "p1_x中心值": [
+              9
+            ]
+          },
+          "param_search_mode": "fixed",
+          "model_family": "ridge"
+        },
+        "n_train": 130,
+        "n_test": 35,
+        "training_mode": "retrained",
+        "protocol_version": "1.0"
+      },
+      {
+        "run_id": "elasticnet_baseline",
+        "name": "elasticnet 对照组",
+        "prediction_artifact": "results/round_02/E_R03_02_FIXED_PARAM/predictions/E_R03_02_FIXED_PARAM_elasticnet_baseline.csv",
+        "metrics": {
+          "rmse": 50.30348459337599,
+          "mae": 39.51691574361211,
+          "pearson_r": 0.19118879717795953,
+          "r2": 0.0014831594381642388,
+          "unavailable_reasons": {}
+        },
+        "model_family": "elasticnet",
+        "feature_labels": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT"
+        ],
+        "feature_columns": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT"
+        ],
+        "parameters": {
+          "window_size": 9,
+          "alpha": 10.0,
+          "l1_ratio": 0.7,
+          "use_lag_feature": true,
+          "max_lag_day": 9,
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "random_state": 42,
+          "test_split_ratio": 0.2,
+          "candidate_design_snapshot": {
+            "candidate_id": "E_R03_02_FIXED_PARAM",
+            "experiment_type": "model_sensitivity",
+            "target": "SW Plasma Speed, km/s",
+            "control": [
+              "BY, nT (GSE)",
+              "BZ, nT (GSE)",
+              "Scalar B, nT"
+            ],
+            "treatment": [
+              "BY, nT (GSE)",
+              "BZ, nT (GSE)",
+              "Scalar B, nT",
+              "p2_y中心值",
+              "p1_x中心值"
+            ],
+            "model_families": [
+              "ridge",
+              "elasticnet"
+            ],
+            "lags": {
+              "BY, nT (GSE)": [
+                4,
+                5,
+                7,
+                8
+              ],
+              "BZ, nT (GSE)": [
+                1,
+                2
+              ],
+              "Scalar B, nT": [
+                1,
+                2
+              ],
+              "p2_y中心值": [
+                1
+              ],
+              "p1_x中心值": [
+                9
+              ]
+            },
+            "probe_axis": "cross_window_stability",
+            "forecast_horizon_days": 3,
+            "past_lag_days": 9,
+            "window_size": 9,
+            "control_lag_days": 9,
+            "treatment_lag_days": 9,
+            "control_forecast_horizon_days": 3,
+            "treatment_forecast_horizon_days": 3
+          },
+          "feature_lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ],
+            "p1_x中心值": [
+              9
+            ]
+          },
+          "param_search_mode": "fixed",
+          "model_family": "elasticnet"
+        },
+        "n_train": 130,
+        "n_test": 35,
+        "training_mode": "retrained",
+        "protocol_version": "1.0"
+      },
+      {
+        "run_id": "elasticnet_treatment",
+        "name": "elasticnet 实验组（双方向日影）",
+        "prediction_artifact": "results/round_02/E_R03_02_FIXED_PARAM/predictions/E_R03_02_FIXED_PARAM_elasticnet_treatment.csv",
+        "metrics": {
+          "rmse": 49.822628872751686,
+          "mae": 39.15928043939873,
+          "pearson_r": 0.34616056423842223,
+          "r2": 0.020481750691072165,
+          "unavailable_reasons": {}
+        },
+        "model_family": "elasticnet",
+        "feature_labels": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT",
+          "p2_y中心值",
+          "p1_x中心值"
+        ],
+        "feature_columns": [
+          "BY, nT (GSE)",
+          "BZ, nT (GSE)",
+          "Scalar B, nT",
+          "p2_y中心值",
+          "p1_x中心值"
+        ],
+        "parameters": {
+          "window_size": 9,
+          "alpha": 10.0,
+          "l1_ratio": 0.7,
+          "use_lag_feature": true,
+          "max_lag_day": 9,
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "random_state": 42,
+          "test_split_ratio": 0.2,
+          "candidate_design_snapshot": {
+            "candidate_id": "E_R03_02_FIXED_PARAM",
+            "experiment_type": "model_sensitivity",
+            "target": "SW Plasma Speed, km/s",
+            "control": [
+              "BY, nT (GSE)",
+              "BZ, nT (GSE)",
+              "Scalar B, nT"
+            ],
+            "treatment": [
+              "BY, nT (GSE)",
+              "BZ, nT (GSE)",
+              "Scalar B, nT",
+              "p2_y中心值",
+              "p1_x中心值"
+            ],
+            "model_families": [
+              "ridge",
+              "elasticnet"
+            ],
+            "lags": {
+              "BY, nT (GSE)": [
+                4,
+                5,
+                7,
+                8
+              ],
+              "BZ, nT (GSE)": [
+                1,
+                2
+              ],
+              "Scalar B, nT": [
+                1,
+                2
+              ],
+              "p2_y中心值": [
+                1
+              ],
+              "p1_x中心值": [
+                9
+              ]
+            },
+            "probe_axis": "cross_window_stability",
+            "forecast_horizon_days": 3,
+            "past_lag_days": 9,
+            "window_size": 9,
+            "control_lag_days": 9,
+            "treatment_lag_days": 9,
+            "control_forecast_horizon_days": 3,
+            "treatment_forecast_horizon_days": 3
+          },
+          "feature_lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ],
+            "p1_x中心值": [
+              9
+            ]
+          },
+          "param_search_mode": "fixed",
+          "model_family": "elasticnet"
+        },
+        "n_train": 130,
+        "n_test": 35,
+        "training_mode": "retrained",
+        "protocol_version": "1.0"
+      }
+    ],
+    "comparison": {
+      "rmse": 0.4457026632534067,
+      "mae": 0.2936747605968719,
+      "pearson_r": 0.13019785870707656,
+      "r2": 0.017588459123265898
+    },
+    "contrasts": [
+      {
+        "contrast_id": "gain_ridge",
+        "name": "ridge 家族内双方向日影增量",
+        "kind": "incremental_gain",
+        "specification": {
+          "run_ids": [
+            "ridge_baseline",
+            "ridge_treatment"
+          ],
+          "direction": "mixed"
+        },
+        "run_ids": [
+          "ridge_baseline",
+          "ridge_treatment"
+        ],
+        "contrast_ids": [],
+        "metrics_delta": {
+          "rmse": 0.4457026632534067,
+          "mae": 0.2936747605968719,
+          "pearson_r": 0.13019785870707656,
+          "r2": 0.017588459123265898
+        },
+        "channel_gains": {},
+        "bootstrap_ci": {
+          "pearson_r_ci": [
+            -0.12415162863599086,
+            0.29388824902221505
+          ],
+          "rmse_ci": [
+            0.04932076747387981,
+            0.7511268125308749
+          ],
+          "mae_ci": [
+            -0.19681973845203515,
+            0.8444332462512563
+          ],
+          "stable": true,
+          "n_iterations": 4000,
+          "status": "completed",
+          "block_size": 7,
+          "n_nonempty_blocks": 6,
+          "min_blocks": 2,
+          "insufficient_blocks": false,
+          "seed": 20261008,
+          "point_gain_rmse": 0.4457026632534067,
+          "point_gain_mae": 0.2936747605968719,
+          "point_gain_pearson_r": 0.13019785870707665
+        },
+        "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+      },
+      {
+        "contrast_id": "gain_elasticnet",
+        "name": "elasticnet 家族内双方向日影增量",
+        "kind": "incremental_gain",
+        "specification": {
+          "run_ids": [
+            "elasticnet_baseline",
+            "elasticnet_treatment"
+          ],
+          "direction": "mixed"
+        },
+        "run_ids": [
+          "elasticnet_baseline",
+          "elasticnet_treatment"
+        ],
+        "contrast_ids": [],
+        "metrics_delta": {
+          "rmse": 0.48085572062430515,
+          "mae": 0.35763530421338174,
+          "pearson_r": 0.1549717670604627,
+          "r2": 0.018998591252907926
+        },
+        "channel_gains": {},
+        "bootstrap_ci": {
+          "pearson_r_ci": [
+            -0.19628003804547609,
+            0.31796096631292536
+          ],
+          "rmse_ci": [
+            0.0418992252295709,
+            0.8503662695438265
+          ],
+          "mae_ci": [
+            -0.22691167655071953,
+            1.0068411013080762
+          ],
+          "stable": true,
+          "n_iterations": 4000,
+          "status": "completed",
+          "block_size": 7,
+          "n_nonempty_blocks": 6,
+          "min_blocks": 2,
+          "insufficient_blocks": false,
+          "seed": 20261008,
+          "point_gain_rmse": 0.48085572062430515,
+          "point_gain_mae": 0.35763530421338174,
+          "point_gain_pearson_r": 0.1549717670604627
+        },
+        "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+      }
+    ],
+    "diagnostics": [],
+    "bootstrap": {
+      "bootstrap": {
+        "pearson_r_ci": [
+          -0.12415162863599086,
+          0.29388824902221505
+        ],
+        "rmse_ci": [
+          0.04932076747387981,
+          0.7511268125308749
+        ],
+        "mae_ci": [
+          -0.19681973845203515,
+          0.8444332462512563
+        ],
+        "stable": true,
+        "n_iterations": 4000,
+        "status": "completed",
+        "block_size": 7,
+        "n_nonempty_blocks": 6,
+        "min_blocks": 2,
+        "insufficient_blocks": false,
+        "seed": 20261008,
+        "point_gain_rmse": 0.4457026632534067,
+        "point_gain_mae": 0.2936747605968719,
+        "point_gain_pearson_r": 0.13019785870707665
+      },
+      "time_slice": {
+        "splits": [],
+        "stable": false,
+        "status": "not_run"
+      },
+      "overall": {
+        "stable": true,
+        "status": "tested"
+      },
+      "recommendation": "配对块 bootstrap（4000 次、7 天块）支持主增益方向；未运行分时段检验，不据此作分时段稳定性结论。"
+    }
+  },
+  "runs": [
+    {
+      "run_id": "ridge_baseline",
+      "model_family": "ridge",
+      "n_train": 130,
+      "n_test": 35,
+      "pearson_r": 0.14849803722487187,
+      "rmse": 50.225535213855245,
+      "mae": 39.55139366567138,
+      "r2": 0.004575329449222121,
+      "unavailable_reasons": {},
+      "parameters": {
+        "window_size": 9,
+        "alpha": 1000.0,
+        "l1_ratio": 0.5,
+        "use_lag_feature": true,
+        "max_lag_day": 9,
+        "forecast_horizon_days": 3,
+        "past_lag_days": 9,
+        "random_state": 42,
+        "test_split_ratio": 0.2,
+        "candidate_design_snapshot": {
+          "candidate_id": "E_R03_02_FIXED_PARAM",
+          "experiment_type": "model_sensitivity",
+          "target": "SW Plasma Speed, km/s",
+          "control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值",
+            "p1_x中心值"
+          ],
+          "model_families": [
+            "ridge",
+            "elasticnet"
+          ],
+          "lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ],
+            "p1_x中心值": [
+              9
+            ]
+          },
+          "probe_axis": "cross_window_stability",
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "window_size": 9,
+          "control_lag_days": 9,
+          "treatment_lag_days": 9,
+          "control_forecast_horizon_days": 3,
+          "treatment_forecast_horizon_days": 3
+        },
+        "feature_lags": {
+          "BY, nT (GSE)": [
+            4,
+            5,
+            7,
+            8
+          ],
+          "BZ, nT (GSE)": [
+            1,
+            2
+          ],
+          "Scalar B, nT": [
+            1,
+            2
+          ],
+          "p2_y中心值": [
+            1
+          ],
+          "p1_x中心值": [
+            9
+          ]
+        },
+        "param_search_mode": "fixed",
+        "model_family": "ridge"
+      },
+      "prediction_artifact": "results/round_02/E_R03_02_FIXED_PARAM/predictions/E_R03_02_FIXED_PARAM_ridge_baseline.csv"
+    },
+    {
+      "run_id": "ridge_treatment",
+      "model_family": "ridge",
+      "n_train": 130,
+      "n_test": 35,
+      "pearson_r": 0.27869589593194843,
+      "rmse": 49.77983255060184,
+      "mae": 39.257718905074505,
+      "r2": 0.02216378857248802,
+      "unavailable_reasons": {},
+      "parameters": {
+        "window_size": 9,
+        "alpha": 1000.0,
+        "l1_ratio": 0.5,
+        "use_lag_feature": true,
+        "max_lag_day": 9,
+        "forecast_horizon_days": 3,
+        "past_lag_days": 9,
+        "random_state": 42,
+        "test_split_ratio": 0.2,
+        "candidate_design_snapshot": {
+          "candidate_id": "E_R03_02_FIXED_PARAM",
+          "experiment_type": "model_sensitivity",
+          "target": "SW Plasma Speed, km/s",
+          "control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值",
+            "p1_x中心值"
+          ],
+          "model_families": [
+            "ridge",
+            "elasticnet"
+          ],
+          "lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ],
+            "p1_x中心值": [
+              9
+            ]
+          },
+          "probe_axis": "cross_window_stability",
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "window_size": 9,
+          "control_lag_days": 9,
+          "treatment_lag_days": 9,
+          "control_forecast_horizon_days": 3,
+          "treatment_forecast_horizon_days": 3
+        },
+        "feature_lags": {
+          "BY, nT (GSE)": [
+            4,
+            5,
+            7,
+            8
+          ],
+          "BZ, nT (GSE)": [
+            1,
+            2
+          ],
+          "Scalar B, nT": [
+            1,
+            2
+          ],
+          "p2_y中心值": [
+            1
+          ],
+          "p1_x中心值": [
+            9
+          ]
+        },
+        "param_search_mode": "fixed",
+        "model_family": "ridge"
+      },
+      "prediction_artifact": "results/round_02/E_R03_02_FIXED_PARAM/predictions/E_R03_02_FIXED_PARAM_ridge_treatment.csv"
+    },
+    {
+      "run_id": "elasticnet_baseline",
+      "model_family": "elasticnet",
+      "n_train": 130,
+      "n_test": 35,
+      "pearson_r": 0.19118879717795953,
+      "rmse": 50.30348459337599,
+      "mae": 39.51691574361211,
+      "r2": 0.0014831594381642388,
+      "unavailable_reasons": {},
+      "parameters": {
+        "window_size": 9,
+        "alpha": 10.0,
+        "l1_ratio": 0.7,
+        "use_lag_feature": true,
+        "max_lag_day": 9,
+        "forecast_horizon_days": 3,
+        "past_lag_days": 9,
+        "random_state": 42,
+        "test_split_ratio": 0.2,
+        "candidate_design_snapshot": {
+          "candidate_id": "E_R03_02_FIXED_PARAM",
+          "experiment_type": "model_sensitivity",
+          "target": "SW Plasma Speed, km/s",
+          "control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值",
+            "p1_x中心值"
+          ],
+          "model_families": [
+            "ridge",
+            "elasticnet"
+          ],
+          "lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ],
+            "p1_x中心值": [
+              9
+            ]
+          },
+          "probe_axis": "cross_window_stability",
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "window_size": 9,
+          "control_lag_days": 9,
+          "treatment_lag_days": 9,
+          "control_forecast_horizon_days": 3,
+          "treatment_forecast_horizon_days": 3
+        },
+        "feature_lags": {
+          "BY, nT (GSE)": [
+            4,
+            5,
+            7,
+            8
+          ],
+          "BZ, nT (GSE)": [
+            1,
+            2
+          ],
+          "Scalar B, nT": [
+            1,
+            2
+          ],
+          "p2_y中心值": [
+            1
+          ],
+          "p1_x中心值": [
+            9
+          ]
+        },
+        "param_search_mode": "fixed",
+        "model_family": "elasticnet"
+      },
+      "prediction_artifact": "results/round_02/E_R03_02_FIXED_PARAM/predictions/E_R03_02_FIXED_PARAM_elasticnet_baseline.csv"
+    },
+    {
+      "run_id": "elasticnet_treatment",
+      "model_family": "elasticnet",
+      "n_train": 130,
+      "n_test": 35,
+      "pearson_r": 0.34616056423842223,
+      "rmse": 49.822628872751686,
+      "mae": 39.15928043939873,
+      "r2": 0.020481750691072165,
+      "unavailable_reasons": {},
+      "parameters": {
+        "window_size": 9,
+        "alpha": 10.0,
+        "l1_ratio": 0.7,
+        "use_lag_feature": true,
+        "max_lag_day": 9,
+        "forecast_horizon_days": 3,
+        "past_lag_days": 9,
+        "random_state": 42,
+        "test_split_ratio": 0.2,
+        "candidate_design_snapshot": {
+          "candidate_id": "E_R03_02_FIXED_PARAM",
+          "experiment_type": "model_sensitivity",
+          "target": "SW Plasma Speed, km/s",
+          "control": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT"
+          ],
+          "treatment": [
+            "BY, nT (GSE)",
+            "BZ, nT (GSE)",
+            "Scalar B, nT",
+            "p2_y中心值",
+            "p1_x中心值"
+          ],
+          "model_families": [
+            "ridge",
+            "elasticnet"
+          ],
+          "lags": {
+            "BY, nT (GSE)": [
+              4,
+              5,
+              7,
+              8
+            ],
+            "BZ, nT (GSE)": [
+              1,
+              2
+            ],
+            "Scalar B, nT": [
+              1,
+              2
+            ],
+            "p2_y中心值": [
+              1
+            ],
+            "p1_x中心值": [
+              9
+            ]
+          },
+          "probe_axis": "cross_window_stability",
+          "forecast_horizon_days": 3,
+          "past_lag_days": 9,
+          "window_size": 9,
+          "control_lag_days": 9,
+          "treatment_lag_days": 9,
+          "control_forecast_horizon_days": 3,
+          "treatment_forecast_horizon_days": 3
+        },
+        "feature_lags": {
+          "BY, nT (GSE)": [
+            4,
+            5,
+            7,
+            8
+          ],
+          "BZ, nT (GSE)": [
+            1,
+            2
+          ],
+          "Scalar B, nT": [
+            1,
+            2
+          ],
+          "p2_y中心值": [
+            1
+          ],
+          "p1_x中心值": [
+            9
+          ]
+        },
+        "param_search_mode": "fixed",
+        "model_family": "elasticnet"
+      },
+      "prediction_artifact": "results/round_02/E_R03_02_FIXED_PARAM/predictions/E_R03_02_FIXED_PARAM_elasticnet_treatment.csv"
+    }
+  ],
+  "contrasts": [
+    {
+      "contrast_id": "gain_ridge",
+      "run_ids": [
+        "ridge_baseline",
+        "ridge_treatment"
+      ],
+      "delta_pearson_r": 0.13019785870707656,
+      "delta_rmse": 0.4457026632534067,
+      "delta_mae": 0.2936747605968719,
+      "pearson_r_ci": [
+        -0.12415162863599086,
+        0.29388824902221505
+      ],
+      "rmse_ci": [
+        0.04932076747387981,
+        0.7511268125308749
+      ],
+      "n_iterations": 4000,
+      "block_size": 7,
+      "n_nonempty_blocks": 6,
+      "seed": 20261008,
+      "insufficient_blocks": false
+    },
+    {
+      "contrast_id": "gain_elasticnet",
+      "run_ids": [
+        "elasticnet_baseline",
+        "elasticnet_treatment"
+      ],
+      "delta_pearson_r": 0.1549717670604627,
+      "delta_rmse": 0.48085572062430515,
+      "delta_mae": 0.35763530421338174,
+      "pearson_r_ci": [
+        -0.19628003804547609,
+        0.31796096631292536
+      ],
+      "rmse_ci": [
+        0.0418992252295709,
+        0.8503662695438265
+      ],
+      "n_iterations": 4000,
+      "block_size": 7,
+      "n_nonempty_blocks": 6,
+      "seed": 20261008,
+      "insufficient_blocks": false
+    }
+  ],
+  "validity_status": "valid",
+  "warnings": []
+}

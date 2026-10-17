@@ -1,0 +1,236 @@
+{
+  "experiment_type": "model_sensitivity",
+  "target": "SW Plasma Speed, km/s",
+  "experiment_id": "E_R03_02_FIXED_PARAM",
+  "round_id": 2,
+  "model_parameters": {
+    "window_size": 9,
+    "alpha": 0.3,
+    "l1_ratio": 0.5,
+    "use_lag_feature": true,
+    "max_lag_day": 9,
+    "forecast_horizon_days": 3,
+    "past_lag_days": 9,
+    "random_state": 42,
+    "test_split_ratio": 0.2,
+    "candidate_design_snapshot": {
+      "candidate_id": "E_R03_02_FIXED_PARAM",
+      "experiment_type": "model_sensitivity",
+      "target": "SW Plasma Speed, km/s",
+      "control": [
+        "BY, nT (GSE)",
+        "BZ, nT (GSE)",
+        "Scalar B, nT"
+      ],
+      "treatment": [
+        "BY, nT (GSE)",
+        "BZ, nT (GSE)",
+        "Scalar B, nT",
+        "p2_y中心值",
+        "p1_x中心值"
+      ],
+      "model_families": [
+        "ridge",
+        "elasticnet"
+      ],
+      "lags": {
+        "BY, nT (GSE)": [
+          4,
+          5,
+          7,
+          8
+        ],
+        "BZ, nT (GSE)": [
+          1,
+          2
+        ],
+        "Scalar B, nT": [
+          1,
+          2
+        ],
+        "p2_y中心值": [
+          1
+        ],
+        "p1_x中心值": [
+          9
+        ]
+      },
+      "probe_axis": "cross_window_stability",
+      "forecast_horizon_days": 3,
+      "past_lag_days": 9,
+      "window_size": 9,
+      "control_lag_days": 9,
+      "treatment_lag_days": 9,
+      "control_forecast_horizon_days": 3,
+      "treatment_forecast_horizon_days": 3
+    },
+    "feature_lags": {
+      "BY, nT (GSE)": [
+        4,
+        5,
+        7,
+        8
+      ],
+      "BZ, nT (GSE)": [
+        1,
+        2
+      ],
+      "Scalar B, nT": [
+        1,
+        2
+      ],
+      "p2_y中心值": [
+        1
+      ],
+      "p1_x中心值": [
+        9
+      ]
+    }
+  },
+  "time_parameters": {
+    "forecast_horizon_days": 3,
+    "past_lag_days": 9,
+    "window_size": 9,
+    "test_split_ratio": 0.2,
+    "feature_lags": {
+      "BY, nT (GSE)": [
+        4,
+        5,
+        7,
+        8
+      ],
+      "BZ, nT (GSE)": [
+        1,
+        2
+      ],
+      "Scalar B, nT": [
+        1,
+        2
+      ],
+      "p2_y中心值": [
+        1
+      ],
+      "p1_x中心值": [
+        9
+      ]
+    }
+  },
+  "feature_lags": {
+    "BY, nT (GSE)": [
+      4,
+      5,
+      7,
+      8
+    ],
+    "BZ, nT (GSE)": [
+      1,
+      2
+    ],
+    "Scalar B, nT": [
+      1,
+      2
+    ],
+    "p2_y中心值": [
+      1
+    ],
+    "p1_x中心值": [
+      9
+    ]
+  },
+  "runs": [
+    {
+      "run_id": "ridge_baseline",
+      "label": "ridge 对照组",
+      "feature_columns": [
+        "BY, nT (GSE)",
+        "BZ, nT (GSE)",
+        "Scalar B, nT"
+      ],
+      "model_family": "ridge",
+      "parameters": {
+        "param_search_mode": "fixed",
+        "alpha": 1000.0
+      },
+      "retrain": true
+    },
+    {
+      "run_id": "ridge_treatment",
+      "label": "ridge 实验组（双方向日影）",
+      "feature_columns": [
+        "BY, nT (GSE)",
+        "BZ, nT (GSE)",
+        "Scalar B, nT",
+        "p2_y中心值",
+        "p1_x中心值"
+      ],
+      "model_family": "ridge",
+      "parameters": {
+        "param_search_mode": "fixed",
+        "alpha": 1000.0
+      },
+      "retrain": true
+    },
+    {
+      "run_id": "elasticnet_baseline",
+      "label": "elasticnet 对照组",
+      "feature_columns": [
+        "BY, nT (GSE)",
+        "BZ, nT (GSE)",
+        "Scalar B, nT"
+      ],
+      "model_family": "elasticnet",
+      "parameters": {
+        "param_search_mode": "fixed",
+        "alpha": 10.0,
+        "l1_ratio": 0.7
+      },
+      "retrain": true
+    },
+    {
+      "run_id": "elasticnet_treatment",
+      "label": "elasticnet 实验组（双方向日影）",
+      "feature_columns": [
+        "BY, nT (GSE)",
+        "BZ, nT (GSE)",
+        "Scalar B, nT",
+        "p2_y中心值",
+        "p1_x中心值"
+      ],
+      "model_family": "elasticnet",
+      "parameters": {
+        "param_search_mode": "fixed",
+        "alpha": 10.0,
+        "l1_ratio": 0.7
+      },
+      "retrain": true
+    }
+  ],
+  "contrasts": [
+    {
+      "contrast_id": "gain_ridge",
+      "name": "ridge 家族内双方向日影增量",
+      "kind": "incremental_gain",
+      "run_ids": [
+        "ridge_baseline",
+        "ridge_treatment"
+      ],
+      "contrast_ids": [],
+      "direction": "mixed",
+      "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+    },
+    {
+      "contrast_id": "gain_elasticnet",
+      "name": "elasticnet 家族内双方向日影增量",
+      "kind": "incremental_gain",
+      "run_ids": [
+        "elasticnet_baseline",
+        "elasticnet_treatment"
+      ],
+      "contrast_ids": [],
+      "direction": "mixed",
+      "note": "只比较同一模型家族内部加日影前后；禁止跨家族错误归因。"
+    }
+  ],
+  "diagnostics": [],
+  "alignment": null
+}

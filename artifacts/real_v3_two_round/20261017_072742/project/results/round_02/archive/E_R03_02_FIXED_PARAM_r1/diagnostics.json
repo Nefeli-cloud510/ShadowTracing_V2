@@ -1,0 +1,209 @@
+{
+  "run_id": "E_R03_02_FIXED_PARAM",
+  "experiment_id": "E_R03_02_FIXED_PARAM",
+  "round_id": 2,
+  "sample_plan": {
+    "data_version": "shadow-calendar-v1",
+    "date_start": "2021-03-21",
+    "date_end": "2021-10-02",
+    "original_days": 196,
+    "quality_available_days": 188,
+    "candidate_count": 196,
+    "retained_count": 168,
+    "dropped_count": 28,
+    "drop_reasons": {
+      "history_gap": 9,
+      "retained": 168,
+      "feature_missing": 16,
+      "target_unavailable": 3
+    },
+    "field_drop_counts": {
+      "p2_y中心值": 8,
+      "p1_x中心值": 8
+    },
+    "past_lag_days": 9,
+    "feature_lags": {
+      "BY, nT (GSE)": [
+        4,
+        5,
+        7,
+        8
+      ],
+      "BZ, nT (GSE)": [
+        1,
+        2
+      ],
+      "Scalar B, nT": [
+        1,
+        2
+      ],
+      "p2_y中心值": [
+        1
+      ],
+      "p1_x中心值": [
+        9
+      ]
+    },
+    "forecast_horizon_days": 3,
+    "generated_at": "2026-10-17T15:27:54.873614"
+  },
+  "calendar_split": {
+    "data_version": "shadow-split-v1",
+    "test_start": "2021-08-26",
+    "block_boundaries": [
+      "2021-03-30",
+      "2021-05-15",
+      "2021-07-01",
+      "2021-08-26"
+    ],
+    "test_ratio": 0.2,
+    "train_count": 130,
+    "test_count": 35,
+    "boundary_excluded_count": 3,
+    "cv_folds": [
+      {
+        "fold": 1,
+        "train_count": 41,
+        "eval_count": 45,
+        "train_targets_strictly_before_eval_issue": true
+      },
+      {
+        "fold": 2,
+        "train_count": 86,
+        "eval_count": 41,
+        "train_targets_strictly_before_eval_issue": true
+      }
+    ]
+  },
+  "evaluation_plan": {
+    "schema_version": "evaluation-plan-v1",
+    "split_label": "dev_backtest",
+    "test_ratio": 0.2,
+    "n_internal_folds": 2,
+    "test_start": "2021-08-26",
+    "created_at": "",
+    "updated_at": "",
+    "notes": [
+      "real_v3_two_round acceptance: dev single-window execution.",
+      "f1/f2 remain frozen read-only external references."
+    ]
+  },
+  "arms": {
+    "ridge_baseline": {
+      "label": "ridge 对照组",
+      "n_train": 130,
+      "n_test": 35,
+      "sliding_window_total": 196,
+      "sliding_window_dropped": 11,
+      "common_sample_excluded": 17,
+      "selected_alpha": 1000.0,
+      "selected_l1_ratio": null,
+      "param_search": {
+        "model_family": "ridge",
+        "search_mode": "fixed",
+        "selected_alpha": 1000.0,
+        "selected_l1_ratio": null,
+        "converged": true,
+        "search_completed": false,
+        "boundary_hit": false,
+        "solver_converged": true,
+        "boundary_note": "固定参数对照，不涉及网格搜索",
+        "grid_size": 1,
+        "n_rows": 0
+      },
+      "feature_columns": [
+        "BY, nT (GSE)",
+        "BZ, nT (GSE)",
+        "Scalar B, nT"
+      ]
+    },
+    "ridge_treatment": {
+      "label": "ridge 实验组（双方向日影）",
+      "n_train": 130,
+      "n_test": 35,
+      "sliding_window_total": 196,
+      "sliding_window_dropped": 28,
+      "common_sample_excluded": 0,
+      "selected_alpha": 1000.0,
+      "selected_l1_ratio": null,
+      "param_search": {
+        "model_family": "ridge",
+        "search_mode": "fixed",
+        "selected_alpha": 1000.0,
+        "selected_l1_ratio": null,
+        "converged": true,
+        "search_completed": false,
+        "boundary_hit": false,
+        "solver_converged": true,
+        "boundary_note": "固定参数对照，不涉及网格搜索",
+        "grid_size": 1,
+        "n_rows": 0
+      },
+      "feature_columns": [
+        "BY, nT (GSE)",
+        "BZ, nT (GSE)",
+        "Scalar B, nT",
+        "p2_y中心值",
+        "p1_x中心值"
+      ]
+    },
+    "elasticnet_baseline": {
+      "label": "elasticnet 对照组",
+      "n_train": 130,
+      "n_test": 35,
+      "sliding_window_total": 196,
+      "sliding_window_dropped": 11,
+      "common_sample_excluded": 17,
+      "selected_alpha": 10.0,
+      "selected_l1_ratio": 0.7,
+      "param_search": {
+        "model_family": "elasticnet",
+        "search_mode": "fixed",
+        "selected_alpha": 10.0,
+        "selected_l1_ratio": 0.7,
+        "converged": true,
+        "search_completed": false,
+        "boundary_hit": false,
+        "solver_converged": true,
+        "boundary_note": "固定参数对照，不涉及网格搜索",
+        "grid_size": 1,
+        "n_rows": 0
+      },
+      "feature_columns": [
+        "BY, nT (GSE)",
+        "BZ, nT (GSE)",
+        "Scalar B, nT"
+      ]
+    },
+    "elasticnet_treatment": {
+      "label": "elasticnet 实验组（双方向日影）",
+      "n_train": 130,
+      "n_test": 35,
+      "sliding_window_total": 196,
+      "sliding_window_dropped": 28,
+      "common_sample_excluded": 0,
+      "selected_alpha": 10.0,
+      "selected_l1_ratio": 0.7,
+      "param_search": {
+        "model_family": "elasticnet",
+        "search_mode": "fixed",
+        "selected_alpha": 10.0,
+        "selected_l1_ratio": 0.7,
+        "converged": true,
+        "search_completed": false,
+        "boundary_hit": false,
+        "solver_converged": true,
+        "boundary_note": "固定参数对照，不涉及网格搜索",
+        "grid_size": 1,
+        "n_rows": 0
+      },
+      "feature_columns": [
+        "BY, nT (GSE)",
+        "BZ, nT (GSE)",
+        "Scalar B, nT",
+        "p2_y中心值",
+        "p1_x中心值"
+      ]
+    }
+  }
+}

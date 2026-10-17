@@ -1,0 +1,70 @@
+{
+  "file_config": {
+    "omni_file_path": "D:\\ShadowTracing\\artifacts\\real_v3_two_round\\20261017_072742\\project\\data\\raw\\omni.csv",
+    "lhaaso_file_path": "D:\\ShadowTracing\\artifacts\\real_v3_two_round\\20261017_072742\\project\\data\\raw\\lhaaso.csv",
+    "extra_file_paths": [],
+    "time_column": "TIME",
+    "target_column": "SW Plasma Speed, km/s",
+    "feature_columns": [
+      "BY, nT (GSE)",
+      "BZ, nT (GSE)",
+      "Scalar B, nT"
+    ],
+    "sparse_sources": []
+  },
+  "time_window_config": {
+    "window_size": 9,
+    "test_split_ratio": 0.2,
+    "use_lag_feature": true,
+    "max_lag_day": 9,
+    "forecast_horizon_days": 3,
+    "past_lag_days": 9,
+    "feature_lags": {
+      "BY, nT (GSE)": [
+        4,
+        5,
+        7,
+        8
+      ],
+      "BZ, nT (GSE)": [
+        1,
+        2
+      ],
+      "Scalar B, nT": [
+        1,
+        2
+      ],
+      "p2_y中心值": [
+        1
+      ],
+      "p1_x中心值": [
+        9
+      ]
+    }
+  },
+  "elasticnet_config": {
+    "model_family": "ridge",
+    "alpha": 1000.0,
+    "l1_ratio": 0.5,
+    "random_state": 42,
+    "alpha_grid": [
+      0.01,
+      0.1,
+      1.0,
+      10.0,
+      100.0,
+      1000.0
+    ],
+    "l1_ratio_grid": [
+      0.1,
+      0.3,
+      0.5,
+      0.7,
+      0.9
+    ],
+    "param_search_mode": "fixed",
+    "max_param_search_combinations": 30,
+    "fit_intercept": true,
+    "ridge_solver": "svd"
+  }
+}

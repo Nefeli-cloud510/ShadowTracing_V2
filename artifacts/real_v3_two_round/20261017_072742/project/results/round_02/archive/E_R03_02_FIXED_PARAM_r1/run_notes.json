@@ -1,0 +1,68 @@
+{
+  "run_id": "E_R03_02_FIXED_PARAM_r1",
+  "experiment_id": "E_R03_02_FIXED_PARAM",
+  "round_id": 2,
+  "evaluation_plan": {
+    "schema_version": "evaluation-plan-v1",
+    "split_label": "dev_backtest",
+    "test_ratio": 0.2,
+    "n_internal_folds": 2,
+    "test_start": "2021-08-26",
+    "created_at": "",
+    "updated_at": "",
+    "notes": [
+      "real_v3_two_round acceptance: dev single-window execution.",
+      "f1/f2 remain frozen read-only external references."
+    ]
+  },
+  "time_definition": "issue_date=dataset_id；特征日期=issue_date-滞后天数；目标日期=issue_date+forecast_horizon_days 日历天",
+  "missing_value_policy": "不做插补；双臂要求共同日历样本上目标与所有联合特征均非空，任一缺失的日期整样本剔除",
+  "common_sample_policy": "对照组与实验组在完全相同的 issue/target 日历样本上成对训练与测试",
+  "evaluation_partition_policy": "split_label=dev_backtest；test_start=2021-08-26；评估边界在项目首次执行时冻结，候选实验不得按各自有效样本重切。",
+  "sign_convention": "RMSE/MAE 正向 delta=实验组误差更小；Pearson r/R2 正向 delta=实验组相关更高",
+  "model_family": "ridge",
+  "forecast_horizon_days": 3,
+  "past_lag_days": 9,
+  "alpha_grid": [
+    0.01,
+    0.1,
+    1.0,
+    10.0,
+    100.0,
+    1000.0
+  ],
+  "l1_ratio_grid": [
+    0.1,
+    0.3,
+    0.5,
+    0.7,
+    0.9
+  ],
+  "param_search_mode": "fixed",
+  "bootstrap": {
+    "status": "completed",
+    "n_iterations": 4000,
+    "block_size": 7,
+    "n_nonempty_blocks": 6,
+    "min_blocks": 2,
+    "insufficient_blocks": false,
+    "boundary_note": "训练入口 bootstrap 固定使用 7 天块、4000 次抽样、min_blocks=2；单独 robustness 诊断按 diagnostics_spec 配置执行。"
+  },
+  "verified_items": [
+    "日期纪元按 dataset_id 解析，TIME 列未被使用",
+    "重复日历日期会被拒绝",
+    "训练目标日期严格早于测试段首个 issue_date，内部折同样满足",
+    "选择 alpha 只在冻结的日历扩张折上完成",
+    "两种模型族均通过统一桥接获得参数"
+  ],
+  "not_verified": [
+    "D:/astro_rearrange 与 D:/helioprior 独立脚本与本仓库尚未做逐文件等价性验证"
+  ],
+  "user_notes": [
+    "mapped_from_candidate:E_R03_02_FIXED_PARAM",
+    "在相同冻结特征、滞后、训练内选参与提前 3 天条件下，仅改变“磁场基线 vs 磁场+双方向日影”，并按 dev/f1/f2 逐窗口共同样本报告 RMSE 主证据与 Pearson_r_delta 辅助证据；结果只回答双方向日影的跨窗口可重复性，不扩展到滞后敏感性或其他机制。",
+    "目标不确定性：相关科学不确定性",
+    "待区分假设：相关假设,相关假设",
+    "分歧触发来源：H1（LLM 起草）,H5（LLM 起草）"
+  ]
+}
